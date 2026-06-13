@@ -131,6 +131,32 @@ export type CreatePostResult = {
 
 export type PinterestBoard = { id: string; name: string; privacy?: string };
 
+export type AnalyticsMetrics = {
+	impressions: number | null;
+	reach: number | null;
+	likes: number | null;
+	comments: number | null;
+	shares: number | null;
+	saves: number | null;
+	clicks: number | null;
+	views: number | null;
+	engagementRate: number | null;
+};
+
+export type AnalyticsPostResult = {
+	source: string;
+	postId: string | null;
+	content: string | null;
+	publishedAt: string | null;
+	aggregated: AnalyticsMetrics;
+	platforms: {
+		platform: string;
+		platformPostId: string;
+		platformPostUrl: string | null;
+		metrics: AnalyticsMetrics;
+	}[];
+};
+
 export type PresignResponse = { uploadUrl: string; publicUrl: string };
 
 // ── API surface ─────────────────────────────────────────────────────────────
@@ -191,6 +217,38 @@ export const postpeer = {
 		request<unknown>(`/posts/scheduled/${postId}`, {
 			method: "PATCH",
 			body: JSON.stringify({ scheduledFor }),
+		}),
+
+	/** Post-level analytics list (source=postpeer). Costs 1 credit per call. */
+	getAnalyticsList: (opts: {
+		source?: "postpeer" | "platform";
+		limit?: number;
+		page?: number;
+		sortBy?: string;
+		order?: "asc" | "desc";
+		fromDate?: string;
+		toDate?: string;
+		accountId?: string;
+		platform?: string;
+	}) =>
+		request<{
+			success: boolean;
+			total: number;
+			page: number;
+			limit: number;
+			posts: AnalyticsPostResult[];
+		}>("/analytics/", {
+			query: {
+				source: opts.source ?? "postpeer",
+				limit: String(opts.limit ?? 100),
+				page: String(opts.page ?? 1),
+				sortBy: opts.sortBy,
+				order: opts.order,
+				fromDate: opts.fromDate,
+				toDate: opts.toDate,
+				accountId: opts.accountId,
+				platform: opts.platform,
+			},
 		}),
 
 	// Response is nested: {success, data:{uploadUrl, publicUrl}} — unwrap .data.

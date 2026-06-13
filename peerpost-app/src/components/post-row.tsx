@@ -8,6 +8,7 @@ export function PostRow({
 	when,
 	status,
 	action,
+	metrics,
 }: {
 	content: string | null;
 	platforms: PostPlatformTarget[] | null;
@@ -15,6 +16,7 @@ export function PostRow({
 	when: string;
 	status: string;
 	action?: React.ReactNode;
+	metrics?: { likes: number | null; views: number | null } | null;
 }) {
 	const statusColor =
 		status === "published"
@@ -43,6 +45,12 @@ export function PostRow({
 				</div>
 				<p className="truncate text-sm">{content ?? "—"}</p>
 			</div>
+			{metrics && (metrics.likes != null || metrics.views != null) && (
+				<span className="shrink-0 text-xs opacity-50">
+					{metrics.likes != null ? `♥ ${metrics.likes.toLocaleString()}` : ""}
+					{metrics.views != null ? `  ▶ ${metrics.views.toLocaleString()}` : ""}
+				</span>
+			)}
 			<span className="shrink-0 text-xs opacity-50">{when}</span>
 			<span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${statusColor}`}>
 				{status}

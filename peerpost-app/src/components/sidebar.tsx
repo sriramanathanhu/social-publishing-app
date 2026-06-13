@@ -50,6 +50,7 @@ export function Sidebar({ user }: { user: NavUser }) {
 					<NavLink href="/publishing/overview" label="Overview" />
 					<NavLink href="/publishing/create" label="Create Post" />
 					<NavLink href="/publishing/scheduled" label="Scheduled" />
+					<NavLink href="/publishing/analytics" label="Analytics" />
 				</div>
 
 				{user.isAdmin && (

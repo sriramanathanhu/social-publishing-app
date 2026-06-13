@@ -176,6 +176,45 @@ export type PostPlatformTarget = {
 	content?: string;
 };
 
+export type AnalyticsMetrics = {
+	impressions: number | null;
+	reach: number | null;
+	likes: number | null;
+	comments: number | null;
+	shares: number | null;
+	saves: number | null;
+	clicks: number | null;
+	views: number | null;
+	engagementRate: number | null;
+};
+
+export type AnalyticsPlatformEntry = {
+	platform: string;
+	platformPostUrl: string | null;
+	metrics: AnalyticsMetrics;
+};
+
+/**
+ * Cached PostPeer analytics (one row per published post). PostPeer only exposes
+ * post-level metrics and charges 1 credit/call, so we snapshot here and refresh
+ * on a schedule / on demand rather than fetching live per page-view.
+ */
+export const analyticsSnapshots = pgTable(
+	"analytics_snapshots",
+	{
+		postpeerPostId: text("postpeer_post_id").primaryKey(),
+		profileId: uuid("profile_id")
+			.notNull()
+			.references(() => profiles.id, { onDelete: "cascade" }),
+		content: text("content"),
+		publishedAt: timestamp("published_at", { withTimezone: true }),
+		aggregated: jsonb("aggregated").$type<AnalyticsMetrics>(),
+		platforms: jsonb("platforms").$type<AnalyticsPlatformEntry[]>(),
+		fetchedAt: timestamp("fetched_at", { withTimezone: true }).defaultNow().notNull(),
+	},
+	(t) => [index("analytics_profile_idx").on(t.profileId)],
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
 	ecosystemMemberships: many(ecosystemMembers),
 }));

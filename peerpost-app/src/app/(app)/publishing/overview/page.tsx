@@ -2,14 +2,23 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PostRow, shortDate } from "@/components/post-row";
 import { getCurrentUser } from "@/lib/auth";
-import { getPostsForUser } from "@/lib/queries";
+import { getAnalytics, getPostsForUser } from "@/lib/queries";
 
-/** Published-posts overview — intentionally compact. */
+/** Published-posts overview — intentionally compact, with cached metric badges. */
 export default async function OverviewPage() {
 	const user = await getCurrentUser();
 	if (!user) redirect("/");
 
-	const posts = await getPostsForUser(user, ["published", "failed", "publishing"]);
+	const [posts, analytics] = await Promise.all([
+		getPostsForUser(user, ["published", "failed", "publishing"]),
+		getAnalytics(user),
+	]);
+	const metricsById = new Map(
+		analytics.rows.map((r) => [
+			r.postpeerPostId,
+			{ likes: r.aggregated?.likes ?? null, views: r.aggregated?.views ?? null },
+		]),
+	);
 
 	return (
 		<div className="space-y-5">
@@ -37,6 +46,7 @@ export default async function OverviewPage() {
 						profileName={p.profileName}
 						when={shortDate(p.createdAt)}
 						status={p.status}
+						metrics={p.postpeerPostId ? metricsById.get(p.postpeerPostId) : null}
 					/>
 				))}
 			</ul>

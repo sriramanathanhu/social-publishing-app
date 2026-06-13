@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
+	analyticsSnapshots,
 	ecosystemMembers,
 	integrationsCache,
 	postsLog,
@@ -159,6 +160,34 @@ export async function getAllEcosystems() {
 			};
 		}),
 	);
+}
+
+/**
+ * Cached analytics for the user's accessible ecosystems (optionally one).
+ * Returns snapshots with the ecosystem name; sorting/aggregation done in the UI.
+ */
+export async function getAnalytics(user: AppUser, profileId?: string) {
+	const accessible = await getAccessibleProfiles(user);
+	let ids = accessible.map((p) => p.id);
+	if (profileId) ids = ids.filter((id) => id === profileId);
+	if (ids.length === 0) return { rows: [], lastFetched: null as Date | null };
+
+	const nameById = new Map(accessible.map((p) => [p.id, p.name]));
+	const rows = await db
+		.select()
+		.from(analyticsSnapshots)
+		.where(inArray(analyticsSnapshots.profileId, ids))
+		.orderBy(desc(analyticsSnapshots.publishedAt));
+
+	const lastFetched = rows.reduce<Date | null>(
+		(max, r) => (!max || r.fetchedAt > max ? r.fetchedAt : max),
+		null,
+	);
+
+	return {
+		rows: rows.map((r) => ({ ...r, profileName: nameById.get(r.profileId) ?? "—" })),
+		lastFetched,
+	};
 }
 
 /** Admin: simple list of all ecosystems (for assignment pickers). */
