@@ -1,4 +1,4 @@
-import { AnalyticsTable } from "@/components/analytics-table";
+import { AnalyticsDashboard } from "@/components/analytics-dashboard";
 import { requirePageUser } from "@/lib/page-auth";
 import { getAccessibleProfiles, getAnalytics } from "@/lib/queries";
 
@@ -21,7 +21,7 @@ export default async function AnalyticsPage() {
 				</p>
 			</div>
 
-			<AnalyticsTable
+			<AnalyticsDashboard
 				rows={rows.map((r) => ({
 					postpeerPostId: r.postpeerPostId,
 					profileId: r.profileId,
