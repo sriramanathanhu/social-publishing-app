@@ -1,25 +1,52 @@
 import type { NextRequest } from "next/server";
-import { z } from "zod";
-import { requireUser } from "@/lib/auth";
+import { HttpError, requireUser } from "@/lib/auth";
 import { route } from "@/lib/http";
 import { postpeer } from "@/lib/postpeer";
 
-const schema = z.object({
-	filename: z.string().min(1),
-	mimeType: z.string().regex(/^(image|video)\//, "Only image/* or video/* allowed"),
-});
+export const runtime = "nodejs";
 
 /**
- * POST /api/media/upload
+ * POST /api/media/upload  (multipart form-data, field "file")
  *
- * Step 1 of PostPeer's 3-step media flow: returns a presigned S3 `uploadUrl`
- * and the `publicUrl` to reference in a post's mediaItems. The browser then
- * PUTs the file straight to S3 (step 2) and includes publicUrl when posting
- * (step 3). We just gate the presign behind auth.
+ * Proxies the upload through our server: presign with PostPeer → PUT the bytes
+ * to S3 server-side → return the public URL. Done server-side because the
+ * browser can't PUT directly to PostPeer's S3 bucket (no CORS allowance →
+ * "failed to fetch"). Returns { publicUrl, type }.
  */
 export const POST = route(async (request: NextRequest) => {
 	await requireUser();
-	const input = schema.parse(await request.json());
-	const presigned = await postpeer.presignMedia(input);
-	return Response.json(presigned);
+
+	const form = await request.formData();
+	const file = form.get("file");
+	if (!(file instanceof File)) {
+		return Response.json({ error: "No file provided" }, { status: 400 });
+	}
+	if (!/^(image|video)\//.test(file.type)) {
+		return Response.json(
+			{ error: "Only image/* or video/* files are allowed" },
+			{ status: 400 },
+		);
+	}
+
+	const { uploadUrl, publicUrl } = await postpeer.presignMedia({
+		filename: file.name,
+		mimeType: file.type,
+	});
+
+	const bytes = Buffer.from(await file.arrayBuffer());
+	const put = await fetch(uploadUrl, {
+		method: "PUT",
+		headers: { "Content-Type": file.type },
+		body: bytes,
+	});
+	if (!put.ok) {
+		const detail = await put.text().catch(() => "");
+		throw new HttpError(
+			502,
+			`Storage upload failed (${put.status})${detail ? `: ${detail.slice(0, 180)}` : ""}`,
+		);
+	}
+
+	const type = file.type.startsWith("video") ? "video" : "image";
+	return Response.json({ publicUrl, type, name: file.name });
 });

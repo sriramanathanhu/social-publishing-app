@@ -2,31 +2,30 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import {
+	buildPlatformData,
+	CHAR_LIMITS,
+	type FieldDef,
+	PLATFORM_FIELDS,
+	PLATFORM_LABELS,
+	PLATFORM_MEDIA,
+} from "@/lib/platform-fields";
 
-type ConnectedAccount = {
-	platform: string;
-	accountId: string;
-	handle: string | null;
-};
-
+type ConnectedAccount = { platform: string; accountId: string; handle: string | null };
 type MediaItem = { type: "image" | "video" | "gif"; url: string; name: string };
 type PlatformResult = { platform: string; success: boolean; error?: string };
+type Opts = Record<string, Record<string, unknown>>;
 
-// Per-platform rules and which options we surface.
-const META: Record<
-	string,
-	{ label: string; media: "video" | "required" | "optional"; charLimit?: number; board?: boolean }
-> = {
-	twitter: { label: "Twitter / X", media: "optional", charLimit: 280 },
-	youtube: { label: "YouTube", media: "video" },
-	linkedin: { label: "LinkedIn", media: "optional" },
-	pinterest: { label: "Pinterest", media: "required", board: true },
-	bluesky: { label: "Bluesky", media: "optional", charLimit: 300 },
-	tiktok: { label: "TikTok", media: "required" },
-	instagram: { label: "Instagram", media: "required" },
-	facebook: { label: "Facebook", media: "optional" },
-	threads: { label: "Threads", media: "optional" },
-};
+async function uploadFile(file: File): Promise<{ publicUrl: string; type: string; name: string }> {
+	const fd = new FormData();
+	fd.append("file", file);
+	const res = await fetch("/api/media/upload", { method: "POST", body: fd });
+	if (!res.ok) {
+		const d = await res.json().catch(() => ({}));
+		throw new Error(d.error ?? "Upload failed");
+	}
+	return res.json();
+}
 
 export function Composer({
 	profileId,
@@ -46,20 +45,16 @@ export function Composer({
 	const [busy, setBusy] = useState(false);
 	const [msg, setMsg] = useState<string | null>(null);
 	const [results, setResults] = useState<PlatformResult[]>([]);
-
-	// platformSpecificData per accountId
-	const [opts, setOpts] = useState<Record<string, Record<string, unknown>>>({});
-	// pinterest boards per accountId
+	const [opts, setOpts] = useState<Opts>({});
 	const [boards, setBoards] = useState<Record<string, { id: string; name: string }[]>>({});
 
 	const selectedAccounts = accounts.filter((a) => selected.has(a.accountId));
 	const hasVideo = media.some((m) => m.type === "video");
 	const hasMedia = media.length > 0;
 	const minCharLimit = Math.min(
-		...selectedAccounts.map((a) => META[a.platform]?.charLimit ?? Infinity),
+		...selectedAccounts.map((a) => CHAR_LIMITS[a.platform] ?? Infinity),
 	);
 
-	// Fetch Pinterest boards when a pinterest account is selected.
 	useEffect(() => {
 		for (const a of selectedAccounts) {
 			if (a.platform === "pinterest" && !boards[a.accountId]) {
@@ -79,33 +74,17 @@ export function Composer({
 			return next;
 		});
 	}
-
-	function setOpt(accountId: string, key: string, value: unknown) {
-		setOpts((prev) => ({ ...prev, [accountId]: { ...prev[accountId], [key]: value } }));
+	const getOpt = (acc: string, key: string) => opts[acc]?.[key];
+	function setOpt(acc: string, key: string, value: unknown) {
+		setOpts((prev) => ({ ...prev, [acc]: { ...prev[acc], [key]: value } }));
 	}
 
-	async function uploadMedia(file: File) {
+	async function attachMedia(file: File) {
 		setUploading(true);
 		setMsg(null);
 		try {
-			const presign = await fetch("/api/media/upload", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ filename: file.name, mimeType: file.type }),
-			});
-			if (!presign.ok) {
-				const d = await presign.json().catch(() => ({}));
-				throw new Error(d.error ?? "Could not get upload URL");
-			}
-			const { uploadUrl, publicUrl } = await presign.json();
-			const put = await fetch(uploadUrl, {
-				method: "PUT",
-				headers: { "Content-Type": file.type },
-				body: file,
-			});
-			if (!put.ok) throw new Error(`Upload to storage failed (${put.status})`);
-			const type = file.type.startsWith("video") ? "video" : "image";
-			setMedia((prev) => [...prev, { type, url: publicUrl, name: file.name }]);
+			const { publicUrl, type, name } = await uploadFile(file);
+			setMedia((prev) => [...prev, { type: type as MediaItem["type"], url: publicUrl, name }]);
 		} catch (err) {
 			setMsg(err instanceof Error ? err.message : "Upload failed");
 		} finally {
@@ -113,38 +92,42 @@ export function Composer({
 		}
 	}
 
-	// Requirements not yet satisfied (block publish until empty).
+	// Validation
 	const problems: string[] = [];
 	if (!content.trim()) problems.push("Add some text.");
 	if (selectedAccounts.length === 0) problems.push("Select at least one account.");
 	for (const a of selectedAccounts) {
-		const m = META[a.platform];
-		if (!m) continue;
-		if (m.media === "video" && !hasVideo)
-			problems.push(`${m.label} requires a video.`);
-		if (m.media === "required" && !hasMedia)
-			problems.push(`${m.label} requires an image or video.`);
-		if (m.board && !opts[a.accountId]?.boardId)
-			problems.push(`${m.label} requires a board.`);
+		const label = PLATFORM_LABELS[a.platform] ?? a.platform;
+		const need = PLATFORM_MEDIA[a.platform];
+		if (need === "video" && !hasVideo) problems.push(`${label} requires a video.`);
+		if (need === "required" && !hasMedia) problems.push(`${label} requires an image or video.`);
+		if (a.platform === "pinterest" && !getOpt(a.accountId, "boardId"))
+			problems.push(`${label} requires a board.`);
 	}
 	if (Number.isFinite(minCharLimit) && content.length > minCharLimit)
 		problems.push(`Text exceeds ${minCharLimit} characters.`);
 
-	function buildPlatformData(a: ConnectedAccount): Record<string, unknown> | undefined {
-		const o = opts[a.accountId] ?? {};
-		const clean: Record<string, unknown> = {};
-		if (a.platform === "youtube") {
-			if (o.title) clean.title = o.title;
-			if (o.visibility) clean.visibility = o.visibility;
-			if (o.madeForKids != null) clean.madeForKids = o.madeForKids;
-		} else if (a.platform === "pinterest") {
-			if (o.boardId) clean.boardId = o.boardId;
-			if (o.title) clean.title = o.title;
-			if (o.link) clean.link = o.link;
-		} else if (a.platform === "tiktok") {
-			if (o.privacyLevel) clean.privacyLevel = o.privacyLevel;
+	function platformDataFor(a: ConnectedAccount): Record<string, unknown> | undefined {
+		const raw = opts[a.accountId] ?? {};
+		let psd = buildPlatformData(a.platform, raw);
+		if (a.platform === "twitter") {
+			if (raw.__pollEnabled) {
+				const pollOptions = [raw.__poll0, raw.__poll1, raw.__poll2, raw.__poll3]
+					.map((s) => String(s ?? "").trim())
+					.filter(Boolean);
+				if (pollOptions.length >= 2)
+					psd = {
+						...(psd ?? {}),
+						poll: { options: pollOptions, durationMinutes: Number(raw.__pollDuration ?? 1440) },
+					};
+			}
+			const thread = String(raw.__thread ?? "")
+				.split("\n")
+				.map((s) => s.trim())
+				.filter(Boolean);
+			if (thread.length) psd = { ...(psd ?? {}), threadItems: thread.map((c) => ({ content: c })) };
 		}
-		return Object.keys(clean).length ? clean : undefined;
+		return psd;
 	}
 
 	async function submit(publishNow: boolean) {
@@ -155,8 +138,21 @@ export function Composer({
 			const platforms = selectedAccounts.map((a) => ({
 				platform: a.platform,
 				accountId: a.accountId,
-				platformSpecificData: buildPlatformData(a),
+				platformSpecificData: platformDataFor(a),
 			}));
+
+			// Apply a YouTube video thumbnail (mediaItem-level) if provided.
+			const ytThumb = selectedAccounts
+				.filter((a) => a.platform === "youtube")
+				.map((a) => getOpt(a.accountId, "__videoThumbnail"))
+				.find(Boolean) as string | undefined;
+			const mediaItems = media.length
+				? media.map((m) =>
+						m.type === "video" && ytThumb
+							? { type: m.type, url: m.url, thumbnail: ytThumb }
+							: { type: m.type, url: m.url },
+					)
+				: undefined;
 
 			const res = await fetch(`/api/profiles/${profileId}/posts`, {
 				method: "POST",
@@ -164,9 +160,7 @@ export function Composer({
 				body: JSON.stringify({
 					content,
 					platforms,
-					mediaItems: media.length
-						? media.map((m) => ({ type: m.type, url: m.url }))
-						: undefined,
+					mediaItems,
 					publishNow: publishNow || undefined,
 					scheduledFor: !publishNow ? new Date(scheduledFor).toISOString() : undefined,
 					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -182,6 +176,7 @@ export function Composer({
 			setContent("");
 			setSelected(new Set());
 			setMedia([]);
+			setOpts({});
 			setScheduledFor("");
 			router.refresh();
 		} catch (err) {
@@ -189,6 +184,113 @@ export function Composer({
 		} finally {
 			setBusy(false);
 		}
+	}
+
+	function renderField(a: ConnectedAccount, f: FieldDef) {
+		const acc = a.accountId;
+		const cur = getOpt(acc, f.key);
+		const val = (cur ?? f.default ?? "") as string;
+		const id = `${acc}-${f.key}`;
+		if (f.type === "checkbox") {
+			const checked = cur === undefined ? Boolean(f.default) : Boolean(cur);
+			return (
+				<label key={id} className="flex items-center gap-2 text-xs">
+					<input
+						type="checkbox"
+						checked={checked}
+						onChange={(e) => setOpt(acc, f.key, e.target.checked)}
+					/>
+					{f.label}
+				</label>
+			);
+		}
+		const labelEl = (
+			<span className="mb-0.5 block text-[11px] font-medium opacity-60">
+				{f.label}
+				{f.help ? <span className="font-normal opacity-60"> · {f.help}</span> : null}
+			</span>
+		);
+		if (f.type === "select") {
+			return (
+				<div key={id}>
+					{labelEl}
+					<select
+						value={val}
+						onChange={(e) => setOpt(acc, f.key, e.target.value)}
+						className="w-full rounded-md border border-black/15 px-2 py-1.5 text-sm"
+					>
+						{f.options?.map((o) => (
+							<option key={o.value} value={o.value}>
+								{o.label}
+							</option>
+						))}
+					</select>
+				</div>
+			);
+		}
+		if (f.type === "textarea") {
+			return (
+				<div key={id} className="col-span-full">
+					{labelEl}
+					<textarea
+						value={val}
+						maxLength={f.max}
+						placeholder={f.placeholder}
+						onChange={(e) => setOpt(acc, f.key, e.target.value)}
+						rows={2}
+						className="w-full rounded-md border border-black/15 px-2 py-1.5 text-sm"
+					/>
+				</div>
+			);
+		}
+		if (f.type === "media-url") {
+			return (
+				<div key={id}>
+					{labelEl}
+					<div className="flex items-center gap-2">
+						<input
+							value={val}
+							placeholder="image URL"
+							onChange={(e) => setOpt(acc, f.key, e.target.value)}
+							className="w-full rounded-md border border-black/15 px-2 py-1.5 text-sm"
+						/>
+						<label className="cursor-pointer rounded-md border border-black/15 px-2 py-1.5 text-xs hover:bg-black/5">
+							Upload
+							<input
+								type="file"
+								accept="image/*"
+								className="hidden"
+								onChange={async (e) => {
+									const file = e.target.files?.[0];
+									e.target.value = "";
+									if (!file) return;
+									try {
+										const { publicUrl } = await uploadFile(file);
+										setOpt(acc, f.key, publicUrl);
+									} catch {
+										setMsg("Image upload failed");
+									}
+								}}
+							/>
+						</label>
+					</div>
+				</div>
+			);
+		}
+		// text / url / number / tags
+		return (
+			<div key={id}>
+				{labelEl}
+				<input
+					type={f.type === "number" ? "number" : "text"}
+					value={val}
+					maxLength={f.max}
+					placeholder={f.placeholder}
+					onChange={(e) => setOpt(acc, f.key, e.target.value)}
+					className="w-full rounded-md border border-black/15 px-2 py-1.5 text-sm"
+				/>
+			</div>
+		);
 	}
 
 	if (accounts.length === 0) {
@@ -201,7 +303,7 @@ export function Composer({
 
 	return (
 		<div className="space-y-4 rounded-lg border border-black/10 p-4">
-			{/* Account selection */}
+			{/* Accounts */}
 			<div>
 				<div className="mb-1 text-xs font-medium opacity-60">Post to</div>
 				<div className="flex flex-wrap gap-2">
@@ -216,7 +318,7 @@ export function Composer({
 									: "border-black/15 hover:bg-black/5"
 							}`}
 						>
-							{META[a.platform]?.label ?? a.platform}
+							{PLATFORM_LABELS[a.platform] ?? a.platform}
 							{a.handle ? ` · ${a.handle}` : ""}
 						</button>
 					))}
@@ -233,11 +335,7 @@ export function Composer({
 					className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
 				/>
 				{Number.isFinite(minCharLimit) && (
-					<div
-						className={`text-right text-xs ${
-							content.length > minCharLimit ? "text-red-600" : "opacity-50"
-						}`}
-					>
+					<div className={`text-right text-xs ${content.length > minCharLimit ? "text-red-600" : "opacity-50"}`}>
 						{content.length}/{minCharLimit}
 					</div>
 				)}
@@ -254,16 +352,13 @@ export function Composer({
 						disabled={uploading}
 						onChange={(e) => {
 							const f = e.target.files?.[0];
-							if (f) uploadMedia(f);
+							if (f) attachMedia(f);
 							e.target.value = "";
 						}}
 					/>
 				</label>
 				{media.map((m) => (
-					<span
-						key={m.url}
-						className="flex items-center gap-1 rounded bg-black/5 px-2 py-1 text-xs"
-					>
+					<span key={m.url} className="flex items-center gap-1 rounded bg-black/5 px-2 py-1 text-xs">
 						{m.type === "video" ? "🎬" : "🖼"} {m.name}
 						<button
 							type="button"
@@ -277,89 +372,100 @@ export function Composer({
 			</div>
 
 			{/* Per-platform options */}
-			{selectedAccounts.map((a) => {
-				const m = META[a.platform];
-				const o = opts[a.accountId] ?? {};
-				if (!m) return null;
-				const showOptions = ["youtube", "pinterest", "tiktok"].includes(a.platform);
-				if (!showOptions) return null;
-				return (
-					<div
-						key={a.accountId}
-						className="space-y-2 rounded-md border border-black/10 bg-black/[0.02] p-3"
-					>
-						<div className="text-xs font-semibold">
-							{m.label} options{a.handle ? ` · ${a.handle}` : ""}
-						</div>
-
-						{a.platform === "youtube" && (
-							<div className="grid gap-2 sm:grid-cols-2">
-								<input
-									placeholder="Title (defaults to your text)"
-									value={(o.title as string) ?? ""}
-									onChange={(e) => setOpt(a.accountId, "title", e.target.value)}
-									className="rounded-md border border-black/15 px-2 py-1.5 text-sm"
-								/>
-								<select
-									value={(o.visibility as string) ?? "public"}
-									onChange={(e) => setOpt(a.accountId, "visibility", e.target.value)}
-									className="rounded-md border border-black/15 px-2 py-1.5 text-sm"
-								>
-									<option value="public">Public</option>
-									<option value="unlisted">Unlisted</option>
-									<option value="private">Private</option>
-								</select>
-								<label className="col-span-full flex items-center gap-2 text-xs">
-									<input
-										type="checkbox"
-										checked={!!o.madeForKids}
-										onChange={(e) => setOpt(a.accountId, "madeForKids", e.target.checked)}
-									/>
-									Made for kids (COPPA)
-								</label>
-							</div>
-						)}
-
-						{a.platform === "pinterest" && (
-							<div className="grid gap-2 sm:grid-cols-2">
-								<select
-									value={(o.boardId as string) ?? ""}
-									onChange={(e) => setOpt(a.accountId, "boardId", e.target.value)}
-									className="rounded-md border border-black/15 px-2 py-1.5 text-sm"
-								>
-									<option value="">Select a board (required)…</option>
-									{(boards[a.accountId] ?? []).map((b) => (
-										<option key={b.id} value={b.id}>
-											{b.name}
-										</option>
-									))}
-								</select>
-								<input
-									placeholder="Destination link (optional)"
-									value={(o.link as string) ?? ""}
-									onChange={(e) => setOpt(a.accountId, "link", e.target.value)}
-									className="rounded-md border border-black/15 px-2 py-1.5 text-sm"
-								/>
-							</div>
-						)}
-
-						{a.platform === "tiktok" && (
-							<select
-								value={(o.privacyLevel as string) ?? "PUBLIC_TO_EVERYONE"}
-								onChange={(e) => setOpt(a.accountId, "privacyLevel", e.target.value)}
-								className="rounded-md border border-black/15 px-2 py-1.5 text-sm"
-							>
-								<option value="PUBLIC_TO_EVERYONE">Public</option>
-								<option value="MUTUAL_FOLLOW_FRIENDS">Friends</option>
-								<option value="FOLLOWER_OF_CREATOR">Followers</option>
-								<option value="SELF_ONLY">Private</option>
-							</select>
-						)}
+			{selectedAccounts.map((a) => (
+				<div
+					key={a.accountId}
+					className="space-y-3 rounded-md border border-black/10 bg-black/[0.02] p-3"
+				>
+					<div className="text-xs font-semibold">
+						{PLATFORM_LABELS[a.platform] ?? a.platform} options
+						{a.handle ? ` · ${a.handle}` : ""}
 					</div>
-				);
-			})}
 
-			{/* Requirement hints */}
+					{/* Pinterest board (required) */}
+					{a.platform === "pinterest" && (
+						<div>
+							<span className="mb-0.5 block text-[11px] font-medium opacity-60">
+								Board · required
+							</span>
+							<select
+								value={(getOpt(a.accountId, "boardId") as string) ?? ""}
+								onChange={(e) => setOpt(a.accountId, "boardId", e.target.value)}
+								className="w-full rounded-md border border-black/15 px-2 py-1.5 text-sm"
+							>
+								<option value="">Select a board…</option>
+								{(boards[a.accountId] ?? []).map((b) => (
+									<option key={b.id} value={b.id}>
+										{b.name}
+									</option>
+								))}
+							</select>
+						</div>
+					)}
+
+					<div className="grid gap-2 sm:grid-cols-2">
+						{(PLATFORM_FIELDS[a.platform] ?? []).map((f) => renderField(a, f))}
+					</div>
+
+					{/* YouTube video thumbnail (mediaItem-level) */}
+					{a.platform === "youtube" &&
+						renderField(a, {
+							key: "__videoThumbnail",
+							label: "Video thumbnail (regular videos, ≤2MB)",
+							type: "media-url",
+						})}
+
+					{/* Twitter poll + thread */}
+					{a.platform === "twitter" && (
+						<div className="space-y-2">
+							<label className="flex items-center gap-2 text-xs">
+								<input
+									type="checkbox"
+									checked={Boolean(getOpt(a.accountId, "__pollEnabled"))}
+									onChange={(e) => setOpt(a.accountId, "__pollEnabled", e.target.checked)}
+								/>
+								Add a poll (no media/thread with a poll)
+							</label>
+							{Boolean(getOpt(a.accountId, "__pollEnabled")) && (
+								<div className="grid gap-2 sm:grid-cols-2">
+									{[0, 1, 2, 3].map((i) => (
+										<input
+											key={i}
+											placeholder={`Option ${i + 1}${i < 2 ? " (required)" : ""}`}
+											value={(getOpt(a.accountId, `__poll${i}`) as string) ?? ""}
+											onChange={(e) => setOpt(a.accountId, `__poll${i}`, e.target.value)}
+											className="rounded-md border border-black/15 px-2 py-1.5 text-sm"
+										/>
+									))}
+									<select
+										value={(getOpt(a.accountId, "__pollDuration") as string) ?? "1440"}
+										onChange={(e) => setOpt(a.accountId, "__pollDuration", e.target.value)}
+										className="rounded-md border border-black/15 px-2 py-1.5 text-sm"
+									>
+										<option value="60">1 hour</option>
+										<option value="1440">1 day</option>
+										<option value="4320">3 days</option>
+										<option value="10080">7 days</option>
+									</select>
+								</div>
+							)}
+							<div>
+								<span className="mb-0.5 block text-[11px] font-medium opacity-60">
+									Thread — additional tweets (one per line)
+								</span>
+								<textarea
+									rows={2}
+									value={(getOpt(a.accountId, "__thread") as string) ?? ""}
+									onChange={(e) => setOpt(a.accountId, "__thread", e.target.value)}
+									className="w-full rounded-md border border-black/15 px-2 py-1.5 text-sm"
+								/>
+							</div>
+						</div>
+					)}
+				</div>
+			))}
+
+			{/* Hints */}
 			{selectedAccounts.length > 0 && problems.length > 0 && (
 				<ul className="space-y-0.5 rounded-md bg-amber-50 p-2 text-xs text-amber-700">
 					{problems.map((p) => (
@@ -368,7 +474,7 @@ export function Composer({
 				</ul>
 			)}
 
-			{/* Per-platform results */}
+			{/* Results */}
 			{results.length > 0 && (
 				<ul className="space-y-0.5 text-xs">
 					{results.map((r) => (
