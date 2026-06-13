@@ -193,11 +193,14 @@ export const postpeer = {
 			body: JSON.stringify({ scheduledFor }),
 		}),
 
-	presignMedia: (input: { filename: string; mimeType: string }) =>
-		request<PresignResponse>("/media/upload", {
-			method: "POST",
-			body: JSON.stringify(input),
-		}),
+	// Response is nested: {success, data:{uploadUrl, publicUrl}} — unwrap .data.
+	presignMedia: async (input: { filename: string; mimeType: string }) => {
+		const res = await request<{ success: boolean; data: PresignResponse }>(
+			"/media/upload",
+			{ method: "POST", body: JSON.stringify(input) },
+		);
+		return res.data;
+	},
 };
 
 /** Extracts the integration array from the {success, integrations} envelope. */
