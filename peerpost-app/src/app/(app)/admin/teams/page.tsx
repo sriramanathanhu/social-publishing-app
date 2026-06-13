@@ -1,18 +1,14 @@
+import { requireAdminPage } from "@/lib/page-auth";
 import { eq } from "drizzle-orm";
-import { redirect } from "next/navigation";
 import { CreateTeam } from "@/components/create-team";
-import { EditableTeamName } from "@/components/editable-team-name";
+import { EditableName } from "@/components/editable-name";
 import { db } from "@/db";
 import { profiles } from "@/db/schema";
-import { getCurrentUser } from "@/lib/auth";
 import { getTeamsForUser } from "@/lib/queries";
-import { isAdmin } from "@/lib/rbac";
 
 /** Admin-only: create and rename teams (organisational containers). */
 export default async function AdminTeamsPage() {
-	const user = await getCurrentUser();
-	if (!user) redirect("/");
-	if (!isAdmin(user)) redirect("/accounts");
+	const user = await requireAdminPage();
 
 	const teams = await getTeamsForUser(user);
 	const withCounts = await Promise.all(
@@ -42,7 +38,7 @@ export default async function AdminTeamsPage() {
 						key={t.id}
 						className="flex items-center justify-between rounded-lg border border-black/10 p-4"
 					>
-						<EditableTeamName teamId={t.id} name={t.name} className="font-medium" />
+						<EditableName endpoint={`/api/teams/${t.id}`} name={t.name} className="font-medium" />
 						<span className="rounded-full bg-black/5 px-2 py-0.5 text-xs">
 							{t.ecosystemCount} ecosystems
 						</span>

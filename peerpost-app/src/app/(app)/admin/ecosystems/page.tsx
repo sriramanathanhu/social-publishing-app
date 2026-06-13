@@ -1,21 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { EditableName } from "@/components/editable-name";
-import { getCurrentUser } from "@/lib/auth";
+import { requireAdminPage } from "@/lib/page-auth";
+import { PLATFORM_SHORT } from "@/lib/platform-fields";
 import { getAllEcosystems } from "@/lib/queries";
-import { isAdmin } from "@/lib/rbac";
-
-const PLATFORM_LABEL: Record<string, string> = {
-	twitter: "X",
-	youtube: "YT",
-	linkedin: "in",
-	pinterest: "Pin",
-	bluesky: "BS",
-	tiktok: "TT",
-	instagram: "IG",
-	facebook: "FB",
-	threads: "Th",
-};
 
 /**
  * Admin: all ecosystems with their connected platforms. Kept compact — one row
@@ -23,9 +10,7 @@ const PLATFORM_LABEL: Record<string, string> = {
  * scannable.
  */
 export default async function AdminEcosystemsPage() {
-	const user = await getCurrentUser();
-	if (!user) redirect("/");
-	if (!isAdmin(user)) redirect("/accounts");
+	await requireAdminPage();
 
 	const ecosystems = await getAllEcosystems();
 	const totalConnections = ecosystems.reduce((n, e) => n + e.integrations.length, 0);
@@ -82,7 +67,7 @@ export default async function AdminEcosystemsPage() {
 													title={`${i.platform}${i.handle ? ` · ${i.handle}` : ""}`}
 													className="rounded bg-black/5 px-1.5 py-0.5 text-[11px]"
 												>
-													{PLATFORM_LABEL[i.platform] ?? i.platform}
+													{PLATFORM_SHORT[i.platform] ?? i.platform}
 												</span>
 											))}
 										</span>

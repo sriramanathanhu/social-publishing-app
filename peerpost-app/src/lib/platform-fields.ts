@@ -39,6 +39,19 @@ export const PLATFORM_LABELS: Record<string, string> = {
 	threads: "Threads",
 };
 
+/** Short badge codes, e.g. for dense tables. */
+export const PLATFORM_SHORT: Record<string, string> = {
+	twitter: "X",
+	youtube: "YT",
+	linkedin: "in",
+	pinterest: "Pin",
+	bluesky: "BS",
+	tiktok: "TT",
+	instagram: "IG",
+	facebook: "FB",
+	threads: "Th",
+};
+
 /** Media requirement per platform: "video", any "media", or "optional". */
 export const PLATFORM_MEDIA: Record<string, "video" | "required" | "optional"> = {
 	youtube: "video",

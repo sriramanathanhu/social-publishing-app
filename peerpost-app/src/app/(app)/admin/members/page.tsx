@@ -1,15 +1,11 @@
-import { redirect } from "next/navigation";
+import { requireAdminPage } from "@/lib/page-auth";
 import { CreateUser } from "@/components/create-user";
 import { MemberRow } from "@/components/member-row";
-import { getCurrentUser } from "@/lib/auth";
 import { getAllMembers, getEcosystemOptions } from "@/lib/queries";
-import { isAdmin } from "@/lib/rbac";
 
 /** Admin: approve users and assign ecosystems. */
 export default async function AdminMembersPage() {
-	const user = await getCurrentUser();
-	if (!user) redirect("/");
-	if (!isAdmin(user)) redirect("/accounts");
+	const user = await requireAdminPage();
 
 	const [members, options] = await Promise.all([
 		getAllMembers(),

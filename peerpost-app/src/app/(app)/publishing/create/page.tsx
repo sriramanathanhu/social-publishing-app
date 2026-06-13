@@ -1,12 +1,10 @@
-import { redirect } from "next/navigation";
+import { requirePageUser } from "@/lib/page-auth";
 import { CreatePost } from "@/components/create-post";
-import { getCurrentUser } from "@/lib/auth";
 import { getAccessibleProfiles, getConnectedAccounts } from "@/lib/queries";
 
 /** Create Post: pick a profile, compose, publish or schedule. */
 export default async function CreatePostPage() {
-	const user = await getCurrentUser();
-	if (!user) redirect("/");
+	const user = await requirePageUser();
 
 	const profiles = await getAccessibleProfiles(user);
 	const withAccounts = await Promise.all(

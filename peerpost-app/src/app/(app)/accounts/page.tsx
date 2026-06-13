@@ -1,11 +1,10 @@
+import { requirePageUser } from "@/lib/page-auth";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { CreateProfile } from "@/components/create-profile";
-import { EditableTeamName } from "@/components/editable-team-name";
+import { EditableName } from "@/components/editable-name";
 import { db } from "@/db";
 import { integrationsCache } from "@/db/schema";
-import { getCurrentUser } from "@/lib/auth";
 import { getAccessibleProfilesInTeam, getTeamsForUser } from "@/lib/queries";
 import { isAdmin } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
@@ -19,8 +18,7 @@ export default async function AccountsPage({
 }: {
 	searchParams: Promise<{ team?: string }>;
 }) {
-	const user = await getCurrentUser();
-	if (!user) redirect("/");
+	const user = await requirePageUser();
 
 	const admin = isAdmin(user);
 	const teams = await getTeamsForUser(user);
@@ -89,7 +87,7 @@ export default async function AccountsPage({
 			<div className="flex items-baseline justify-between">
 				<h2 className="text-base font-medium">
 					{admin ? (
-						<EditableTeamName teamId={activeTeam.id} name={activeTeam.name} />
+						<EditableName endpoint={`/api/teams/${activeTeam.id}`} name={activeTeam.name} />
 					) : (
 						activeTeam.name
 					)}

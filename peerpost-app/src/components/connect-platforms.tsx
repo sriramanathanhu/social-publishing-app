@@ -2,24 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { PLATFORM_LABELS } from "@/lib/platform-fields";
 
 type PlatformStatus = {
 	platform: string;
 	connected: boolean;
 	handle: string | null;
 	displayName: string | null;
-};
-
-const LABELS: Record<string, string> = {
-	twitter: "Twitter / X",
-	youtube: "YouTube",
-	linkedin: "LinkedIn",
-	pinterest: "Pinterest",
-	bluesky: "Bluesky",
-	tiktok: "TikTok",
-	instagram: "Instagram",
-	facebook: "Facebook",
-	threads: "Threads",
 };
 
 /**
@@ -86,7 +75,7 @@ export function ConnectPlatforms({
 					>
 						<div className="flex items-center justify-between">
 							<span className="text-sm font-medium">
-								{LABELS[p.platform] ?? p.platform}
+								{PLATFORM_LABELS[p.platform] ?? p.platform}
 							</span>
 							<span
 								className={`h-2 w-2 rounded-full ${

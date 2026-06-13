@@ -1,7 +1,7 @@
+import { requirePageUser } from "@/lib/page-auth";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ConnectPlatforms } from "@/components/connect-platforms";
-import { getCurrentUser } from "@/lib/auth";
 import { getPlatformStatus, getProfile, getTeam } from "@/lib/queries";
 import { assertProfileAccess } from "@/lib/rbac";
 import { HttpError } from "@/lib/auth";
@@ -10,8 +10,7 @@ type Props = { params: Promise<{ profileId: string }> };
 
 export default async function ProfilePlatformsPage({ params }: Props) {
 	const { profileId } = await params;
-	const user = await getCurrentUser();
-	if (!user) redirect("/");
+	const user = await requirePageUser();
 
 	try {
 		await assertProfileAccess(user, profileId);

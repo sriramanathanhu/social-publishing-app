@@ -1,12 +1,10 @@
-import { redirect } from "next/navigation";
+import { requirePageUser } from "@/lib/page-auth";
 import { AnalyticsTable } from "@/components/analytics-table";
-import { getCurrentUser } from "@/lib/auth";
 import { getAccessibleProfiles, getAnalytics } from "@/lib/queries";
 
 /** Publishing → Analytics: cached post-level metrics across accessible ecosystems. */
 export default async function AnalyticsPage() {
-	const user = await getCurrentUser();
-	if (!user) redirect("/");
+	const user = await requirePageUser();
 
 	const [{ rows, lastFetched }, profiles] = await Promise.all([
 		getAnalytics(user),

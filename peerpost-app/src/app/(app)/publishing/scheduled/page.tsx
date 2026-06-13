@@ -1,13 +1,11 @@
-import { redirect } from "next/navigation";
+import { requirePageUser } from "@/lib/page-auth";
 import { CancelPostButton } from "@/components/cancel-post-button";
 import { PostRow, shortDate } from "@/components/post-row";
-import { getCurrentUser } from "@/lib/auth";
 import { getPostsForUser } from "@/lib/queries";
 
 /** Queued / scheduled posts. */
 export default async function ScheduledPage() {
-	const user = await getCurrentUser();
-	if (!user) redirect("/");
+	const user = await requirePageUser();
 
 	const posts = await getPostsForUser(user, ["scheduled"]);
 

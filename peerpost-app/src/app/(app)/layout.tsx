@@ -1,6 +1,5 @@
-import { redirect } from "next/navigation";
+import { requirePageUser } from "@/lib/page-auth";
 import { Sidebar } from "@/components/sidebar";
-import { getCurrentUser } from "@/lib/auth";
 import { isAdmin } from "@/lib/rbac";
 
 /** Authenticated shell: sidebar nav + auth guard for all /app pages. */
@@ -9,8 +8,7 @@ export default async function AppLayout({
 }: {
 	children: React.ReactNode;
 }) {
-	const user = await getCurrentUser();
-	if (!user) redirect("/");
+	const user = await requirePageUser();
 
 	return (
 		<div className="flex min-h-screen">

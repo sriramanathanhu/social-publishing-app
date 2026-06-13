@@ -1,13 +1,11 @@
+import { requirePageUser } from "@/lib/page-auth";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { PostRow, shortDate } from "@/components/post-row";
-import { getCurrentUser } from "@/lib/auth";
 import { getAnalytics, getPostsForUser } from "@/lib/queries";
 
 /** Published-posts overview — intentionally compact, with cached metric badges. */
 export default async function OverviewPage() {
-	const user = await getCurrentUser();
-	if (!user) redirect("/");
+	const user = await requirePageUser();
 
 	const [posts, analytics] = await Promise.all([
 		getPostsForUser(user, ["published", "failed", "publishing"]),
