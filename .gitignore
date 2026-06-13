@@ -1,0 +1,17 @@
+# Dependencies & build output
+node_modules/
+.next/
+out/
+dist/
+
+# Secrets — never commit real env files (keep .env.example)
+.env
+.env.*
+!.env.example
+
+# Logs & OS cruft
+*.log
+.DS_Store
+
+# Third-party reference repo (not part of this app)
+nandi-auth-examples-main/
