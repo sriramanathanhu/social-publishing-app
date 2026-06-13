@@ -41,7 +41,11 @@ export async function getCurrentUser(): Promise<AppUser | null> {
 				name: name ?? existing.name,
 			})
 			.where(eq(users.id, existing.id));
-		return { ...existing, email: email ?? existing.email, name: name ?? existing.name };
+		return {
+			...existing,
+			email: email ?? existing.email,
+			name: name ?? existing.name,
+		};
 	}
 
 	// Link an admin-pre-registered user (created by email, nandiSub still
@@ -53,7 +57,11 @@ export async function getCurrentUser(): Promise<AppUser | null> {
 		if (preRegistered) {
 			const [linked] = await db
 				.update(users)
-				.set({ nandiSub: userId, name: name ?? preRegistered.name, lastLoginAt: new Date() })
+				.set({
+					nandiSub: userId,
+					name: name ?? preRegistered.name,
+					lastLoginAt: new Date(),
+				})
 				.where(eq(users.id, preRegistered.id))
 				.returning();
 			return linked;

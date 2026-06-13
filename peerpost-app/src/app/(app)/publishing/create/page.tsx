@@ -1,5 +1,5 @@
-import { requirePageUser } from "@/lib/page-auth";
 import { CreatePost } from "@/components/create-post";
+import { requirePageUser } from "@/lib/page-auth";
 import { getAccessibleProfiles, getConnectedAccounts } from "@/lib/queries";
 
 /** Create Post: pick a profile, compose, publish or schedule. */

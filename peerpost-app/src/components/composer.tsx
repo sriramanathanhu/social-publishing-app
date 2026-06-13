@@ -11,12 +11,18 @@ import {
 	PLATFORM_MEDIA,
 } from "@/lib/platform-fields";
 
-type ConnectedAccount = { platform: string; accountId: string; handle: string | null };
+type ConnectedAccount = {
+	platform: string;
+	accountId: string;
+	handle: string | null;
+};
 type MediaItem = { type: "image" | "video" | "gif"; url: string; name: string };
 type PlatformResult = { platform: string; success: boolean; error?: string };
 type Opts = Record<string, Record<string, unknown>>;
 
-async function uploadFile(file: File): Promise<{ publicUrl: string; type: string; name: string }> {
+async function uploadFile(
+	file: File,
+): Promise<{ publicUrl: string; type: string; name: string }> {
 	const fd = new FormData();
 	fd.append("file", file);
 	const res = await fetch("/api/media/upload", { method: "POST", body: fd });
@@ -46,7 +52,9 @@ export function Composer({
 	const [msg, setMsg] = useState<string | null>(null);
 	const [results, setResults] = useState<PlatformResult[]>([]);
 	const [opts, setOpts] = useState<Opts>({});
-	const [boards, setBoards] = useState<Record<string, { id: string; name: string }[]>>({});
+	const [boards, setBoards] = useState<
+		Record<string, { id: string; name: string }[]>
+	>({});
 
 	const selectedAccounts = accounts.filter((a) => selected.has(a.accountId));
 	const hasVideo = media.some((m) => m.type === "video");
@@ -58,9 +66,13 @@ export function Composer({
 	useEffect(() => {
 		for (const a of selectedAccounts) {
 			if (a.platform === "pinterest" && !boards[a.accountId]) {
-				fetch(`/api/profiles/${profileId}/pinterest-boards?accountId=${a.accountId}`)
+				fetch(
+					`/api/profiles/${profileId}/pinterest-boards?accountId=${a.accountId}`,
+				)
 					.then((r) => r.json())
-					.then((d) => setBoards((b) => ({ ...b, [a.accountId]: d.boards ?? [] })))
+					.then((d) =>
+						setBoards((b) => ({ ...b, [a.accountId]: d.boards ?? [] })),
+					)
 					.catch(() => {});
 			}
 		}
@@ -84,7 +96,10 @@ export function Composer({
 		setMsg(null);
 		try {
 			const { publicUrl, type, name } = await uploadFile(file);
-			setMedia((prev) => [...prev, { type: type as MediaItem["type"], url: publicUrl, name }]);
+			setMedia((prev) => [
+				...prev,
+				{ type: type as MediaItem["type"], url: publicUrl, name },
+			]);
 		} catch (err) {
 			setMsg(err instanceof Error ? err.message : "Upload failed");
 		} finally {
@@ -95,21 +110,31 @@ export function Composer({
 	// Validation
 	const problems: string[] = [];
 	if (!content.trim()) problems.push("Add some text.");
-	if (selectedAccounts.length === 0) problems.push("Select at least one account.");
+	if (selectedAccounts.length === 0)
+		problems.push("Select at least one account.");
 	for (const a of selectedAccounts) {
 		const label = PLATFORM_LABELS[a.platform] ?? a.platform;
 		const need = PLATFORM_MEDIA[a.platform];
-		if (need === "video" && !hasVideo) problems.push(`${label} requires a video.`);
-		if (need === "required" && !hasMedia) problems.push(`${label} requires an image or video.`);
+		if (need === "video" && !hasVideo)
+			problems.push(`${label} requires a video.`);
+		if (need === "required" && !hasMedia)
+			problems.push(`${label} requires an image or video.`);
 		if (a.platform === "pinterest" && !getOpt(a.accountId, "boardId"))
 			problems.push(`${label} requires a board.`);
 	}
 	if (Number.isFinite(minCharLimit) && content.length > minCharLimit)
 		problems.push(`Text exceeds ${minCharLimit} characters.`);
 
-	function platformDataFor(a: ConnectedAccount): Record<string, unknown> | undefined {
+	function platformDataFor(
+		a: ConnectedAccount,
+	): Record<string, unknown> | undefined {
 		const raw = opts[a.accountId] ?? {};
 		let psd = buildPlatformData(a.platform, raw);
+		// boardId is selected via a special control (not in the field config),
+		// so merge it in here — Pinterest requires it.
+		if (a.platform === "pinterest" && raw.boardId) {
+			psd = { ...(psd ?? {}), boardId: raw.boardId };
+		}
 		if (a.platform === "twitter") {
 			if (raw.__pollEnabled) {
 				const pollOptions = [raw.__poll0, raw.__poll1, raw.__poll2, raw.__poll3]
@@ -118,14 +143,21 @@ export function Composer({
 				if (pollOptions.length >= 2)
 					psd = {
 						...(psd ?? {}),
-						poll: { options: pollOptions, durationMinutes: Number(raw.__pollDuration ?? 1440) },
+						poll: {
+							options: pollOptions,
+							durationMinutes: Number(raw.__pollDuration ?? 1440),
+						},
 					};
 			}
 			const thread = String(raw.__thread ?? "")
 				.split("\n")
 				.map((s) => s.trim())
 				.filter(Boolean);
-			if (thread.length) psd = { ...(psd ?? {}), threadItems: thread.map((c) => ({ content: c })) };
+			if (thread.length)
+				psd = {
+					...(psd ?? {}),
+					threadItems: thread.map((c) => ({ content: c })),
+				};
 		}
 		return psd;
 	}
@@ -162,7 +194,9 @@ export function Composer({
 					platforms,
 					mediaItems,
 					publishNow: publishNow || undefined,
-					scheduledFor: !publishNow ? new Date(scheduledFor).toISOString() : undefined,
+					scheduledFor: !publishNow
+						? new Date(scheduledFor).toISOString()
+						: undefined,
 					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 				}),
 			});
@@ -207,7 +241,9 @@ export function Composer({
 		const labelEl = (
 			<span className="mb-0.5 block text-[11px] font-medium opacity-60">
 				{f.label}
-				{f.help ? <span className="font-normal opacity-60"> · {f.help}</span> : null}
+				{f.help ? (
+					<span className="font-normal opacity-60"> · {f.help}</span>
+				) : null}
 			</span>
 		);
 		if (f.type === "select") {
@@ -335,7 +371,9 @@ export function Composer({
 					className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
 				/>
 				{Number.isFinite(minCharLimit) && (
-					<div className={`text-right text-xs ${content.length > minCharLimit ? "text-red-600" : "opacity-50"}`}>
+					<div
+						className={`text-right text-xs ${content.length > minCharLimit ? "text-red-600" : "opacity-50"}`}
+					>
 						{content.length}/{minCharLimit}
 					</div>
 				)}
@@ -358,11 +396,16 @@ export function Composer({
 					/>
 				</label>
 				{media.map((m) => (
-					<span key={m.url} className="flex items-center gap-1 rounded bg-black/5 px-2 py-1 text-xs">
+					<span
+						key={m.url}
+						className="flex items-center gap-1 rounded bg-black/5 px-2 py-1 text-xs"
+					>
 						{m.type === "video" ? "🎬" : "🖼"} {m.name}
 						<button
 							type="button"
-							onClick={() => setMedia((prev) => prev.filter((x) => x.url !== m.url))}
+							onClick={() =>
+								setMedia((prev) => prev.filter((x) => x.url !== m.url))
+							}
 							className="ml-1 text-red-600"
 						>
 							×
@@ -422,7 +465,9 @@ export function Composer({
 								<input
 									type="checkbox"
 									checked={Boolean(getOpt(a.accountId, "__pollEnabled"))}
-									onChange={(e) => setOpt(a.accountId, "__pollEnabled", e.target.checked)}
+									onChange={(e) =>
+										setOpt(a.accountId, "__pollEnabled", e.target.checked)
+									}
 								/>
 								Add a poll (no media/thread with a poll)
 							</label>
@@ -432,14 +477,23 @@ export function Composer({
 										<input
 											key={i}
 											placeholder={`Option ${i + 1}${i < 2 ? " (required)" : ""}`}
-											value={(getOpt(a.accountId, `__poll${i}`) as string) ?? ""}
-											onChange={(e) => setOpt(a.accountId, `__poll${i}`, e.target.value)}
+											value={
+												(getOpt(a.accountId, `__poll${i}`) as string) ?? ""
+											}
+											onChange={(e) =>
+												setOpt(a.accountId, `__poll${i}`, e.target.value)
+											}
 											className="rounded-md border border-black/15 px-2 py-1.5 text-sm"
 										/>
 									))}
 									<select
-										value={(getOpt(a.accountId, "__pollDuration") as string) ?? "1440"}
-										onChange={(e) => setOpt(a.accountId, "__pollDuration", e.target.value)}
+										value={
+											(getOpt(a.accountId, "__pollDuration") as string) ??
+											"1440"
+										}
+										onChange={(e) =>
+											setOpt(a.accountId, "__pollDuration", e.target.value)
+										}
 										className="rounded-md border border-black/15 px-2 py-1.5 text-sm"
 									>
 										<option value="60">1 hour</option>
@@ -456,7 +510,9 @@ export function Composer({
 								<textarea
 									rows={2}
 									value={(getOpt(a.accountId, "__thread") as string) ?? ""}
-									onChange={(e) => setOpt(a.accountId, "__thread", e.target.value)}
+									onChange={(e) =>
+										setOpt(a.accountId, "__thread", e.target.value)
+									}
 									className="w-full rounded-md border border-black/15 px-2 py-1.5 text-sm"
 								/>
 							</div>
@@ -478,7 +534,10 @@ export function Composer({
 			{results.length > 0 && (
 				<ul className="space-y-0.5 text-xs">
 					{results.map((r) => (
-						<li key={r.platform} className={r.success ? "text-green-700" : "text-red-600"}>
+						<li
+							key={r.platform}
+							className={r.success ? "text-green-700" : "text-red-600"}
+						>
 							{r.success ? "✓" : "✗"} {r.platform}
 							{r.error ? ` — ${r.error}` : ""}
 						</li>

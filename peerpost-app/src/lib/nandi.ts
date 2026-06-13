@@ -18,7 +18,9 @@ function cfg() {
 	const clientId = process.env.NEXT_AUTH_CLIENT_ID;
 	const clientSecret = process.env.AUTH_CLIENT_SECRET;
 	if (!authUrl || !clientId || !clientSecret) {
-		throw new Error("Missing Nandi auth configuration (NEXT_AUTH_URL/CLIENT_ID/SECRET)");
+		throw new Error(
+			"Missing Nandi auth configuration (NEXT_AUTH_URL/CLIENT_ID/SECRET)",
+		);
 	}
 	return { authUrl, clientId, clientSecret };
 }
@@ -44,7 +46,11 @@ export async function exchangeToken(code: string): Promise<string | null> {
 	const res = await fetch(`${authUrl}/oauth/exchange-token`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ code, client_id: clientId, client_secret: clientSecret }),
+		body: JSON.stringify({
+			code,
+			client_id: clientId,
+			client_secret: clientSecret,
+		}),
 		cache: "no-store",
 	});
 	if (!res.ok) return null;
@@ -62,7 +68,9 @@ export type NandiUser = {
 };
 
 /** Step 4: validate the session token; returns the stable user_id or null. */
-export async function validateSession(sessionToken: string): Promise<string | null> {
+export async function validateSession(
+	sessionToken: string,
+): Promise<string | null> {
 	const { authUrl, clientId, clientSecret } = cfg();
 	const res = await fetch(`${authUrl}/auth/session`, {
 		method: "POST",
@@ -79,7 +87,9 @@ export async function validateSession(sessionToken: string): Promise<string | nu
 }
 
 /** Step 5: fetch the full user profile. */
-export async function fetchUser(sessionToken: string): Promise<NandiUser | null> {
+export async function fetchUser(
+	sessionToken: string,
+): Promise<NandiUser | null> {
 	const { authUrl, clientId, clientSecret } = cfg();
 	const res = await fetch(`${authUrl}/auth/me`, {
 		method: "POST",

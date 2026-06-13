@@ -32,7 +32,9 @@ export function ConnectPlatforms({
 	async function refresh() {
 		setSyncing(true);
 		try {
-			await fetch(`/api/profiles/${profileId}/integrations`, { method: "POST" });
+			await fetch(`/api/profiles/${profileId}/integrations`, {
+				method: "POST",
+			});
 			router.refresh();
 		} finally {
 			setSyncing(false);

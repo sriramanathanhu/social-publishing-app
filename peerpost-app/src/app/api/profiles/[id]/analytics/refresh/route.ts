@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
-import { requireUser } from "@/lib/auth";
 import { refreshAnalytics } from "@/lib/analytics";
+import { requireUser } from "@/lib/auth";
 import { route } from "@/lib/http";
 import { assertProfileAccess } from "@/lib/rbac";
 

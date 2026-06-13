@@ -13,7 +13,10 @@ export default async function AdminEcosystemsPage() {
 	await requireAdminPage();
 
 	const ecosystems = await getAllEcosystems();
-	const totalConnections = ecosystems.reduce((n, e) => n + e.integrations.length, 0);
+	const totalConnections = ecosystems.reduce(
+		(n, e) => n + e.integrations.length,
+		0,
+	);
 
 	return (
 		<div className="space-y-5">

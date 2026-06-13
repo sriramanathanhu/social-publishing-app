@@ -1,5 +1,5 @@
-import { requirePageUser } from "@/lib/page-auth";
 import { Sidebar } from "@/components/sidebar";
+import { requirePageUser } from "@/lib/page-auth";
 import { isAdmin } from "@/lib/rbac";
 
 /** Authenticated shell: sidebar nav + auth guard for all /app pages. */

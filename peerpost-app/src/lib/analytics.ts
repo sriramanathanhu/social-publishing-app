@@ -24,7 +24,10 @@ export async function refreshAnalytics(profileIds: string[]): Promise<number> {
 		})
 		.from(postsLog)
 		.where(
-			and(inArray(postsLog.profileId, profileIds), isNotNull(postsLog.postpeerPostId)),
+			and(
+				inArray(postsLog.profileId, profileIds),
+				isNotNull(postsLog.postpeerPostId),
+			),
 		);
 	if (logs.length === 0) return 0;
 
@@ -33,7 +36,11 @@ export async function refreshAnalytics(profileIds: string[]): Promise<number> {
 	// Page through the analytics list until we've covered everything (bounded).
 	const byId = new Map<string, AnalyticsPostResult>();
 	for (let page = 1; page <= MAX_PAGES; page++) {
-		const res = await postpeer.getAnalyticsList({ source: "postpeer", limit: 100, page });
+		const res = await postpeer.getAnalyticsList({
+			source: "postpeer",
+			limit: 100,
+			page,
+		});
 		for (const p of res.posts) if (p.postId) byId.set(p.postId, p);
 		if (res.posts.length < 100 || page * 100 >= res.total) break;
 	}

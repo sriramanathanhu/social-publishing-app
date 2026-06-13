@@ -1,10 +1,10 @@
-import { requirePageUser } from "@/lib/page-auth";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ConnectPlatforms } from "@/components/connect-platforms";
+import { HttpError } from "@/lib/auth";
+import { requirePageUser } from "@/lib/page-auth";
 import { getPlatformStatus, getProfile, getTeam } from "@/lib/queries";
 import { assertProfileAccess } from "@/lib/rbac";
-import { HttpError } from "@/lib/auth";
 
 type Props = { params: Promise<{ profileId: string }> };
 
@@ -45,7 +45,11 @@ export default async function ProfilePlatformsPage({ params }: Props) {
 				<h2 className="mb-3 text-sm font-semibold uppercase tracking-wide opacity-50">
 					Platforms
 				</h2>
-				<ConnectPlatforms profileId={profileId} platforms={platforms} canConnect />
+				<ConnectPlatforms
+					profileId={profileId}
+					platforms={platforms}
+					canConnect
+				/>
 			</section>
 
 			<p className="text-xs opacity-50">

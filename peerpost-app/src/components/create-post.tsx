@@ -27,7 +27,9 @@ export function CreatePost({ profiles }: { profiles: ProfileWithAccounts[] }) {
 	return (
 		<div className="space-y-4">
 			<div>
-				<label className="mb-1 block text-xs font-medium opacity-60">Ecosystem</label>
+				<label className="mb-1 block text-xs font-medium opacity-60">
+					Ecosystem
+				</label>
 				<select
 					value={profileId}
 					onChange={(e) => setProfileId(e.target.value)}

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { cn } from "@/lib/utils";
 import { getCurrentUser } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 
 const ERROR_MESSAGES: Record<string, string> = {
 	auth_failed: "Sign-in failed at the auth server. Please try again.",

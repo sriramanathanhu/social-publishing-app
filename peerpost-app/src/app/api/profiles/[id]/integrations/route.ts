@@ -16,8 +16,11 @@ export const POST = route(async (_req: NextRequest, { params }: Ctx) => {
 	const { id } = await params;
 	await assertProfileAccess(user, id);
 
-	const profile = await db.query.profiles.findFirst({ where: eq(profiles.id, id) });
-	if (!profile) return Response.json({ error: "Profile not found" }, { status: 404 });
+	const profile = await db.query.profiles.findFirst({
+		where: eq(profiles.id, id),
+	});
+	if (!profile)
+		return Response.json({ error: "Profile not found" }, { status: 404 });
 
 	const count = await syncProfileIntegrations(profile, user.id);
 	return Response.json({ ok: true, synced: count });

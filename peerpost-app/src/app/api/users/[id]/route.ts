@@ -24,7 +24,10 @@ export const PATCH = route(async (request: NextRequest, { params }: Ctx) => {
 
 	// Don't let an admin lock themselves out.
 	if (id === admin.id && input.role && input.role !== "admin") {
-		return Response.json({ error: "You cannot change your own admin role" }, { status: 400 });
+		return Response.json(
+			{ error: "You cannot change your own admin role" },
+			{ status: 400 },
+		);
 	}
 
 	const [updated] = await db

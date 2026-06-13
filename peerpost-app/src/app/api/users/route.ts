@@ -27,9 +27,14 @@ export const POST = route(async (request: NextRequest) => {
 
 	const { email, name, role } = createSchema.parse(await request.json());
 
-	const existing = await db.query.users.findFirst({ where: eq(users.email, email) });
+	const existing = await db.query.users.findFirst({
+		where: eq(users.email, email),
+	});
 	if (existing) {
-		return Response.json({ error: "A user with that email already exists" }, { status: 409 });
+		return Response.json(
+			{ error: "A user with that email already exists" },
+			{ status: 409 },
+		);
 	}
 
 	const [created] = await db

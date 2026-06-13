@@ -36,7 +36,6 @@ export const platformEnum = pgEnum("platform", [
 	"threads",
 ]);
 
-
 export const integrationStatusEnum = pgEnum("integration_status", [
 	"connected",
 	"disconnected",
@@ -67,7 +66,9 @@ export const users = pgTable(
 		// an admin has APPROVED them AND assigned them ecosystem(s). Admins are
 		// always treated as approved regardless of this flag.
 		approved: boolean("approved").notNull().default(false),
-		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
 		lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
 	},
 	(t) => [uniqueIndex("users_nandi_sub_idx").on(t.nandiSub)],
@@ -81,7 +82,9 @@ export const teams = pgTable("teams", {
 	createdByUserId: uuid("created_by_user_id").references(() => users.id, {
 		onDelete: "set null",
 	}),
-	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true })
+		.defaultNow()
+		.notNull(),
 });
 
 /**
@@ -98,7 +101,9 @@ export const ecosystemMembers = pgTable(
 		userId: uuid("user_id")
 			.notNull()
 			.references(() => users.id, { onDelete: "cascade" }),
-		addedAt: timestamp("added_at", { withTimezone: true }).defaultNow().notNull(),
+		addedAt: timestamp("added_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.profileId, t.userId] })],
 );
@@ -116,7 +121,9 @@ export const profiles = pgTable(
 		createdByUserId: uuid("created_by_user_id").references(() => users.id, {
 			onDelete: "set null",
 		}),
-		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
 	},
 	(t) => [index("profiles_team_idx").on(t.teamId)],
 );
@@ -138,7 +145,9 @@ export const integrationsCache = pgTable(
 		connectedByUserId: uuid("connected_by_user_id").references(() => users.id, {
 			onDelete: "set null",
 		}),
-		syncedAt: timestamp("synced_at", { withTimezone: true }).defaultNow().notNull(),
+		syncedAt: timestamp("synced_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
 	},
 	(t) => [
 		index("integrations_profile_idx").on(t.profileId),
@@ -165,7 +174,9 @@ export const postsLog = pgTable(
 		scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
 		timezone: text("timezone"),
 		error: text("error"),
-		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
 	},
 	(t) => [index("posts_log_profile_idx").on(t.profileId)],
 );
@@ -210,7 +221,9 @@ export const analyticsSnapshots = pgTable(
 		publishedAt: timestamp("published_at", { withTimezone: true }),
 		aggregated: jsonb("aggregated").$type<AnalyticsMetrics>(),
 		platforms: jsonb("platforms").$type<AnalyticsPlatformEntry[]>(),
-		fetchedAt: timestamp("fetched_at", { withTimezone: true }).defaultNow().notNull(),
+		fetchedAt: timestamp("fetched_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
 	},
 	(t) => [index("analytics_profile_idx").on(t.profileId)],
 );
@@ -223,16 +236,19 @@ export const teamsRelations = relations(teams, ({ many }) => ({
 	profiles: many(profiles),
 }));
 
-export const ecosystemMembersRelations = relations(ecosystemMembers, ({ one }) => ({
-	profile: one(profiles, {
-		fields: [ecosystemMembers.profileId],
-		references: [profiles.id],
+export const ecosystemMembersRelations = relations(
+	ecosystemMembers,
+	({ one }) => ({
+		profile: one(profiles, {
+			fields: [ecosystemMembers.profileId],
+			references: [profiles.id],
+		}),
+		user: one(users, {
+			fields: [ecosystemMembers.userId],
+			references: [users.id],
+		}),
 	}),
-	user: one(users, {
-		fields: [ecosystemMembers.userId],
-		references: [users.id],
-	}),
-}));
+);
 
 export const profilesRelations = relations(profiles, ({ one, many }) => ({
 	team: one(teams, {
@@ -243,9 +259,12 @@ export const profilesRelations = relations(profiles, ({ one, many }) => ({
 	integrations: many(integrationsCache),
 }));
 
-export const integrationsRelations = relations(integrationsCache, ({ one }) => ({
-	profile: one(profiles, {
-		fields: [integrationsCache.profileId],
-		references: [profiles.id],
+export const integrationsRelations = relations(
+	integrationsCache,
+	({ one }) => ({
+		profile: one(profiles, {
+			fields: [integrationsCache.profileId],
+			references: [profiles.id],
+		}),
 	}),
-}));
+);

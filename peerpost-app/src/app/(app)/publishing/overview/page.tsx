@@ -1,6 +1,6 @@
-import { requirePageUser } from "@/lib/page-auth";
 import Link from "next/link";
 import { PostRow, shortDate } from "@/components/post-row";
+import { requirePageUser } from "@/lib/page-auth";
 import { getAnalytics, getPostsForUser } from "@/lib/queries";
 
 /** Published-posts overview — intentionally compact, with cached metric badges. */
@@ -14,7 +14,10 @@ export default async function OverviewPage() {
 	const metricsById = new Map(
 		analytics.rows.map((r) => [
 			r.postpeerPostId,
-			{ likes: r.aggregated?.likes ?? null, views: r.aggregated?.views ?? null },
+			{
+				likes: r.aggregated?.likes ?? null,
+				views: r.aggregated?.views ?? null,
+			},
 		]),
 	);
 
@@ -44,7 +47,9 @@ export default async function OverviewPage() {
 						profileName={p.profileName}
 						when={shortDate(p.createdAt)}
 						status={p.status}
-						metrics={p.postpeerPostId ? metricsById.get(p.postpeerPostId) : null}
+						metrics={
+							p.postpeerPostId ? metricsById.get(p.postpeerPostId) : null
+						}
 					/>
 				))}
 			</ul>

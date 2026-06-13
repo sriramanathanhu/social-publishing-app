@@ -12,7 +12,8 @@ const globalForDb = globalThis as unknown as {
 	pgClient?: ReturnType<typeof postgres>;
 };
 
-const client = globalForDb.pgClient ?? postgres(connectionString, { prepare: false });
+const client =
+	globalForDb.pgClient ?? postgres(connectionString, { prepare: false });
 if (process.env.NODE_ENV !== "production") {
 	globalForDb.pgClient = client;
 }

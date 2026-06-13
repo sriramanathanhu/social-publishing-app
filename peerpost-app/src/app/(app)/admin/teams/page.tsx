@@ -1,9 +1,9 @@
-import { requireAdminPage } from "@/lib/page-auth";
 import { eq } from "drizzle-orm";
 import { CreateTeam } from "@/components/create-team";
 import { EditableName } from "@/components/editable-name";
 import { db } from "@/db";
 import { profiles } from "@/db/schema";
+import { requireAdminPage } from "@/lib/page-auth";
 import { getTeamsForUser } from "@/lib/queries";
 
 /** Admin-only: create and rename teams (organisational containers). */
@@ -38,7 +38,11 @@ export default async function AdminTeamsPage() {
 						key={t.id}
 						className="flex items-center justify-between rounded-lg border border-black/10 p-4"
 					>
-						<EditableName endpoint={`/api/teams/${t.id}`} name={t.name} className="font-medium" />
+						<EditableName
+							endpoint={`/api/teams/${t.id}`}
+							name={t.name}
+							className="font-medium"
+						/>
 						<span className="rounded-full bg-black/5 px-2 py-0.5 text-xs">
 							{t.ecosystemCount} ecosystems
 						</span>

@@ -1,5 +1,5 @@
-import { requirePageUser } from "@/lib/page-auth";
 import { AnalyticsTable } from "@/components/analytics-table";
+import { requirePageUser } from "@/lib/page-auth";
 import { getAccessibleProfiles, getAnalytics } from "@/lib/queries";
 
 /** Publishing → Analytics: cached post-level metrics across accessible ecosystems. */
@@ -16,8 +16,8 @@ export default async function AnalyticsPage() {
 			<div>
 				<h1 className="text-xl font-semibold">Analytics</h1>
 				<p className="text-sm opacity-60">
-					Post performance from PostPeer. Cached locally; click Refresh to pull the
-					latest (some metrics populate slowly on each platform).
+					Post performance from PostPeer. Cached locally; click Refresh to pull
+					the latest (some metrics populate slowly on each platform).
 				</p>
 			</div>
 

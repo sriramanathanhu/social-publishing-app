@@ -32,5 +32,8 @@ export async function GET(request: NextRequest) {
 		console.error("connect/callback sync error:", err);
 	}
 
-	return Response.redirect(`${base}/accounts/${localProfileId}?connected=1`, 302);
+	return Response.redirect(
+		`${base}/accounts/${localProfileId}?connected=1`,
+		302,
+	);
 }

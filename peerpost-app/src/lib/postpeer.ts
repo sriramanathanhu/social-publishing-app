@@ -42,7 +42,8 @@ async function request<T>(
 	const body = text ? JSON.parse(text) : null;
 
 	if (!res.ok) {
-		const message = body?.message ?? body?.error ?? `PostPeer error ${res.status}`;
+		const message =
+			body?.message ?? body?.error ?? `PostPeer error ${res.status}`;
 		throw new HttpError(res.status, message);
 	}
 	return body as T;
@@ -190,9 +191,11 @@ export const postpeer = {
 		}),
 
 	listIntegrations: () =>
-		request<{ success: boolean; total: number; integrations: PostPeerIntegration[] }>(
-			"/connect/integrations",
-		),
+		request<{
+			success: boolean;
+			total: number;
+			integrations: PostPeerIntegration[];
+		}>("/connect/integrations"),
 
 	disconnectIntegration: (id: string) =>
 		request<unknown>(`/connect/integrations/${id}`, { method: "DELETE" }),
@@ -206,9 +209,12 @@ export const postpeer = {
 
 	/** Pinterest boards for a connected account (needed: boardId is required). */
 	getPinterestBoards: (accountId: string) =>
-		request<{ success: boolean; boards: PinterestBoard[] }>("/pinterest/boards", {
-			query: { accountId },
-		}),
+		request<{ success: boolean; boards: PinterestBoard[] }>(
+			"/pinterest/boards",
+			{
+				query: { accountId },
+			},
+		),
 
 	cancelScheduled: (postId: string) =>
 		request<unknown>(`/posts/scheduled/${postId}`, { method: "DELETE" }),

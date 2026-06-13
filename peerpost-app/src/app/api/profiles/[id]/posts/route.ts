@@ -140,7 +140,10 @@ export const POST = route(async (request: NextRequest, { params }: Ctx) => {
 	} catch (err) {
 		await db
 			.update(postsLog)
-			.set({ status: "failed", error: err instanceof Error ? err.message : String(err) })
+			.set({
+				status: "failed",
+				error: err instanceof Error ? err.message : String(err),
+			})
 			.where(eq(postsLog.id, logRow.id));
 		throw err;
 	}

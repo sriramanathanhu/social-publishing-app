@@ -52,7 +52,9 @@ export function PostRow({
 				</span>
 			)}
 			<span className="shrink-0 text-xs opacity-50">{when}</span>
-			<span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${statusColor}`}>
+			<span
+				className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${statusColor}`}
+			>
 				{status}
 			</span>
 			{action}

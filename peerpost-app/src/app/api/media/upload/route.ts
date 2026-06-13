@@ -5,6 +5,9 @@ import { postpeer } from "@/lib/postpeer";
 
 export const runtime = "nodejs";
 
+// Cap upload size — the file is buffered in memory by the proxy, so bound it.
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200 MB
+
 /**
  * POST /api/media/upload  (multipart form-data, field "file")
  *
@@ -25,6 +28,13 @@ export const POST = route(async (request: NextRequest) => {
 		return Response.json(
 			{ error: "Only image/* or video/* files are allowed" },
 			{ status: 400 },
+		);
+	}
+	if (file.size > MAX_UPLOAD_BYTES) {
+		const maxMb = Math.round(MAX_UPLOAD_BYTES / (1024 * 1024));
+		return Response.json(
+			{ error: `File too large (max ${maxMb} MB)` },
+			{ status: 413 },
 		);
 	}
 

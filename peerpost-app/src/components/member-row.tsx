@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
 type EcoOption = { id: string; name: string; teamName: string };
 type Member = {
@@ -47,7 +47,11 @@ export function MemberRow({
 		const q = query.trim().toLowerCase();
 		const map = new Map<string, EcoOption[]>();
 		for (const o of options) {
-			if (q && !o.name.toLowerCase().includes(q) && !o.teamName.toLowerCase().includes(q))
+			if (
+				q &&
+				!o.name.toLowerCase().includes(q) &&
+				!o.teamName.toLowerCase().includes(q)
+			)
 				continue;
 			const arr = map.get(o.teamName) ?? [];
 			arr.push(o);
@@ -116,7 +120,9 @@ export function MemberRow({
 						{initials(member.name, member.email)}
 					</span>
 					<div className="min-w-0">
-						<div className="truncate font-medium">{member.name ?? member.email}</div>
+						<div className="truncate font-medium">
+							{member.name ?? member.email}
+						</div>
 						<div className="truncate text-xs opacity-50">{member.email}</div>
 					</div>
 				</div>
@@ -160,7 +166,9 @@ export function MemberRow({
 			{/* Assignment */}
 			<div className="mt-3 border-t border-black/5 pt-3">
 				{member.role === "admin" ? (
-					<p className="text-xs opacity-50">Admins can access all ecosystems.</p>
+					<p className="text-xs opacity-50">
+						Admins can access all ecosystems.
+					</p>
 				) : !canAssign ? (
 					<p className="flex items-center gap-2 text-xs opacity-60">
 						<span className="text-amber-600">●</span>

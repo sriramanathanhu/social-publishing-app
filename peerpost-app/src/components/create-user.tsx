@@ -43,7 +43,9 @@ export function CreateUser() {
 			className="flex flex-col gap-2 rounded-lg border border-black/10 p-4 sm:flex-row sm:items-end"
 		>
 			<div className="flex-1">
-				<label className="mb-1 block text-xs font-medium opacity-60">Email</label>
+				<label className="mb-1 block text-xs font-medium opacity-60">
+					Email
+				</label>
 				<input
 					type="email"
 					value={email}
@@ -64,7 +66,9 @@ export function CreateUser() {
 				/>
 			</div>
 			<div>
-				<label className="mb-1 block text-xs font-medium opacity-60">Access</label>
+				<label className="mb-1 block text-xs font-medium opacity-60">
+					Access
+				</label>
 				<select
 					value={role}
 					onChange={(e) => setRole(e.target.value)}

@@ -67,9 +67,7 @@ export function Sidebar({ user }: { user: NavUser }) {
 
 			<div className="mt-4 border-t border-black/10 pt-4">
 				<div className="px-2 text-sm">{user.name ?? user.email}</div>
-				{user.isAdmin && (
-					<div className="px-2 text-xs text-primary">Admin</div>
-				)}
+				{user.isAdmin && <div className="px-2 text-xs text-primary">Admin</div>}
 				<button
 					type="button"
 					onClick={logout}

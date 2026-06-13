@@ -4,8 +4,8 @@ import { db } from "@/db";
 import { teams } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { route } from "@/lib/http";
-import { assertAdmin } from "@/lib/rbac";
 import { getTeamsForUser } from "@/lib/queries";
+import { assertAdmin } from "@/lib/rbac";
 
 /** GET — teams the user can access (all teams for admins). */
 export const GET = route(async () => {

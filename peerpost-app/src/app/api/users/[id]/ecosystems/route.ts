@@ -23,7 +23,8 @@ export const PUT = route(async (request: NextRequest, { params }: Ctx) => {
 	const { profileIds } = putSchema.parse(await request.json());
 
 	const target = await db.query.users.findFirst({ where: eq(users.id, id) });
-	if (!target) return Response.json({ error: "User not found" }, { status: 404 });
+	if (!target)
+		return Response.json({ error: "User not found" }, { status: 404 });
 
 	if (profileIds.length > 0 && !target.approved && target.role !== "admin") {
 		return Response.json(

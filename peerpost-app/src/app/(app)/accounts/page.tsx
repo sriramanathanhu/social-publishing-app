@@ -1,11 +1,12 @@
-import { requirePageUser } from "@/lib/page-auth";
-import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { CreateProfile } from "@/components/create-profile";
 import { EditableName } from "@/components/editable-name";
-import { db } from "@/db";
-import { integrationsCache } from "@/db/schema";
-import { getAccessibleProfilesInTeam, getTeamsForUser } from "@/lib/queries";
+import { requirePageUser } from "@/lib/page-auth";
+import {
+	getAccessibleProfilesInTeam,
+	getIntegrationCounts,
+	getTeamsForUser,
+} from "@/lib/queries";
 import { isAdmin } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 
@@ -32,16 +33,17 @@ export default async function AccountsPage({
 				<h1 className="mb-3 text-xl font-semibold">Connected Accounts</h1>
 				<div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
 					{admin ? (
-						<>No teams yet. Create one under Admin → Teams.</>
+						"No teams yet. Create one under Admin → Teams."
 					) : !user.approved ? (
 						<>
-							Your account is awaiting admin approval. Once approved and assigned an
-							ecosystem, you&apos;ll be able to connect platforms and publish here.
+							Your account is awaiting admin approval. Once approved and
+							assigned an ecosystem, you&apos;ll be able to connect platforms
+							and publish here.
 						</>
 					) : (
 						<>
-							You haven&apos;t been assigned any ecosystems yet. Ask an admin to assign
-							you one under Members.
+							You haven&apos;t been assigned any ecosystems yet. Ask an admin to
+							assign you one under Members.
 						</>
 					)}
 				</div>
@@ -50,16 +52,7 @@ export default async function AccountsPage({
 	}
 
 	const profiles = await getAccessibleProfilesInTeam(user, activeTeam.id);
-	const counts = await Promise.all(
-		profiles.map(async (p) => {
-			const rows = await db
-				.select({ id: integrationsCache.id })
-				.from(integrationsCache)
-				.where(eq(integrationsCache.profileId, p.id));
-			return [p.id, rows.length] as const;
-		}),
-	);
-	const countById = new Map(counts);
+	const countById = await getIntegrationCounts(profiles.map((p) => p.id));
 
 	return (
 		<div className="space-y-6">
@@ -87,7 +80,10 @@ export default async function AccountsPage({
 			<div className="flex items-baseline justify-between">
 				<h2 className="text-base font-medium">
 					{admin ? (
-						<EditableName endpoint={`/api/teams/${activeTeam.id}`} name={activeTeam.name} />
+						<EditableName
+							endpoint={`/api/teams/${activeTeam.id}`}
+							name={activeTeam.name}
+						/>
 					) : (
 						activeTeam.name
 					)}

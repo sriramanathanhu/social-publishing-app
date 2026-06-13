@@ -41,7 +41,9 @@ export function CreateTeam() {
 			className="flex flex-col gap-2 rounded-lg border border-black/10 p-4 sm:flex-row sm:items-end"
 		>
 			<div className="flex-1">
-				<label className="mb-1 block text-xs font-medium opacity-60">Team name</label>
+				<label className="mb-1 block text-xs font-medium opacity-60">
+					Team name
+				</label>
 				<input
 					value={name}
 					onChange={(e) => setName(e.target.value)}

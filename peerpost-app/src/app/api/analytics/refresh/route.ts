@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
 import { refreshAllAnalytics, refreshAnalytics } from "@/lib/analytics";
+import { getCurrentUser } from "@/lib/auth";
 import { route } from "@/lib/http";
 import { getAccessibleProfiles } from "@/lib/queries";
 
@@ -22,7 +22,8 @@ export const POST = route(async (request: NextRequest) => {
 	}
 
 	const user = await getCurrentUser();
-	if (!user) return Response.json({ error: "Not authenticated" }, { status: 401 });
+	if (!user)
+		return Response.json({ error: "Not authenticated" }, { status: 401 });
 
 	const profiles = await getAccessibleProfiles(user);
 	const updated = await refreshAnalytics(profiles.map((p) => p.id));
