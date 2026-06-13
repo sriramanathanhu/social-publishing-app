@@ -101,7 +101,29 @@ export const POST = route(async (request: NextRequest, { params }: Ctx) => {
 			timezone: input.timezone,
 		};
 		const result = await postpeer.createPost(payload);
-		const postpeerPostId = result.post?.id ?? result.id ?? null;
+		const postpeerPostId = result.postId ?? null;
+		const platformResults = result.platforms ?? [];
+
+		// PostPeer returns 202 even on per-platform failure, so trust `success`.
+		if (!result.success) {
+			const detail =
+				platformResults
+					.filter((p) => !p.success)
+					.map((p) => `${p.platform}: ${p.error ?? "failed"}`)
+					.join("; ") ||
+				result.message ||
+				"Publishing failed";
+
+			await db
+				.update(postsLog)
+				.set({ status: "failed", postpeerPostId, error: detail })
+				.where(eq(postsLog.id, logRow.id));
+
+			return Response.json(
+				{ error: detail, platforms: platformResults },
+				{ status: 400 },
+			);
+		}
 
 		await db
 			.update(postsLog)
@@ -111,7 +133,10 @@ export const POST = route(async (request: NextRequest, { params }: Ctx) => {
 			})
 			.where(eq(postsLog.id, logRow.id));
 
-		return Response.json({ post: { ...logRow, postpeerPostId } }, { status: 201 });
+		return Response.json(
+			{ post: { ...logRow, postpeerPostId }, platforms: platformResults },
+			{ status: 201 },
+		);
 	} catch (err) {
 		await db
 			.update(postsLog)

@@ -111,6 +111,26 @@ export type CreatePostInput = {
 
 export type PostPeerPost = { id: string; status?: string };
 
+/**
+ * Result of POST /posts/. NOTE: PostPeer returns HTTP 202 (a 2xx!) even when a
+ * platform FAILS, with `success:false` and per-platform results — so callers
+ * must inspect `success` / `platforms[].success`, not just the HTTP status.
+ */
+export type CreatePostResult = {
+	success: boolean;
+	status?: string; // "published" | "scheduled" | "failed" | "partial" ...
+	postId?: string;
+	message?: string;
+	platforms?: {
+		platform: string;
+		success: boolean;
+		error?: string;
+		url?: string;
+	}[];
+};
+
+export type PinterestBoard = { id: string; name: string; privacy?: string };
+
 export type PresignResponse = { uploadUrl: string; publicUrl: string };
 
 // ── API surface ─────────────────────────────────────────────────────────────
@@ -151,11 +171,17 @@ export const postpeer = {
 	disconnectIntegration: (id: string) =>
 		request<unknown>(`/connect/integrations/${id}`, { method: "DELETE" }),
 
-	/** Returns {success, ...} envelope; route extracts an id if present. */
+	/** Returns the full result envelope; the route decides success per `success`. */
 	createPost: (input: CreatePostInput) =>
-		request<{ success: boolean; post?: PostPeerPost; id?: string }>("/posts/", {
+		request<CreatePostResult>("/posts/", {
 			method: "POST",
 			body: JSON.stringify(input),
+		}),
+
+	/** Pinterest boards for a connected account (needed: boardId is required). */
+	getPinterestBoards: (accountId: string) =>
+		request<{ success: boolean; boards: PinterestBoard[] }>("/pinterest/boards", {
+			query: { accountId },
 		}),
 
 	cancelScheduled: (postId: string) =>

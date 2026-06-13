@@ -5,7 +5,7 @@ import { exchangeToken, SESSION_COOKIE, STATE_COOKIE } from "@/lib/nandi";
 /**
  * Nandi redirects here as ?auth_code=XXX&state=YYY after sign-in (or ?error=).
  * We verify state (CSRF), exchange the code for a session token, store it in an
- * httpOnly cookie, and bounce to /profiles. Matches the working KAILASA flow.
+ * httpOnly cookie, and bounce to /accounts. Matches the working KAILASA flow.
  */
 export async function GET(request: NextRequest) {
 	const base = process.env.NEXT_BASE_URL ?? new URL(request.url).origin;
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
 			maxAge: 60 * 60 * 24 * 7, // 7 days
 		});
 
-		return Response.redirect(`${base}/profiles`, 302);
+		return Response.redirect(`${base}/accounts`, 302);
 	} catch (error) {
 		console.error("auth/callback error:", error);
 		return fail("callback_error");
