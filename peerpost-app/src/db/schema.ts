@@ -74,6 +74,33 @@ export const users = pgTable(
 	(t) => [uniqueIndex("users_nandi_sub_idx").on(t.nandiSub)],
 );
 
+/**
+ * Personal API keys for the MCP server. The raw key is shown once at creation;
+ * only its SHA-256 hash is stored. A key inherits its owner's ecosystem access
+ * (admins = all). Used by Claude (via the MCP OAuth/token flow) to act as the
+ * user when publishing.
+ */
+export const apiKeys = pgTable(
+	"api_keys",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		label: text("label").notNull(),
+		keyHash: text("key_hash").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+		expiresAt: timestamp("expires_at", { withTimezone: true }),
+	},
+	(t) => [
+		uniqueIndex("api_keys_hash_idx").on(t.keyHash),
+		index("api_keys_user_idx").on(t.userId),
+	],
+);
+
 /** A team groups ecosystems (admin-created organisational container). */
 export const teams = pgTable("teams", {
 	id: uuid("id").defaultRandom().primaryKey(),

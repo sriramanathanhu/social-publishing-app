@@ -66,9 +66,17 @@ _Last updated: 2026-06-13_
 
 ---
 
+## MCP server (Claude integration)
+
+- A standalone MCP server lives in [`peerpost-app/mcp-server/`](peerpost-app/mcp-server/) (Express + `@modelcontextprotocol/sdk`), run via `pnpm mcp` on **port 3010**. It shares the app's Postgres + Drizzle `src/db/schema.ts` and has its own thin PostPeer client (publish/cancel).
+- **Auth = API-key-backed OAuth** (mirrors the smassets MCP at `/root/social-Media-Asset-Management/mcp-server`). Claude's connector does the OAuth handshake; the credential is a **PeerPost API key** the user generates at **Settings → API keys** (`api_keys` table, SHA-256 hashed). The access_token IS the key. Tools are scoped to the key owner's ecosystems + approval via `mcp-server/auth.ts`.
+- **Public URL:** `https://post-dev.kailasa.ai/mcp`. Caddy routes `/mcp`, `/authorize`, `/oauth/*`, `/.well-known/oauth-*` → `localhost:3010`; everything else → `:3009` (app). Both run as bare `nohup` processes (no systemd yet).
+- **Tools (v1, text-only):** list_ecosystems, list_connected_accounts, preview_post, publish_post, schedule_post, list_scheduled, cancel_scheduled, get_analytics. Text-capable platforms only: twitter, linkedin, facebook, bluesky, threads (media platforms deferred — no image rendering yet).
+- The app's `tsconfig.json` excludes `mcp-server` + `tests` (separate runtimes). Posts made via MCP write to `posts_log`, so they appear in the app UI + analytics.
+
 ## Deployment facts (this server)
 
-- **Port 3009** (`pnpm start`, prod build). Ports 3005–3008, 3100, 3101 belong to other apps — do not reuse.
+- **Port 3009** (`pnpm start`, prod build) = app; **3010** (`pnpm mcp`) = MCP server. Ports 3005–3008, 3100, 3101 belong to other apps — do not reuse.
   Process title is `next-server` (no port string) — kill by PID via `ss -tlnp 'sport = :3009'`, not `pkill -f 3009`.
 - **Public domain:** http://post-dev.kailasa.ai → Caddy `reverse_proxy` → `localhost:3009`
   (block in `/etc/caddy/Caddyfile`, mirrors `digi-dev.kailasa.ai`). Cloudflare proxies; auto-HTTPS works.
