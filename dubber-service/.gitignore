@@ -10,3 +10,4 @@ translation_cache.json
 venv/
 *.wav
 workspace/
+cookies/

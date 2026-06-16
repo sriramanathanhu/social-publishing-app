@@ -1,5 +1,50 @@
-import os, subprocess, json
+import os, sys, subprocess, json
 from .utils import log
+
+# Invoke yt-dlp through the *current* interpreter (`python -m yt_dlp`) rather
+# than a bare `yt-dlp` binary. yt-dlp is a venv dependency, so this resolves to
+# the right executable no matter how the service was launched — it cannot fail
+# with "No such file or directory: 'yt-dlp'" the way a PATH-dependent binary can.
+_YTDLP_BASE = [sys.executable, "-m", "yt_dlp"]
+
+# Optional authentication for sources that require login or are rate-limited for
+# anonymous access (Instagram, age-gated YouTube, private posts, ...). Point
+# YTDLP_COOKIES_FILE at a Netscape-format cookies.txt exported from a logged-in
+# browser; yt-dlp applies each cookie to its matching domain. YTDLP_COOKIES_FROM_BROWSER
+# is supported too but only works where that browser profile exists on the host.
+_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
+_COOKIES_FROM_BROWSER_ENV = "YTDLP_COOKIES_FROM_BROWSER"
+
+# Substrings in yt-dlp's stderr that mean "this needs authentication", not a
+# transient network problem — surfaced to the user as an actionable message.
+_AUTH_ERROR_HINTS = (
+    "login required",
+    "rate-limit",
+    "private",
+    "cookies",
+    "sign in",
+    "not available",
+)
+
+
+def _ytdlp_auth_flags():
+    """yt-dlp auth flags from env, if a cookies source is configured and present."""
+    flags = []
+    cookies_file = os.environ.get(_COOKIES_FILE_ENV, "").strip()
+    if cookies_file:
+        if os.path.exists(cookies_file):
+            flags += ["--cookies", cookies_file]
+        else:
+            log("DOWNLOAD", f"WARNING: {_COOKIES_FILE_ENV}={cookies_file} not found; continuing without cookies")
+    browser = os.environ.get(_COOKIES_FROM_BROWSER_ENV, "").strip()
+    if browser:
+        flags += ["--cookies-from-browser", browser]
+    return flags
+
+
+def _looks_like_auth_error(stderr):
+    low = (stderr or "").lower()
+    return any(hint in low for hint in _AUTH_ERROR_HINTS)
 
 # Hardened network flags for yt-dlp.
 #
@@ -33,10 +78,11 @@ def is_url(s):
 def _fetch_source_metadata(url):
     r = subprocess.run(
         [
-            "yt-dlp",
+            *_YTDLP_BASE,
             "--dump-single-json",
             "--no-playlist",
             "--no-warnings",
+            *_ytdlp_auth_flags(),
             *_YTDLP_NETWORK_FLAGS,
             url,
         ],
@@ -83,11 +129,12 @@ def download_video(url, output_dir="workspace"):
     try:
         r = subprocess.run(
             [
-                "yt-dlp",
+                *_YTDLP_BASE,
                 "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
                 "--merge-output-format", "mp4",
                 "-o", out_path,
                 "--no-playlist",
+                *_ytdlp_auth_flags(),
                 *_YTDLP_NETWORK_FLAGS,
                 url,
             ],
@@ -103,6 +150,16 @@ def download_video(url, output_dir="workspace"):
         ) from e
 
     if r.returncode != 0:
+        # Distinguish "this source needs login" from a transient failure so the
+        # user knows to supply cookies rather than just retrying forever.
+        if _looks_like_auth_error(r.stderr) and not _ytdlp_auth_flags():
+            raise RuntimeError(
+                "This source requires authentication (login required or rate-limited "
+                "for anonymous access — common for Instagram). Provide a cookies file: "
+                "export cookies.txt from a logged-in browser and set YTDLP_COOKIES_FILE "
+                "in dubber-service/.env, then restart the service.\n"
+                f"yt-dlp said:\n{r.stderr[-400:]}"
+            )
         raise RuntimeError(f"yt-dlp failed:\n{r.stderr[-600:]}")
     log("DOWNLOAD", f"Saved -> {out_path}")
     return {
