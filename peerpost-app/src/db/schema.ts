@@ -169,6 +169,11 @@ export const integrationsCache = pgTable(
 		handle: text("handle"),
 		displayName: text("display_name"),
 		status: integrationStatusEnum("status").notNull().default("connected"),
+		// Whether this account is usable for posting. PostPeer's OAuth imports
+		// EVERY page an account manages (e.g. 200 Facebook pages); the user picks
+		// which are active. Non-destructive — survives reconnects (sync preserves
+		// it) unlike disconnecting, which PostPeer would re-import on next connect.
+		active: boolean("active").notNull().default(true),
 		connectedByUserId: uuid("connected_by_user_id").references(() => users.id, {
 			onDelete: "set null",
 		}),

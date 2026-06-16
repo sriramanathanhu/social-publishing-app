@@ -92,21 +92,34 @@ export async function getProfile(profileId: string) {
 	);
 }
 
-/** Full-platform connection view: every platform + connected flag for a profile. */
+/**
+ * Full-platform connection view: every platform, with ALL connected accounts.
+ * A platform can have multiple accounts (e.g. several LinkedIn pages), so each
+ * is listed individually rather than collapsed to one.
+ */
 export async function getPlatformStatus(profileId: string) {
 	const connected = await db
 		.select()
 		.from(integrationsCache)
 		.where(eq(integrationsCache.profileId, profileId));
-	const byPlatform = new Map(connected.map((c) => [c.platform, c]));
+	const byPlatform = new Map<string, typeof connected>();
+	for (const c of connected) {
+		const arr = byPlatform.get(c.platform) ?? [];
+		arr.push(c);
+		byPlatform.set(c.platform, arr);
+	}
 	return PLATFORMS.map((platform) => {
-		const c = byPlatform.get(platform);
+		const accts = byPlatform.get(platform) ?? [];
 		return {
 			platform,
-			connected: !!c,
-			accountId: c?.postpeerAccountId ?? null,
-			handle: c?.handle ?? null,
-			displayName: c?.displayName ?? null,
+			connected: accts.length > 0,
+			activeCount: accts.filter((c) => c.active).length,
+			accounts: accts.map((c) => ({
+				accountId: c.postpeerAccountId,
+				handle: c.handle,
+				displayName: c.displayName,
+				active: c.active,
+			})),
 		};
 	});
 }
@@ -124,16 +137,41 @@ export async function getIntegrationCounts(
 	return new Map(rows.map((r) => [r.profileId, Number(r.count)]));
 }
 
-/** Connected accounts for a profile (for the composer). */
+/** Connected, ACTIVE accounts for a profile (for the composer). */
 export async function getConnectedAccounts(profileId: string) {
 	const rows = await db
 		.select()
 		.from(integrationsCache)
-		.where(eq(integrationsCache.profileId, profileId));
+		.where(
+			and(
+				eq(integrationsCache.profileId, profileId),
+				eq(integrationsCache.active, true),
+			),
+		);
 	return rows.map((r) => ({
 		platform: r.platform,
 		accountId: r.postpeerAccountId,
 		handle: r.handle,
+	}));
+}
+
+/** All accounts for a profile+platform, with active state (for management UI). */
+export async function getPlatformAccounts(profileId: string, platform: string) {
+	const rows = await db
+		.select()
+		.from(integrationsCache)
+		.where(
+			and(
+				eq(integrationsCache.profileId, profileId),
+				eq(integrationsCache.platform, platform as (typeof PLATFORMS)[number]),
+			),
+		)
+		.orderBy(integrationsCache.handle);
+	return rows.map((r) => ({
+		accountId: r.postpeerAccountId,
+		handle: r.handle,
+		displayName: r.displayName,
+		active: r.active,
 	}));
 }
 

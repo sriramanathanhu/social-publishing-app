@@ -11,6 +11,7 @@
 		"format": "biome format --write",
 		"test": "vitest run",
 		"test:watch": "vitest",
+		"typecheck:mcp": "tsc -p mcp-server/tsconfig.json",
 		"mcp": "tsx --env-file=.env mcp-server/http-server.ts",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",

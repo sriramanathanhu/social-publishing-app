@@ -45,6 +45,12 @@ export async function GET(request: NextRequest) {
 			maxAge: 60 * 60 * 24 * 7, // 7 days
 		});
 
+		// MCP connector login: hand back to the MCP server to mint its token.
+		if (returnedState?.startsWith("mcp:")) {
+			const login = returnedState.slice(4);
+			return Response.redirect(`${base}/oauth/mcp-finish?login=${login}`, 302);
+		}
+
 		return Response.redirect(`${base}/accounts`, 302);
 	} catch (error) {
 		console.error("auth/callback error:", error);

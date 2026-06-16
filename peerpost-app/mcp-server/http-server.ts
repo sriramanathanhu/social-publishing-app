@@ -9,10 +9,25 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import cors from "cors";
 import express from "express";
 import { type AuthContext, authStorage, validateApiKey } from "./auth";
+import { mintApiKey, resolveUserFromSession } from "./sso";
 import { createMcpServer } from "./tools";
 
 const PORT = Number.parseInt(process.env.MCP_PORT ?? "3010", 10);
 const PUBLIC_URL = process.env.MCP_PUBLIC_URL ?? "https://post-dev.kailasa.ai";
+// Where the app (and its registered Nandi callback) live.
+const APP_BASE = process.env.NEXT_BASE_URL ?? PUBLIC_URL;
+const NANDI_URL = process.env.NEXT_AUTH_URL ?? "";
+const NANDI_CLIENT_ID = process.env.NEXT_AUTH_CLIENT_ID ?? "";
+
+function parseCookies(header: string | undefined): Record<string, string> {
+	const out: Record<string, string> = {};
+	if (!header) return out;
+	for (const part of header.split(";")) {
+		const i = part.indexOf("=");
+		if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+	}
+	return out;
+}
 
 const app = express();
 app.use(express.json());
@@ -34,10 +49,21 @@ type AuthCode = {
 	expiresAt: number;
 };
 const authCodes = new Map<string, AuthCode>();
+// Pending SSO logins: maps our `mcp:<id>` state → Claude's OAuth params, kept
+// while the user round-trips through Nandi login.
+type PendingLogin = {
+	claudeRedirect: string;
+	codeChallenge: string;
+	claudeState: string;
+	expiresAt: number;
+};
+const pendingLogins = new Map<string, PendingLogin>();
 setInterval(
 	() => {
 		const now = Date.now();
 		for (const [c, d] of authCodes) if (d.expiresAt < now) authCodes.delete(c);
+		for (const [c, d] of pendingLogins)
+			if (d.expiresAt < now) pendingLogins.delete(c);
 	},
 	5 * 60 * 1000,
 );
@@ -76,6 +102,12 @@ app.get("/.well-known/oauth-protected-resource", (_req, res) => {
 	});
 });
 
+/**
+ * Authorize via Nandi SSO (no API key). We stash Claude's OAuth params, set the
+ * CSRF cookie the app's Nandi callback expects, and redirect the user to Nandi
+ * sign-in pointed at the app's ALREADY-REGISTERED callback. The `mcp:` state
+ * tells that callback to bounce back to /oauth/mcp-finish here.
+ */
 app.get("/authorize", (req, res) => {
 	const { response_type, redirect_uri, code_challenge, state } =
 		req.query as Record<string, string>;
@@ -83,54 +115,70 @@ app.get("/authorize", (req, res) => {
 		res.status(400).send("Invalid OAuth request");
 		return;
 	}
-	res.type("html").send(`<!DOCTYPE html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connect PeerPost</title>
-<style>body{font-family:system-ui;background:#0f172a;color:#e2e8f0;display:grid;place-items:center;min-height:100vh;margin:0}
-.card{background:#1e293b;padding:2rem;border-radius:12px;max-width:420px;width:90%}
-h1{font-size:1.15rem;margin:0 0 .25rem} p{color:#94a3b8;font-size:.85rem;margin:0 0 1.25rem}
-input{width:100%;padding:.7rem;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#fff;box-sizing:border-box}
-button{width:100%;margin-top:1rem;padding:.7rem;border:0;border-radius:8px;background:#4f46e5;color:#fff;font-weight:600;cursor:pointer}
-.err{color:#f87171;font-size:.8rem;margin-top:.6rem;display:none} a{color:#818cf8}</style></head>
-<body><div class="card"><h1>Connect Claude to PeerPost</h1>
-<p>Paste a PeerPost API key. Generate one under Settings → API keys.</p>
-<form id="f"><input id="k" type="password" placeholder="pp_..." autocomplete="off" required>
-<button id="b" type="submit">Authorize</button><div class="err" id="e"></div></form></div>
-<script>
-const f=document.getElementById('f');
-f.addEventListener('submit',async(ev)=>{ev.preventDefault();const b=document.getElementById('b');b.disabled=true;b.textContent='Authorizing…';
-const body=new URLSearchParams({api_key:document.getElementById('k').value,redirect_uri:${JSON.stringify(redirect_uri)},code_challenge:${JSON.stringify(code_challenge)},state:${JSON.stringify(state)}});
-const r=await fetch('/authorize',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
-const d=await r.json().catch(()=>null);
-if(d&&d.redirect_to){window.location.href=d.redirect_to;return;}
-const e=document.getElementById('e');e.textContent=(d&&d.error_description)||'Authorization failed';e.style.display='block';b.disabled=false;b.textContent='Authorize';});
-</script></body></html>`);
+	const login = randomUUID();
+	pendingLogins.set(login, {
+		claudeRedirect: redirect_uri,
+		codeChallenge: code_challenge,
+		claudeState: state,
+		expiresAt: Date.now() + 10 * 60 * 1000,
+	});
+
+	const nandiState = `mcp:${login}`;
+	res.cookie("nandi_oauth_state", nandiState, {
+		httpOnly: true,
+		sameSite: "lax",
+		secure: true,
+		path: "/",
+		maxAge: 10 * 60 * 1000,
+	});
+
+	const url = new URL(`${NANDI_URL}/oauth/authorize`);
+	url.searchParams.set("client_id", NANDI_CLIENT_ID);
+	url.searchParams.set("redirect_uri", `${APP_BASE}/api/auth/callback`);
+	url.searchParams.set("state", nandiState);
+	res.redirect(url.toString());
 });
 
-app.post("/authorize", async (req, res) => {
-	const { api_key, redirect_uri, code_challenge, state } = req.body;
-	if (!api_key || !redirect_uri || !code_challenge || !state) {
-		res.status(400).json({ error: "invalid_request" });
+/**
+ * The app's Nandi callback bounces here (?login=...) after setting the session
+ * cookie. We resolve the signed-in user, mint an API key as the access_token,
+ * and hand Claude its authorization code.
+ */
+app.get("/oauth/mcp-finish", async (req, res) => {
+	const login = req.query.login as string | undefined;
+	const pending = login ? pendingLogins.get(login) : undefined;
+	if (!pending || pending.expiresAt < Date.now()) {
+		res.status(400).send("Login expired — please reconnect from Claude.");
+		return;
+	}
+	pendingLogins.delete(login as string);
+
+	const sessionToken = parseCookies(req.headers.cookie).nandi_session_token;
+	if (!sessionToken) {
+		res.status(401).send("No PeerPost session — please sign in and retry.");
 		return;
 	}
 	try {
-		await validateApiKey(api_key);
+		const userId = await resolveUserFromSession(sessionToken);
+		if (!userId) {
+			res.status(401).send("Could not resolve your PeerPost account.");
+			return;
+		}
+		const apiKey = await mintApiKey(userId);
 		const code = randomUUID();
 		authCodes.set(code, {
-			apiKey: api_key,
-			codeChallenge: code_challenge,
-			redirectUri: redirect_uri,
+			apiKey,
+			codeChallenge: pending.codeChallenge,
+			redirectUri: pending.claudeRedirect,
 			expiresAt: Date.now() + 10 * 60 * 1000,
 		});
-		const url = new URL(redirect_uri);
+		const url = new URL(pending.claudeRedirect);
 		url.searchParams.set("code", code);
-		url.searchParams.set("state", state);
-		res.json({ redirect_to: url.toString() });
+		url.searchParams.set("state", pending.claudeState);
+		res.redirect(url.toString());
 	} catch (e) {
-		res.status(401).json({
-			error: "access_denied",
-			error_description: e instanceof Error ? e.message : "Invalid API key",
-		});
+		console.error("mcp-finish error:", e);
+		res.status(500).send("Authorization failed. Please try again.");
 	}
 });
 
