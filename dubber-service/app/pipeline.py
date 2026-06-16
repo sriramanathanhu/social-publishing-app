@@ -144,9 +144,12 @@ def run_dub(req: DubRequest, on_progress: Optional[ProgressCb] = None) -> "DubRe
     segments = translate_segments(segments, req.target_lang, req.workspace)
     emit("translate", "Translation complete.")
 
-    # 5) TTS (Edge-TTS — free, CPU/light)
+    # 5) TTS (Edge-TTS — free, CPU/light). generate_tts_audio returns a NEW list
+    # of segments enriched with `audio_path` (the synthesized clip per segment);
+    # it does not mutate in place, so the return value MUST be captured or the
+    # builder sees no audio and produces a silent video.
     emit("tts", "Synthesising dubbed audio ...", 0.1)
-    generate_tts_audio(segments, voice=req.voice, output_dir=req.workspace)
+    segments = generate_tts_audio(segments, voice=req.voice, output_dir=req.workspace)
     emit("tts", "Voice synthesis complete.")
 
     # 6) Build the dubbed video (FFmpeg). BGM disabled in the spike.
