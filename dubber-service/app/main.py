@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import tempfile
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -71,12 +72,23 @@ class CreateJob(BaseModel):
     mistral_key: str = ""
     platforms: Optional[list[str]] = None
     source_lang: str = "auto"
+    source_type: str = "url"          # "url" | "upload" (direct fetch, no extractor)
+    cookies: str = ""                 # per-job yt-dlp cookies.txt content (optional)
 
 
 def _run_job(job: Job, body: CreateJob) -> None:
     job.status = "running"
     out_path = os.path.join(OUTPUT_DIR, f"{job.id}.mp4")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    # Materialise per-job cookies (if supplied) to a temp file yt-dlp can read.
+    # Kept OUTSIDE the workspace (run_dub wipes the workspace on start) and
+    # removed in the finally block so credentials never linger on disk.
+    cookies_file = None
+    if body.cookies.strip():
+        fd, cookies_file = tempfile.mkstemp(prefix=f"dubcookies_{job.id}_", suffix=".txt")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(body.cookies)
 
     def on_progress(ev: StageEvent) -> None:
         job.pct, job.stage, job.message = ev.pct, ev.stage, ev.message
@@ -93,6 +105,8 @@ def _run_job(job: Job, body: CreateJob) -> None:
                 mistral_key=body.mistral_key,
                 platforms=body.platforms,
                 source_lang=body.source_lang,
+                source_type=body.source_type,
+                cookies_file=cookies_file,
                 workspace=os.path.join("workspace", job.id),
                 output_path=out_path,
             ),
@@ -105,6 +119,11 @@ def _run_job(job: Job, body: CreateJob) -> None:
         job.status = "failed"
         job.error = str(exc)
     finally:
+        if cookies_file and os.path.exists(cookies_file):
+            try:
+                os.remove(cookies_file)
+            except OSError:
+                pass
         # Sentinel so an open SSE stream knows to close.
         job.events.put(None)  # type: ignore[arg-type]
 

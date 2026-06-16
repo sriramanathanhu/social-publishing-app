@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { dubJobs } from "@/db/schema";
-import { getUserKeys } from "@/lib/api-keys";
+import { getUserCookies, getUserKeys } from "@/lib/api-keys";
 import { HttpError, requireUser } from "@/lib/auth";
 import { DUB_LANGUAGE_CODES, DUB_VOICE_IDS } from "@/lib/dub-options";
 import { dubber } from "@/lib/dubber";
@@ -24,8 +24,10 @@ export const GET = route(async () => {
 });
 
 const createSchema = z.object({
-	// Phase 0/1: URL input. Direct upload (sourceType "upload") lands in Phase 2.
-	sourceType: z.literal("url"),
+	// "url": yt-dlp extracts the source (YouTube/Instagram/Drive/...).
+	// "upload": sourceInput is a public URL we host (the local file the user
+	// uploaded, already pushed to PostPeer media) — fetched directly, no cookies.
+	sourceType: z.enum(["url", "upload"]).default("url"),
 	sourceInput: z.string().url(),
 	sourceLang: z.string().min(2).max(8).default("auto"),
 	targetLang: z.enum(DUB_LANGUAGE_CODES as [string, ...string[]]),
@@ -69,12 +71,21 @@ export const POST = route(async (request: NextRequest) => {
 		})
 		.returning();
 
+	// Uploaded files are hosted by us → no auth needed. For URL sources, pass the
+	// user's cookies (if any) so login/rate-limited platforms can authenticate.
+	const cookies =
+		input.sourceType === "url"
+			? ((await getUserCookies(user.id)) ?? undefined)
+			: undefined;
+
 	try {
 		const { job_id } = await dubber.createJob({
 			video_input: input.sourceInput,
 			source_lang: input.sourceLang,
 			target_lang: input.targetLang,
 			voice: input.voice,
+			source_type: input.sourceType,
+			cookies,
 			deepgram_key: keys.deepgram,
 			gemini_key: keys.gemini,
 			// Optional — improves caption quality; the pipeline falls back without it.

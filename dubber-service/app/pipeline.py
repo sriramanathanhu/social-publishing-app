@@ -55,6 +55,8 @@ class DubRequest:
     source_lang: str = "auto"
     workspace: str = "workspace"
     output_path: str = "output.mp4"
+    source_type: str = "url"          # "url" (extractor) | "upload" (direct fetch)
+    cookies_file: Optional[str] = None  # per-job yt-dlp cookies (login/rate-limit)
 
 
 @dataclass
@@ -114,7 +116,12 @@ def run_dub(req: DubRequest, on_progress: Optional[ProgressCb] = None) -> "DubRe
     # 1) Source
     if is_url(req.video_input):
         emit("download", "Downloading video ...", 0.1)
-        result = download_video(req.video_input, req.workspace)
+        result = download_video(
+            req.video_input,
+            req.workspace,
+            source_type=req.source_type,
+            cookies_file=req.cookies_file,
+        )
         video_path = (
             result.get("video_path", "") if isinstance(result, dict) else result
         )

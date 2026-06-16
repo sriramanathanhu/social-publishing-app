@@ -326,6 +326,9 @@ export const userApiKeys = pgTable("user_api_keys", {
 	deepgramKeyEnc: text("deepgram_key_enc"),
 	geminiKeyEnc: text("gemini_key_enc"),
 	mistralKeyEnc: text("mistral_key_enc"),
+	// Encrypted yt-dlp cookies.txt (Netscape format) for login/rate-limited
+	// sources (Instagram, YouTube on a server IP). Passed per-job, never shown.
+	cookiesEnc: text("cookies_enc"),
 	updatedAt: timestamp("updated_at", { withTimezone: true })
 		.defaultNow()
 		.notNull(),

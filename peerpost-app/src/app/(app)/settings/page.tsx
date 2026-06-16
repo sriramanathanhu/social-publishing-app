@@ -1,11 +1,15 @@
 import { ApiKeysForm } from "@/components/api-keys-form";
-import { getUserKeyPresence } from "@/lib/api-keys";
+import { CookiesForm } from "@/components/cookies-form";
+import { getUserCookiesPresence, getUserKeyPresence } from "@/lib/api-keys";
 import { requirePageUser } from "@/lib/page-auth";
 
 /** Settings: bring-your-own API keys for the dubbing pipeline. */
 export default async function SettingsPage() {
 	const user = await requirePageUser();
-	const presence = await getUserKeyPresence(user.id);
+	const [presence, cookiesPresent] = await Promise.all([
+		getUserKeyPresence(user.id),
+		getUserCookiesPresence(user.id),
+	]);
 
 	return (
 		<div className="space-y-5">
@@ -17,6 +21,7 @@ export default async function SettingsPage() {
 				</p>
 			</div>
 			<ApiKeysForm presence={presence} />
+			<CookiesForm present={cookiesPresent} />
 		</div>
 	);
 }

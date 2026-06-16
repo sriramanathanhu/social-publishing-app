@@ -30,6 +30,8 @@ export type DubberCreateInput = {
 	mistral_key?: string;
 	platforms?: string[];
 	source_lang?: string;
+	source_type?: "url" | "upload";
+	cookies?: string;
 };
 
 export type DubberCaption = { caption: string; title?: string };

@@ -74,3 +74,36 @@ export async function saveUserKeys(
 		.values({ userId, ...set })
 		.onConflictDoUpdate({ target: userApiKeys.userId, set });
 }
+
+/** Decrypt the user's stored yt-dlp cookies (or null if unset/undecryptable). */
+export async function getUserCookies(userId: string): Promise<string | null> {
+	const row = await db.query.userApiKeys.findFirst({
+		where: eq(userApiKeys.userId, userId),
+	});
+	if (!row?.cookiesEnc) return null;
+	try {
+		return decryptSecret(row.cookiesEnc);
+	} catch {
+		return null;
+	}
+}
+
+/** Whether the user has cookies stored (for the settings UI). */
+export async function getUserCookiesPresence(userId: string): Promise<boolean> {
+	return (await getUserCookies(userId)) !== null;
+}
+
+/** Save or clear (empty string) the user's yt-dlp cookies, encrypted. */
+export async function saveUserCookies(
+	userId: string,
+	cookies: string,
+): Promise<void> {
+	const cookiesEnc = cookies.trim() === "" ? null : encryptSecret(cookies);
+	await db
+		.insert(userApiKeys)
+		.values({ userId, cookiesEnc, updatedAt: new Date() })
+		.onConflictDoUpdate({
+			target: userApiKeys.userId,
+			set: { cookiesEnc, updatedAt: new Date() },
+		});
+}
