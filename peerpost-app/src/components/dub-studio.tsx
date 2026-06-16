@@ -40,6 +40,16 @@ export function DubStudio({ recentJobs }: { recentJobs: DubJobRow[] }) {
 	// Tear down the SSE connection on unmount.
 	useEffect(() => () => esRef.current?.close(), []);
 
+	// Force the server to poll the dubber-service and persist the row's terminal
+	// state. Best-effort: a failure just leaves the next page load to reconcile.
+	async function syncStatus(id: string) {
+		try {
+			await fetch(`/api/dub/${id}`);
+		} catch {
+			/* ignore — router.refresh() will re-read the row */
+		}
+	}
+
 	function subscribe(id: string) {
 		esRef.current?.close();
 		const es = new EventSource(`/api/dub/${id}/events`);
@@ -52,18 +62,24 @@ export function DubStudio({ recentJobs }: { recentJobs: DubJobRow[] }) {
 				/* ignore malformed frame */
 			}
 		});
-		es.addEventListener("done", () => {
+		es.addEventListener("done", async () => {
 			setPhase("done");
 			setProgress((p) =>
 				p ? { ...p, pct: 100 } : { pct: 100, stage: "done", message: "Done" },
 			);
 			es.close();
+			// The SSE proxy only streams to the browser — it doesn't write the DB.
+			// Hit the status route so the row is persisted as "done"; otherwise
+			// /result and /export (which check the stored row) keep returning
+			// "Dub is not finished yet" and the option vanishes on reload.
+			await syncStatus(id);
 			router.refresh();
 		});
-		es.addEventListener("failed", (e) => {
+		es.addEventListener("failed", async (e) => {
 			setPhase("failed");
 			setError((e as MessageEvent).data || "Dub failed");
 			es.close();
+			await syncStatus(id);
 			router.refresh();
 		});
 		es.onerror = () => es.close();

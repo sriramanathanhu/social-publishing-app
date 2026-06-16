@@ -4,6 +4,7 @@ import { DubStudio } from "@/components/dub-studio";
 import { db } from "@/db";
 import { dubJobs } from "@/db/schema";
 import { getUserKeyPresence } from "@/lib/api-keys";
+import { reconcileRunningJobs } from "@/lib/dub-jobs";
 import { requirePageUser } from "@/lib/page-auth";
 import { isApproved } from "@/lib/rbac";
 
@@ -12,6 +13,9 @@ export default async function DubPage() {
 	const user = await requirePageUser();
 	const presence = await getUserKeyPresence(user.id);
 	const keysReady = presence.deepgram && presence.gemini;
+
+	// Catch up any jobs that finished while no SSE tab was open.
+	await reconcileRunningJobs(user.id);
 
 	const jobs = await db
 		.select()
