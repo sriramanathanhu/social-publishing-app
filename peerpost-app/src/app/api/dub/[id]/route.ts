@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { db } from "@/db";
 import { dubJobs } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
-import { getOwnedJob } from "@/lib/dub-jobs";
+import { archiveDoneJob, getOwnedJob } from "@/lib/dub-jobs";
 import { dubber } from "@/lib/dubber";
 import { route } from "@/lib/http";
 
@@ -58,6 +58,14 @@ export const GET = route(async (_req: NextRequest, { params }: Ctx) => {
 			})
 			.where(eq(dubJobs.id, job.id))
 			.returning();
+		// Durably archive the finished dub to R2 (best-effort backup).
+		if (updated?.status === "done") {
+			try {
+				await archiveDoneJob(updated);
+			} catch {
+				// Non-fatal: a later status poll / page load retries.
+			}
+		}
 		return Response.json({ job: updated });
 	} catch {
 		// Service unreachable — return the last known state rather than erroring.

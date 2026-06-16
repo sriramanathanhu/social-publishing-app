@@ -363,6 +363,9 @@ export const dubJobs = pgTable(
 		message: text("message"),
 		// PostPeer publicUrl of the finished dub once uploaded (Phase 2 handoff).
 		outputUrl: text("output_url"),
+		// R2 object key of the durable archive copy (e.g. "dubs/<id>.mp4"), set
+		// once on completion. Backup only — publishing uses outputUrl/PostPeer.
+		archiveKey: text("archive_key"),
 		// AI-generated per-platform captions: { instagram: {caption, title?}, ... }.
 		captions: jsonb("captions").$type<Record<string, DubCaption>>(),
 		error: text("error"),

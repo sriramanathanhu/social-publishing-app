@@ -3,8 +3,29 @@ import { db } from "@/db";
 import { dubJobs } from "@/db/schema";
 import { type AppUser, HttpError } from "@/lib/auth";
 import { dubber } from "@/lib/dubber";
+import { archiveDubVideo, r2Enabled } from "@/lib/r2";
 
 export type DubJob = typeof dubJobs.$inferSelect;
+
+/**
+ * Durably archive a finished dub to R2 (backup only — does not affect
+ * publishing). Idempotent: skips if already archived or R2 isn't configured.
+ * Best-effort — the caller treats any failure as non-fatal so a storage hiccup
+ * never blocks download/publish. Returns the object key when one is set.
+ */
+export async function archiveDoneJob(job: DubJob): Promise<string | null> {
+	if (job.archiveKey) return job.archiveKey;
+	if (!job.dubberJobId || !r2Enabled()) return null;
+	const upstream = await dubber.result(job.dubberJobId);
+	if (!upstream.ok || !upstream.body) return null;
+	const key = await archiveDubVideo(job.id, await upstream.arrayBuffer());
+	if (!key) return null;
+	await db
+		.update(dubJobs)
+		.set({ archiveKey: key, updatedAt: new Date() })
+		.where(eq(dubJobs.id, job.id));
+	return key;
+}
 
 /** Load a dub job, asserting it belongs to the requesting user. */
 export async function getOwnedJob(
@@ -51,7 +72,7 @@ export async function reconcileRunningJobs(userId: string): Promise<number> {
 					/* captions best-effort */
 				}
 			}
-			await db
+			const [fresh] = await db
 				.update(dubJobs)
 				.set({
 					status: remote.status,
@@ -62,8 +83,17 @@ export async function reconcileRunningJobs(userId: string): Promise<number> {
 					captions,
 					updatedAt: new Date(),
 				})
-				.where(eq(dubJobs.id, job.id));
+				.where(eq(dubJobs.id, job.id))
+				.returning();
 			updated++;
+			// Archive on completion (best-effort — never blocks reconciliation).
+			if (fresh?.status === "done") {
+				try {
+					await archiveDoneJob(fresh);
+				} catch {
+					/* storage hiccup — retried on next load */
+				}
+			}
 		} catch {
 			/* service unreachable — leave the row as-is for the next load */
 		}
