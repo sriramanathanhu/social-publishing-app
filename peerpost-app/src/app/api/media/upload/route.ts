@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
-import { HttpError, requireUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { route } from "@/lib/http";
-import { postpeer } from "@/lib/postpeer";
+import { uploadBufferToPostPeer } from "@/lib/media";
 
 export const runtime = "nodejs";
 
@@ -38,25 +38,11 @@ export const POST = route(async (request: NextRequest) => {
 		);
 	}
 
-	const { uploadUrl, publicUrl } = await postpeer.presignMedia({
-		filename: file.name,
-		mimeType: file.type,
-	});
+	const { publicUrl, type } = await uploadBufferToPostPeer(
+		await file.arrayBuffer(),
+		file.name,
+		file.type,
+	);
 
-	const bytes = Buffer.from(await file.arrayBuffer());
-	const put = await fetch(uploadUrl, {
-		method: "PUT",
-		headers: { "Content-Type": file.type },
-		body: bytes,
-	});
-	if (!put.ok) {
-		const detail = await put.text().catch(() => "");
-		throw new HttpError(
-			502,
-			`Storage upload failed (${put.status})${detail ? `: ${detail.slice(0, 180)}` : ""}`,
-		);
-	}
-
-	const type = file.type.startsWith("video") ? "video" : "image";
 	return Response.json({ publicUrl, type, name: file.name });
 });

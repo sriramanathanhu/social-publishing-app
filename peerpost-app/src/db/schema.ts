@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
 	boolean,
 	index,
+	integer,
 	jsonb,
 	pgEnum,
 	pgTable,
@@ -49,6 +50,15 @@ export const postStatusEnum = pgEnum("post_status", [
 	"published",
 	"failed",
 	"cancelled",
+]);
+
+/** Lifecycle of a video dubbing job run by the dubber-service sidecar. */
+export const dubJobStatusEnum = pgEnum("dub_job_status", [
+	"queued",
+	"running",
+	"awaiting_review", // captions generated, awaiting user edit/approval (Phase 2)
+	"done",
+	"failed",
 ]);
 
 /** Our users, provisioned just-in-time from the Nandi SSO session. */
@@ -299,4 +309,69 @@ export const integrationsRelations = relations(
 			references: [profiles.id],
 		}),
 	}),
+);
+
+/**
+ * Per-user, bring-your-own API keys for the dubbing pipeline (Deepgram for
+ * transcription, Gemini for translation/vision, Mistral for captions). Values
+ * are stored ENCRYPTED at rest (AES-256-GCM, see lib/crypto.ts) and only
+ * decrypted server-side at job-dispatch time to pass to the dubber-service.
+ * The shared PostPeer key is NOT here — that's platform config in env.
+ */
+export const userApiKeys = pgTable("user_api_keys", {
+	userId: uuid("user_id")
+		.primaryKey()
+		.references(() => users.id, { onDelete: "cascade" }),
+	// Ciphertext blobs (null = not set). Never exposed to the client.
+	deepgramKeyEnc: text("deepgram_key_enc"),
+	geminiKeyEnc: text("gemini_key_enc"),
+	mistralKeyEnc: text("mistral_key_enc"),
+	updatedAt: timestamp("updated_at", { withTimezone: true })
+		.defaultNow()
+		.notNull(),
+});
+
+export type DubCaption = { caption: string; title?: string };
+
+/**
+ * A video dubbing job. Mirrors the dubber-service job (`dubberJobId`) and adds
+ * the ownership / RBAC layer PeerPost owns. On completion the dubbed video is
+ * uploaded via the existing media flow and handed to the composer (Phase 2).
+ */
+export const dubJobs = pgTable(
+	"dub_jobs",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		// Optional target ecosystem the dubbed video will publish under (Phase 2).
+		profileId: uuid("profile_id").references(() => profiles.id, {
+			onDelete: "set null",
+		}),
+		// The job id returned by the dubber-service (POST /jobs).
+		dubberJobId: text("dubber_job_id"),
+		status: dubJobStatusEnum("status").notNull().default("queued"),
+		// "url" | "upload" — how the source arrived.
+		sourceType: text("source_type").notNull(),
+		sourceInput: text("source_input").notNull(), // URL or stored upload ref
+		sourceLang: text("source_lang").notNull().default("auto"),
+		targetLang: text("target_lang").notNull(),
+		voice: text("voice").notNull(),
+		pct: integer("pct").notNull().default(0),
+		stage: text("stage"),
+		message: text("message"),
+		// PostPeer publicUrl of the finished dub once uploaded (Phase 2 handoff).
+		outputUrl: text("output_url"),
+		// AI-generated per-platform captions: { instagram: {caption, title?}, ... }.
+		captions: jsonb("captions").$type<Record<string, DubCaption>>(),
+		error: text("error"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [index("dub_jobs_user_idx").on(t.userId)],
 );
