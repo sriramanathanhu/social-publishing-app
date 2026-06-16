@@ -1,11 +1,12 @@
 .env
 .env.*
 !.env.example
-__pycache__/
+*.mp4
+outputs/
 *.pyc
+__pycache__/
+translation_cache.json
 .venv/
 venv/
-workspace/
-outputs/
-*.mp4
 *.wav
+workspace/
