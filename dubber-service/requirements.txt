@@ -1,0 +1,20 @@
+# Dubber service (Phase 0) — runtime subset of the autodubber pipeline.
+# Excludes faster-whisper (replaced by Deepgram) and demucs/torch (BGM, GPU).
+
+fastapi
+uvicorn[standard]
+pydantic
+requests
+
+# Pipeline dependencies (reused from the dubber/ package)
+yt-dlp
+edge-tts
+pydub
+deep-translator
+google-genai
+numpy
+soundfile
+httpx
+python-dotenv
+
+# System requirement (not pip): FFmpeg + FFprobe must be on PATH.

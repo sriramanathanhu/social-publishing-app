@@ -37,15 +37,20 @@ export function Composer({
 	profileId,
 	accounts,
 	canPost,
+	initialContent = "",
+	initialMedia = [],
 }: {
 	profileId: string;
 	accounts: ConnectedAccount[];
 	canPost: boolean;
+	// Optional pre-fill, e.g. handing a freshly dubbed video to the composer.
+	initialContent?: string;
+	initialMedia?: MediaItem[];
 }) {
 	const router = useRouter();
-	const [content, setContent] = useState("");
+	const [content, setContent] = useState(initialContent);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
-	const [media, setMedia] = useState<MediaItem[]>([]);
+	const [media, setMedia] = useState<MediaItem[]>(initialMedia);
 	const [uploading, setUploading] = useState(false);
 	const [scheduledFor, setScheduledFor] = useState("");
 	const [busy, setBusy] = useState(false);

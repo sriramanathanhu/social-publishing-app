@@ -10,8 +10,22 @@ type ProfileWithAccounts = {
 	accounts: { platform: string; accountId: string; handle: string | null }[];
 };
 
+type PrefillMedia = {
+	type: "image" | "video" | "gif";
+	url: string;
+	name: string;
+};
+
 /** Profile picker + composer for the Create Post page. */
-export function CreatePost({ profiles }: { profiles: ProfileWithAccounts[] }) {
+export function CreatePost({
+	profiles,
+	initialContent = "",
+	initialMedia = [],
+}: {
+	profiles: ProfileWithAccounts[];
+	initialContent?: string;
+	initialMedia?: PrefillMedia[];
+}) {
 	const [profileId, setProfileId] = useState(profiles[0]?.id ?? "");
 	const active = profiles.find((p) => p.id === profileId);
 
@@ -49,6 +63,8 @@ export function CreatePost({ profiles }: { profiles: ProfileWithAccounts[] }) {
 					profileId={active.id}
 					accounts={active.accounts}
 					canPost
+					initialContent={initialContent}
+					initialMedia={initialMedia}
 				/>
 			)}
 		</div>

@@ -45,12 +45,23 @@ export function Sidebar({ user }: { user: NavUser }) {
 
 				<div>
 					<div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide opacity-40">
+						Content
+					</div>
+					<NavLink href="/dub" label="Dub Video" />
+				</div>
+
+				<div>
+					<div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide opacity-40">
 						Publishing
 					</div>
 					<NavLink href="/publishing/overview" label="Overview" />
 					<NavLink href="/publishing/create" label="Create Post" />
 					<NavLink href="/publishing/scheduled" label="Scheduled" />
 					<NavLink href="/publishing/analytics" label="Analytics" />
+				</div>
+
+				<div>
+					<NavLink href="/settings" label="Settings" />
 				</div>
 
 				{user.isAdmin && (
