@@ -30,6 +30,7 @@ const saveSchema = z.object({
 	deepgram: z.string().max(400).optional(),
 	gemini: z.string().max(400).optional(),
 	mistral: z.string().max(400).optional(),
+	nvidia: z.string().max(400).optional(),
 	// A cookies.txt can be large; allow generous room.
 	cookies: z.string().max(200_000).optional(),
 });

@@ -3,7 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-type Presence = { deepgram: boolean; gemini: boolean; mistral: boolean };
+type Presence = {
+	deepgram: boolean;
+	gemini: boolean;
+	mistral: boolean;
+	nvidia: boolean;
+};
 
 const FIELDS: {
 	name: keyof Presence;
@@ -14,19 +19,25 @@ const FIELDS: {
 	{
 		name: "deepgram",
 		label: "Deepgram API key",
-		help: "Transcription (speech → timed text). Required.",
+		help: "Transcription (speech → timed text). Required for Dub + Shorts.",
 		required: true,
 	},
 	{
 		name: "gemini",
 		label: "Gemini API key",
-		help: "Translation and vision. Required.",
+		help: "Translation and vision (Dub). Required for dubbing.",
 		required: true,
 	},
 	{
 		name: "mistral",
 		label: "Mistral API key",
-		help: "AI caption generation. Optional — improves caption quality.",
+		help: "AI caption generation (Dub). Optional — improves caption quality.",
+		required: false,
+	},
+	{
+		name: "nvidia",
+		label: "NVIDIA API key",
+		help: "Clip-finding + titles for Shorts (NVIDIA NIM). Required for Shorts.",
 		required: false,
 	},
 ];

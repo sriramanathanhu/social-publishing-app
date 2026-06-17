@@ -35,10 +35,10 @@ function pickCaption(
 export default async function CreatePostPage({
 	searchParams,
 }: {
-	searchParams: Promise<{ dub?: string }>;
+	searchParams: Promise<{ dub?: string; media?: string; text?: string }>;
 }) {
 	const user = await requirePageUser();
-	const { dub } = await searchParams;
+	const { dub, media, text } = await searchParams;
 
 	const profiles = await getAccessibleProfiles(user);
 	const withAccounts = await Promise.all(
@@ -70,6 +70,12 @@ export default async function CreatePostPage({
 			];
 			initialContent = pickCaption(job.captions);
 		}
+	}
+
+	// Optional: a shorts clip handed over for publishing (?media=<r2 url>&text=).
+	if (media && initialMedia.length === 0) {
+		initialMedia = [{ type: "video", url: media, name: "short.mp4" }];
+		initialContent = text ?? "";
 	}
 
 	return (

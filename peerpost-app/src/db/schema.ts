@@ -365,6 +365,8 @@ export const userApiKeys = pgTable("user_api_keys", {
 	deepgramKeyEnc: text("deepgram_key_enc"),
 	geminiKeyEnc: text("gemini_key_enc"),
 	mistralKeyEnc: text("mistral_key_enc"),
+	// NVIDIA NIM key (Kimi clip-finding + Llama title/desc) for the Shorts factory.
+	nvidiaKeyEnc: text("nvidia_key_enc"),
 	// Encrypted yt-dlp cookies.txt (Netscape format) for login/rate-limited
 	// sources (Instagram, YouTube on a server IP). Passed per-job, never shown.
 	cookiesEnc: text("cookies_enc"),
@@ -419,4 +421,66 @@ export const dubJobs = pgTable(
 			.notNull(),
 	},
 	(t) => [index("dub_jobs_user_idx").on(t.userId)],
+);
+
+/**
+ * A "long video → shorts" job run by the shorts pipeline in the dubber-service:
+ * download → transcribe → AI clip-find → extract 9:16 → upload clips to R2.
+ * Mirrors dub_jobs (status/pct/SSE) but yields MANY clips (shorts_clips).
+ */
+export const shortsJobs = pgTable(
+	"shorts_jobs",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		// The job id returned by the dubber-service (POST /shorts).
+		shortsJobId: text("shorts_job_id"),
+		status: dubJobStatusEnum("status").notNull().default("queued"),
+		sourceType: text("source_type").notNull(), // "url" | "upload"
+		sourceInput: text("source_input").notNull(),
+		pct: integer("pct").notNull().default(0),
+		stage: text("stage"),
+		message: text("message"),
+		// Requested clip count + render settings (aspect, min/max seconds, language).
+		numClips: integer("num_clips").notNull().default(15),
+		settings: jsonb("settings").$type<Record<string, unknown>>(),
+		error: text("error"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [index("shorts_jobs_user_idx").on(t.userId)],
+);
+
+/** One generated short clip: its R2 video + AI title/description metadata. */
+export const shortsClips = pgTable(
+	"shorts_clips",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		jobId: uuid("job_id")
+			.notNull()
+			.references(() => shortsJobs.id, { onDelete: "cascade" }),
+		idx: integer("idx").notNull(), // 1-based order within the job
+		title: text("title"),
+		description: text("description"),
+		hashtags: jsonb("hashtags").$type<string[]>(),
+		startSec: integer("start_sec"),
+		endSec: integer("end_sec"),
+		durationSec: integer("duration_sec"),
+		viralScore: integer("viral_score"),
+		// R2 object key + public (custom-domain) URL of the rendered clip.
+		r2Key: text("r2_key"),
+		publicUrl: text("public_url"),
+		// Publish state once handed to the composer (draft until published).
+		status: postStatusEnum("status").notNull().default("draft"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [index("shorts_clips_job_idx").on(t.jobId)],
 );
