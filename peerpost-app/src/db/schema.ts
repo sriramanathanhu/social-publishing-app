@@ -35,7 +35,17 @@ export const platformEnum = pgEnum("platform", [
 	"instagram",
 	"facebook",
 	"threads",
+	// Added with the Zernio provider (platforms PostPeer doesn't cover).
+	"reddit",
+	"telegram",
+	"discord",
+	"whatsapp",
+	"snapchat",
+	"googlebusiness",
 ]);
+
+/** Which upstream publishing API owns an account / published a post. */
+export const providerEnum = pgEnum("provider", ["postpeer", "zernio"]);
 
 export const integrationStatusEnum = pgEnum("integration_status", [
 	"connected",
@@ -173,8 +183,12 @@ export const integrationsCache = pgTable(
 		profileId: uuid("profile_id")
 			.notNull()
 			.references(() => profiles.id, { onDelete: "cascade" }),
+		// Which upstream API this account lives in (postpeer | zernio). Routing
+		// in the publish path uses this to pick the right client per account.
+		provider: providerEnum("provider").notNull().default("postpeer"),
 		platform: platformEnum("platform").notNull(),
-		// accountId from PostPeer — this is what POST /posts targets.
+		// The provider's account id — what POST /posts targets (PostPeer integration
+		// id, or Zernio account `_id`). Column name kept for migration safety.
 		postpeerAccountId: text("postpeer_account_id").notNull(),
 		handle: text("handle"),
 		displayName: text("display_name"),
@@ -197,6 +211,29 @@ export const integrationsCache = pgTable(
 	],
 );
 
+/**
+ * Maps one of our ecosystems (profiles.id) to its external profile id in a
+ * given provider. An ecosystem can hold accounts from multiple providers, so it
+ * may have one row per provider here. PostPeer's mapping also lives in
+ * profiles.postpeerProfileId (legacy); this table is the general home and the
+ * sole place Zernio's profile id is stored.
+ */
+export const providerProfiles = pgTable(
+	"provider_profiles",
+	{
+		profileId: uuid("profile_id")
+			.notNull()
+			.references(() => profiles.id, { onDelete: "cascade" }),
+		provider: providerEnum("provider").notNull(),
+		// The provider's own profile id (Zernio profile `_id`, PostPeer profile id).
+		externalProfileId: text("external_profile_id").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.profileId, t.provider] })],
+);
+
 /** Audit trail of publish/schedule actions through the wrapper. */
 export const postsLog = pgTable(
 	"posts_log",
@@ -208,6 +245,8 @@ export const postsLog = pgTable(
 		authorUserId: uuid("author_user_id").references(() => users.id, {
 			onDelete: "set null",
 		}),
+		// Which provider published this post, and its post id there.
+		provider: providerEnum("provider").notNull().default("postpeer"),
 		postpeerPostId: text("postpeer_post_id"),
 		status: postStatusEnum("status").notNull().default("draft"),
 		content: text("content"),

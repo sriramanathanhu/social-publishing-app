@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { EditableName } from "@/components/editable-name";
+import { LinkZernio } from "@/components/link-zernio";
 import { requireAdminPage } from "@/lib/page-auth";
 import { PLATFORM_SHORT } from "@/lib/platform-fields";
 import { getAllEcosystems } from "@/lib/queries";
@@ -34,12 +35,13 @@ export default async function AdminEcosystemsPage() {
 							<th className="px-4 py-2 font-medium">Ecosystem</th>
 							<th className="px-4 py-2 font-medium">Team</th>
 							<th className="px-4 py-2 font-medium">Connected platforms</th>
+							<th className="px-4 py-2 font-medium">Zernio</th>
 						</tr>
 					</thead>
 					<tbody>
 						{ecosystems.length === 0 && (
 							<tr>
-								<td colSpan={3} className="px-4 py-6 text-center opacity-50">
+								<td colSpan={4} className="px-4 py-6 text-center opacity-50">
 									No ecosystems yet.
 								</td>
 							</tr>
@@ -75,6 +77,9 @@ export default async function AdminEcosystemsPage() {
 											))}
 										</span>
 									)}
+								</td>
+								<td className="px-4 py-3">
+									<LinkZernio ecosystemId={e.id} />
 								</td>
 							</tr>
 						))}
