@@ -67,8 +67,6 @@ export function Composer({
 	const [boards, setBoards] = useState<
 		Record<string, { id: string; name: string }[]>
 	>({});
-	const [providerFilter, setProviderFilter] = useState<Provider | "all">("all");
-
 	// Which providers this ecosystem actually has accounts for — the "Publish
 	// via" toggle only appears when there's a real choice (both present).
 	const providersPresent = Array.from(
@@ -76,25 +74,30 @@ export function Composer({
 	) as Provider[];
 	const showProviderToggle = providersPresent.length > 1;
 
-	const visibleAccounts = accounts.filter(
-		(a) =>
-			providerFilter === "all" || (a.provider ?? "postpeer") === providerFilter,
+	// You publish via ONE provider at a time (no "all") — default to whichever
+	// this ecosystem actually has, preferring PostPeer.
+	const [providerFilter, setProviderFilter] = useState<Provider>(
+		providersPresent.includes("postpeer")
+			? "postpeer"
+			: (providersPresent[0] ?? "postpeer"),
 	);
 
-	function pickProvider(p: Provider | "all") {
+	const visibleAccounts = accounts.filter(
+		(a) => (a.provider ?? "postpeer") === providerFilter,
+	);
+
+	function pickProvider(p: Provider) {
 		setProviderFilter(p);
-		// Drop any selected accounts that the new filter hides, so "Publish via
-		// PostPeer" really does publish through PostPeer only.
-		if (p !== "all") {
-			setSelected((prev) => {
-				const next = new Set<string>();
-				for (const a of accounts) {
-					if (prev.has(a.accountId) && (a.provider ?? "postpeer") === p)
-						next.add(a.accountId);
-				}
-				return next;
-			});
-		}
+		// Drop selections from the other provider, so "Publish via PostPeer"
+		// really does publish through PostPeer only.
+		setSelected((prev) => {
+			const next = new Set<string>();
+			for (const a of accounts) {
+				if (prev.has(a.accountId) && (a.provider ?? "postpeer") === p)
+					next.add(a.accountId);
+			}
+			return next;
+		});
 	}
 
 	const selectedAccounts = accounts.filter((a) => selected.has(a.accountId));
@@ -387,7 +390,7 @@ export function Composer({
 					{showProviderToggle && (
 						<span className="inline-flex items-center gap-1 text-xs">
 							<span className="opacity-50">Publish via:</span>
-							{(["all", "postpeer", "zernio"] as const).map((p) => (
+							{(["postpeer", "zernio"] as const).map((p) => (
 								<button
 									type="button"
 									key={p}
@@ -398,7 +401,7 @@ export function Composer({
 											: "border border-black/15 hover:bg-black/5"
 									}`}
 								>
-									{p === "all" ? "All" : PROVIDER_LABEL[p]}
+									{PROVIDER_LABEL[p]}
 								</button>
 							))}
 						</span>
