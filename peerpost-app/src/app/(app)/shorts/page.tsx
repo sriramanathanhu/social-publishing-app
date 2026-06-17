@@ -1,9 +1,11 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
+import { ShortsAssets } from "@/components/shorts-assets";
 import { ShortsStudio } from "@/components/shorts-studio";
 import { db } from "@/db";
 import { shortsClips, shortsJobs } from "@/db/schema";
 import { getUserKeyPresence } from "@/lib/api-keys";
+import { getUserAssets } from "@/lib/assets";
 import { requirePageUser } from "@/lib/page-auth";
 import { isApproved } from "@/lib/rbac";
 import { reconcileRunningShorts } from "@/lib/shorts-jobs";
@@ -24,6 +26,7 @@ export default async function ShortsPage() {
 		.orderBy(desc(shortsJobs.createdAt))
 		.limit(20);
 
+	const assets = await getUserAssets(user.id);
 	const jobIds = jobs.map((j) => j.id);
 	const clips = jobIds.length
 		? await db
@@ -56,7 +59,10 @@ export default async function ShortsPage() {
 					to start generating shorts.
 				</p>
 			) : (
-				<ShortsStudio recentJobs={jobs} clips={clips} />
+				<>
+					<ShortsAssets assets={assets} />
+					<ShortsStudio recentJobs={jobs} clips={clips} />
+				</>
 			)}
 		</div>
 	);

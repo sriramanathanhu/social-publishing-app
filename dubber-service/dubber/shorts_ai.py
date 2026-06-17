@@ -47,8 +47,30 @@ BAD_END = {
 }
 
 
+def build_sentences(words: list[dict]) -> list[dict]:
+    """Re-segment word-level data into proper sentences by terminal punctuation
+    (. ? !) and hard pauses (>0.6s). Gives sentence-accurate clip boundaries so
+    clips don't start/end mid-sentence. Returns ``[{start, end, text}]``."""
+    if not words:
+        return []
+    sentences, buf = [], []
+    for i, w in enumerate(words):
+        buf.append(w)
+        token = (w.get("word") or "").strip()
+        terminal = token.endswith((".", "?", "!", "…", "।"))
+        gap = (words[i + 1]["start"] - w["end"]) if i + 1 < len(words) else 999
+        if terminal or (gap > 0.6 and len(buf) >= 4) or i == len(words) - 1:
+            sentences.append({
+                "start": float(buf[0]["start"]),
+                "end": float(buf[-1]["end"]),
+                "text": " ".join(x["word"] for x in buf).strip(),
+            })
+            buf = []
+    return sentences
+
+
 def segments_to_transcript(segments: list[dict]) -> str:
-    """Format segments as ``[start→end] text`` lines for the clip-finder."""
+    """Format segments/sentences as ``[start→end] text`` lines for the model."""
     lines = []
     for s in segments:
         a, b = int(s.get("start", 0)), int(s.get("end", 0)) + 1
@@ -205,14 +227,26 @@ def _snap(clips, bounds, min_sec, max_sec):
     for c in clips:
         s = c.get("start_seconds", 0)
         e = c.get("end_seconds", 0)
+        # Start: snap to the nearest sentence START that isn't a weak opener.
         for bs, _be, fw, _lw in sorted(bounds, key=lambda x: abs(x[0] - s)):
             if fw not in BAD_START:
                 c["start_seconds"] = bs
                 break
-        for _bs, be, _fw, lw in sorted(bounds, key=lambda x: abs(x[1] - e)):
-            if lw not in BAD_END:
-                c["end_seconds"] = be
-                break
+        # End: prefer COMPLETING the sentence — the first sentence END at or
+        # after the model's cut (so we never stop mid-sentence), as long as that
+        # doesn't blow past max duration. Otherwise fall back to the nearest end.
+        start = c["start_seconds"]
+        forward = [
+            (be, lw) for _bs, be, _fw, lw in bounds
+            if be >= e - 1 and (be - start) <= max_sec and lw not in BAD_END
+        ]
+        if forward:
+            c["end_seconds"] = min(forward, key=lambda x: x[0])[0]
+        else:
+            for _bs, be, _fw, lw in sorted(bounds, key=lambda x: abs(x[1] - e)):
+                if lw not in BAD_END:
+                    c["end_seconds"] = be
+                    break
         dur = c["end_seconds"] - c["start_seconds"]
         if dur < min_sec or dur > max_sec:
             c["_warn"] = f"duration {dur}s outside [{min_sec},{max_sec}]"
@@ -230,8 +264,12 @@ def _dedup(clips, min_gap=15):
 
 
 def find_clips(segments, *, num_clips, min_sec, max_sec, duration,
-               api_url, api_key, model, settings, on_log=print) -> list[dict]:
-    """Run the NIM clip-finder across batches and return ranked, snapped clips."""
+               api_url, api_key, model, settings, words=None, on_log=print) -> list[dict]:
+    """Run the NIM clip-finder across batches and return ranked, snapped clips.
+
+    Prefers sentence boundaries built from ``words`` (terminal punctuation +
+    pauses) so clips begin and end on complete sentences; falls back to coarse
+    utterance segments when word timings are unavailable."""
     ctx = {
         "speaker": settings.get("speaker", DEFAULT_SPEAKER),
         "channel": settings.get("channel", DEFAULT_CHANNEL),
@@ -240,9 +278,10 @@ def find_clips(segments, *, num_clips, min_sec, max_sec, duration,
         "min_sec": min_sec,
         "max_sec": max_sec,
     }
-    transcript = segments_to_transcript(segments)
+    units = build_sentences(words) if words else segments
+    transcript = segments_to_transcript(units)
     batches = _make_batches(transcript)
-    bounds = _parse_boundaries(segments)
+    bounds = _parse_boundaries(units)
     per_batch = max(3, (num_clips // max(len(batches), 1)) + 2)
     on_log(f"clip-find: {len(batches)} batch(es), {len(bounds)} boundaries")
 

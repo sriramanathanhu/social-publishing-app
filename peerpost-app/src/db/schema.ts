@@ -484,3 +484,20 @@ export const shortsClips = pgTable(
 	},
 	(t) => [index("shorts_clips_job_idx").on(t.jobId)],
 );
+
+/**
+ * Per-user reusable Shorts render assets (public URLs). Applied to every clip
+ * in a job when set: a full-frame overlay PNG, a transition clip, and an
+ * end-card clip appended after each short.
+ */
+export const userAssets = pgTable("user_assets", {
+	userId: uuid("user_id")
+		.primaryKey()
+		.references(() => users.id, { onDelete: "cascade" }),
+	overlayUrl: text("overlay_url"),
+	transitionUrl: text("transition_url"),
+	endcardUrl: text("endcard_url"),
+	updatedAt: timestamp("updated_at", { withTimezone: true })
+		.defaultNow()
+		.notNull(),
+});

@@ -29,6 +29,10 @@ export type ShortsCreateInput = {
 	max_seconds?: number;
 	aspect?: string;
 	language?: string;
+	captions?: boolean;
+	overlay_url?: string;
+	transition_url?: string;
+	endcard_url?: string;
 	settings?: Record<string, unknown>;
 };
 

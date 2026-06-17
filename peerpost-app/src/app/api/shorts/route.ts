@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { shortsJobs } from "@/db/schema";
 import { getUserCookies, getUserKeys } from "@/lib/api-keys";
+import { getUserAssets } from "@/lib/assets";
 import { HttpError, requireUser } from "@/lib/auth";
 import { route } from "@/lib/http";
 import { isApproved } from "@/lib/rbac";
@@ -30,6 +31,7 @@ const createSchema = z.object({
 	maxSeconds: z.number().int().min(15).max(900).default(120),
 	aspect: z.enum(["9:16", "1:1", "16:9"]).default("9:16"),
 	language: z.string().min(2).max(8).default("en"),
+	captions: z.boolean().default(true),
 });
 
 /**
@@ -55,6 +57,7 @@ export const POST = route(async (request: NextRequest) => {
 		input.sourceType === "url"
 			? ((await getUserCookies(user.id)) ?? undefined)
 			: undefined;
+	const assets = await getUserAssets(user.id);
 
 	const [job] = await db
 		.insert(shortsJobs)
@@ -85,6 +88,10 @@ export const POST = route(async (request: NextRequest) => {
 			max_seconds: input.maxSeconds,
 			aspect: input.aspect,
 			language: input.language,
+			captions: input.captions,
+			overlay_url: assets.overlay ?? undefined,
+			transition_url: assets.transition ?? undefined,
+			endcard_url: assets.endcard ?? undefined,
 		});
 
 		const [updated] = await db

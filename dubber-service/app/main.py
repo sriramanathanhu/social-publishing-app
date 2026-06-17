@@ -234,6 +234,10 @@ class CreateShorts(BaseModel):
     language: str = "en"
     source_type: str = "url"
     cookies: str = ""
+    captions: bool = True
+    overlay_url: Optional[str] = None
+    transition_url: Optional[str] = None
+    endcard_url: Optional[str] = None
     settings: Optional[dict] = None
 
 
@@ -268,6 +272,10 @@ def _run_shorts(job: ShortsJob, body: CreateShorts) -> None:
                 language=body.language,
                 source_type=body.source_type,
                 cookies_file=cookies_file,
+                captions=body.captions,
+                overlay_url=body.overlay_url,
+                transition_url=body.transition_url,
+                endcard_url=body.endcard_url,
                 settings=body.settings or {},
                 workspace=os.path.join("workspace", job.id),
                 job_id=job.id,

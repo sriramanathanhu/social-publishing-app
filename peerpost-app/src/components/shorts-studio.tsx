@@ -40,6 +40,7 @@ export function ShortsStudio({
 	const [minSeconds, setMinSeconds] = useState(90);
 	const [maxSeconds, setMaxSeconds] = useState(120);
 	const [aspect, setAspect] = useState("9:16");
+	const [captions, setCaptions] = useState(true);
 
 	const [progress, setProgress] = useState<Progress | null>(null);
 	const [phase, setPhase] = useState<"idle" | "running" | "done" | "failed">(
@@ -103,6 +104,7 @@ export function ShortsStudio({
 					minSeconds,
 					maxSeconds,
 					aspect,
+					captions,
 				}),
 			});
 			const d = await res.json();
@@ -197,6 +199,15 @@ export function ShortsStudio({
 						</select>
 					</label>
 				</div>
+
+				<label className="flex items-center gap-2 text-sm">
+					<input
+						type="checkbox"
+						checked={captions}
+						onChange={(e) => setCaptions(e.target.checked)}
+					/>
+					Burn word-by-word captions into each clip
+				</label>
 
 				<button
 					type="submit"

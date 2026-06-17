@@ -165,3 +165,64 @@ def transcribe_audio_deepgram(
     if not segments:
         raise RuntimeError("Deepgram returned no transcribable speech.")
     return segments
+
+
+def _words_from_response(payload: dict) -> list[dict]:
+    """Flat word list ``[{word, start, end}]`` from a Deepgram response."""
+    try:
+        words = payload["results"]["channels"][0]["alternatives"][0].get("words", [])
+    except (KeyError, IndexError):
+        return []
+    out = []
+    for w in words:
+        # smart_format puts the nicely-punctuated token in punctuated_word.
+        token = w.get("punctuated_word") or w.get("word") or ""
+        out.append({
+            "word": token,
+            "start": float(w.get("start", 0.0)),
+            "end": float(w.get("end", 0.0)),
+        })
+    return out
+
+
+def transcribe_with_words(
+    media_path: str,
+    output_dir: str,
+    api_key: str,
+    language: str = "auto",
+    model: Optional[str] = None,
+) -> tuple[list[dict], list[dict]]:
+    """Like :func:`transcribe_audio_deepgram` but also returns word-level timings.
+
+    Returns ``(segments, words)``. Words drive sentence-accurate clip boundaries
+    and word-by-word caption timing in the shorts pipeline.
+    """
+    if not api_key:
+        raise ValueError("Deepgram API key is required")
+    wav_path = _extract_wav(media_path, output_dir)
+    params = {
+        "model": model or DEFAULT_MODEL,
+        "smart_format": "true",
+        "utterances": "true",
+        "punctuate": "true",
+    }
+    if language and language != "auto":
+        params["language"] = language
+    else:
+        params["detect_language"] = "true"
+
+    with open(wav_path, "rb") as fh:
+        resp = requests.post(
+            DEEPGRAM_URL, params=params,
+            headers={"Authorization": f"Token {api_key}", "Content-Type": "audio/wav"},
+            data=fh, timeout=600,
+        )
+    if resp.status_code != 200:
+        raise RuntimeError(f"Deepgram error {resp.status_code}: {resp.text[:300]}")
+    payload = resp.json()
+    segments = _segments_from_response(payload)
+    words = _words_from_response(payload)
+    if not segments:
+        raise RuntimeError("Deepgram returned no transcribable speech.")
+    log("DEEPGRAM", f"Got {len(segments)} segments, {len(words)} words.")
+    return segments, words

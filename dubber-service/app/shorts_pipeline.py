@@ -1,10 +1,12 @@
 """
 Shorts pipeline: one long video → many short clips.
 
-download → transcribe (Deepgram) → AI clip-find (NVIDIA NIM) → extract 9:16 →
-upload each clip to R2 → AI title/description. Reuses the dub pipeline's
-downloader + Deepgram transcriber. Phase 1: no silence-removal/captions/overlays
-/end-card yet (those are Phase 2). Each clip is returned with its R2 public URL.
+download → transcribe (Deepgram, word-level) → AI clip-find (sentence-accurate
+boundaries) → per clip: extract → burn captions → overlay → append transition +
+end-card → upload to R2 → AI title/description.
+
+Captions and the transition/overlay/end-card assets are optional and applied
+only when available. Reuses the dub pipeline's downloader + Deepgram transcriber.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from app.pipeline import StageEvent
-from app.transcribe_deepgram import transcribe_audio_deepgram
+from app.transcribe_deepgram import transcribe_with_words
 from dubber.downloader import download_video, is_url
 from dubber.r2_upload import upload_clip
 from dubber.shorts_ai import (
@@ -24,6 +26,14 @@ from dubber.shorts_ai import (
     DEFAULT_TITLE_MODEL,
     find_clips,
     generate_titles,
+)
+from dubber.shorts_captions import burn_captions
+from dubber.shorts_render import (
+    apply_overlay,
+    concat_with,
+    download_url,
+    normalize_asset,
+    scale_png,
 )
 from dubber.utils import log
 
@@ -43,6 +53,10 @@ class ShortsRequest:
     language: str = "en"
     source_type: str = "url"
     cookies_file: Optional[str] = None
+    captions: bool = True
+    overlay_url: Optional[str] = None
+    transition_url: Optional[str] = None
+    endcard_url: Optional[str] = None
     settings: dict = field(default_factory=dict)
     workspace: str = "workspace"
     job_id: str = "job"
@@ -50,19 +64,19 @@ class ShortsRequest:
 
 @dataclass
 class ShortsResult:
-    clips: list  # [{idx,title,description,hashtags,start,end,duration,viralScore,r2Key,publicUrl}]
+    clips: list
 
 
 ProgressCb = Callable[[StageEvent], None]
 
 
-def _crop_filter(aspect: str) -> str:
+def _dims(aspect: str) -> tuple[str, int, int]:
     if aspect == "1:1":
-        return "crop=min(iw\\,ih):min(iw\\,ih),scale=1080:1080"
+        return "crop=min(iw\\,ih):min(iw\\,ih),scale=1080:1080", 1080, 1080
     if aspect == "16:9":
-        return "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1"
-    # default 9:16
-    return "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920"
+        return ("scale=1920:1080:force_original_aspect_ratio=decrease,"
+                "pad=1920:1080:-1:-1"), 1920, 1080
+    return "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920", 1080, 1920
 
 
 def _probe_duration(path: str) -> float:
@@ -95,6 +109,7 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
 
     shutil.rmtree(req.workspace, ignore_errors=True)
     os.makedirs(req.workspace, exist_ok=True)
+    vf, rx, ry = _dims(req.aspect)
 
     # 1) Source
     emit("download", 5, "Downloading video ...")
@@ -108,41 +123,68 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
     duration = _probe_duration(video_path)
     emit("download", 12, f"Source ready ({int(duration)}s)")
 
-    # 2) Transcribe
+    # 2) Transcribe (word-level for sentence-accurate cuts + caption timing)
     emit("transcribe", 18, "Transcribing (Deepgram) ...")
-    segments = transcribe_audio_deepgram(
+    segments, words = transcribe_with_words(
         video_path, req.workspace, api_key=req.deepgram_key, language=req.language,
     )
-    emit("transcribe", 30, f"{len(segments)} segments")
+    emit("transcribe", 30, f"{len(segments)} segments, {len(words)} words")
 
-    # 3) AI clip-find
+    # 3) AI clip-find (sentence boundaries from words)
     emit("analyze", 35, "Finding clips (NVIDIA NIM) ...")
     clips = find_clips(
-        segments, num_clips=req.num_clips, min_sec=req.min_seconds,
+        segments, words=words, num_clips=req.num_clips, min_sec=req.min_seconds,
         max_sec=req.max_seconds, duration=duration, api_url=req.nvidia_url,
         api_key=req.nvidia_key, model=req.clip_model, settings=req.settings,
         on_log=lambda m: emit("analyze", 40, m),
     )
     if not clips:
         raise RuntimeError("No clips found — the model returned nothing usable.")
-    emit("analyze", 55, f"{len(clips)} clips selected")
+    emit("analyze", 50, f"{len(clips)} clips selected")
 
-    # 4) Extract 9:16 + upload to R2
-    vf = _crop_filter(req.aspect)
+    # 3b) Prepare optional assets once
+    assets_dir = os.path.join(req.workspace, "assets")
+    os.makedirs(assets_dir, exist_ok=True)
+    overlay_png = transition_n = endcard_n = None
+    if req.overlay_url:
+        raw = download_url(req.overlay_url, os.path.join(assets_dir, "overlay.png"))
+        overlay_png = scale_png(raw, os.path.join(assets_dir, "overlay_s.png"), rx, ry) if raw else None
+    if req.transition_url:
+        raw = download_url(req.transition_url, os.path.join(assets_dir, "trans.mp4"))
+        transition_n = normalize_asset(raw, os.path.join(assets_dir, "trans_n.mp4"), rx, ry) if raw else None
+    if req.endcard_url:
+        raw = download_url(req.endcard_url, os.path.join(assets_dir, "end.mp4"))
+        endcard_n = normalize_asset(raw, os.path.join(assets_dir, "end_n.mp4"), rx, ry) if raw else None
+    extras = [p for p in (transition_n, endcard_n) if p]
+
+    # 4) Per clip: extract → captions → overlay → transition/end-card → upload
     clips_dir = os.path.join(req.workspace, "clips")
     os.makedirs(clips_dir, exist_ok=True)
     out_clips = []
     for i, c in enumerate(clips, 1):
-        start = c.get("start_seconds", 0)
-        end = c.get("end_seconds", 0)
+        start, end = c.get("start_seconds", 0), c.get("end_seconds", 0)
         frac = i / max(len(clips), 1)
-        emit("render", 55 + int(25 * frac), f"Rendering clip {i}/{len(clips)} ...")
-        local = os.path.join(clips_dir, f"{req.job_id}_{i}.mp4")
-        if not _extract_clip(video_path, start, end, vf, local):
+        emit("render", 50 + int(30 * frac), f"Rendering clip {i}/{len(clips)} ...")
+        cur = os.path.join(clips_dir, f"{req.job_id}_{i}_0.mp4")
+        if not _extract_clip(video_path, start, end, vf, cur):
             log("SHORTS", f"clip {i} extraction failed, skipping")
             continue
+
+        if req.captions and words:
+            capped = os.path.join(clips_dir, f"{req.job_id}_{i}_cap.mp4")
+            if burn_captions(cur, words, start, end, capped, rx, ry, req.settings):
+                cur = capped
+        if overlay_png:
+            ov = os.path.join(clips_dir, f"{req.job_id}_{i}_ov.mp4")
+            if apply_overlay(cur, overlay_png, ov):
+                cur = ov
+        if extras:
+            joined = os.path.join(clips_dir, f"{req.job_id}_{i}_final.mp4")
+            if concat_with(cur, extras, joined, rx, ry):
+                cur = joined
+
         key = f"shorts/{req.job_id}/{i}.mp4"
-        up = upload_clip(local, key)
+        up = upload_clip(cur, key)
         out_clips.append({
             "idx": i,
             "title": c.get("title", f"Clip {i}"),
@@ -162,11 +204,11 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
         raise RuntimeError("All clip extractions failed.")
 
     # 5) Titles & descriptions
-    emit("titles", 85, "Generating titles & descriptions ...")
+    emit("titles", 88, "Generating titles & descriptions ...")
     generate_titles(
         out_clips, segments, api_url=req.nvidia_url, api_key=req.nvidia_key,
         model=req.title_model, settings=req.settings,
-        on_log=lambda m: emit("titles", 90, m),
+        on_log=lambda m: emit("titles", 92, m),
     )
 
     emit("done", 100, f"{len(out_clips)} clips ready", count=len(out_clips))
