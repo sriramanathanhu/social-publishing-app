@@ -52,8 +52,12 @@ def r2_enabled() -> bool:
 
 
 def public_url(key: str) -> str | None:
-    base = os.environ.get("R2_PUBLIC_BASE_URL", "").rstrip("/")
-    return f"{base}/{key}" if base else None
+    base = os.environ.get("R2_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if not base:
+        return None
+    if not base.startswith(("http://", "https://")):
+        base = f"https://{base}"
+    return f"{base}/{key}"
 
 
 def upload_clip(local_path: str, key: str) -> dict:
