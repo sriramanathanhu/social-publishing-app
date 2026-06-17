@@ -152,6 +152,7 @@ export async function getConnectedAccounts(profileId: string) {
 		platform: r.platform,
 		accountId: r.postpeerAccountId,
 		handle: r.handle,
+		provider: r.provider,
 	}));
 }
 

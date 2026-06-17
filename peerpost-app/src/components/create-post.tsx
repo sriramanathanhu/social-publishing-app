@@ -7,7 +7,12 @@ type ProfileWithAccounts = {
 	id: string;
 	name: string;
 	teamName: string;
-	accounts: { platform: string; accountId: string; handle: string | null }[];
+	accounts: {
+		platform: string;
+		accountId: string;
+		handle: string | null;
+		provider?: "postpeer" | "zernio";
+	}[];
 };
 
 type PrefillMedia = {

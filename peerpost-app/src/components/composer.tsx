@@ -11,10 +11,17 @@ import {
 	PLATFORM_MEDIA,
 } from "@/lib/platform-fields";
 
+type Provider = "postpeer" | "zernio";
 type ConnectedAccount = {
 	platform: string;
 	accountId: string;
 	handle: string | null;
+	provider?: Provider;
+};
+
+const PROVIDER_LABEL: Record<Provider, string> = {
+	postpeer: "PostPeer",
+	zernio: "Zernio",
 };
 type MediaItem = { type: "image" | "video" | "gif"; url: string; name: string };
 type PlatformResult = { platform: string; success: boolean; error?: string };
@@ -60,6 +67,35 @@ export function Composer({
 	const [boards, setBoards] = useState<
 		Record<string, { id: string; name: string }[]>
 	>({});
+	const [providerFilter, setProviderFilter] = useState<Provider | "all">("all");
+
+	// Which providers this ecosystem actually has accounts for — the "Publish
+	// via" toggle only appears when there's a real choice (both present).
+	const providersPresent = Array.from(
+		new Set(accounts.map((a) => a.provider ?? "postpeer")),
+	) as Provider[];
+	const showProviderToggle = providersPresent.length > 1;
+
+	const visibleAccounts = accounts.filter(
+		(a) =>
+			providerFilter === "all" || (a.provider ?? "postpeer") === providerFilter,
+	);
+
+	function pickProvider(p: Provider | "all") {
+		setProviderFilter(p);
+		// Drop any selected accounts that the new filter hides, so "Publish via
+		// PostPeer" really does publish through PostPeer only.
+		if (p !== "all") {
+			setSelected((prev) => {
+				const next = new Set<string>();
+				for (const a of accounts) {
+					if (prev.has(a.accountId) && (a.provider ?? "postpeer") === p)
+						next.add(a.accountId);
+				}
+				return next;
+			});
+		}
+	}
 
 	const selectedAccounts = accounts.filter((a) => selected.has(a.accountId));
 	const hasVideo = media.some((m) => m.type === "video");
@@ -346,9 +382,30 @@ export function Composer({
 		<div className="space-y-4 rounded-lg border border-black/10 p-4">
 			{/* Accounts */}
 			<div>
-				<div className="mb-1 text-xs font-medium opacity-60">Post to</div>
+				<div className="mb-1 flex items-center justify-between">
+					<span className="text-xs font-medium opacity-60">Post to</span>
+					{showProviderToggle && (
+						<span className="inline-flex items-center gap-1 text-xs">
+							<span className="opacity-50">Publish via:</span>
+							{(["all", "postpeer", "zernio"] as const).map((p) => (
+								<button
+									type="button"
+									key={p}
+									onClick={() => pickProvider(p)}
+									className={`rounded px-2 py-0.5 ${
+										providerFilter === p
+											? "bg-primary text-white"
+											: "border border-black/15 hover:bg-black/5"
+									}`}
+								>
+									{p === "all" ? "All" : PROVIDER_LABEL[p]}
+								</button>
+							))}
+						</span>
+					)}
+				</div>
 				<div className="flex flex-wrap gap-2">
-					{accounts.map((a) => (
+					{visibleAccounts.map((a) => (
 						<button
 							type="button"
 							key={a.accountId}
@@ -361,6 +418,17 @@ export function Composer({
 						>
 							{PLATFORM_LABELS[a.platform] ?? a.platform}
 							{a.handle ? ` · ${a.handle}` : ""}
+							<span
+								className={`ml-1.5 rounded px-1 py-0.5 text-[9px] uppercase tracking-wide ${
+									selected.has(a.accountId)
+										? "bg-white/25"
+										: (a.provider ?? "postpeer") === "zernio"
+											? "bg-violet-100 text-violet-700"
+											: "bg-sky-100 text-sky-700"
+								}`}
+							>
+								{PROVIDER_LABEL[a.provider ?? "postpeer"]}
+							</span>
 						</button>
 					))}
 				</div>
