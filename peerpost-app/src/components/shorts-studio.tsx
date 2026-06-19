@@ -40,9 +40,10 @@ export function ShortsStudio({
 	const [minSeconds, setMinSeconds] = useState(90);
 	const [maxSeconds, setMaxSeconds] = useState(120);
 	const [aspect, setAspect] = useState("9:16");
-	const [cropFocus, setCropFocus] = useState<"center" | "left" | "right">(
-		"center",
-	);
+	const [cropFocus, setCropFocus] = useState<
+		"auto" | "center" | "left" | "right"
+	>("auto");
+	const [speed, setSpeed] = useState(1);
 	const [captions, setCaptions] = useState(true);
 	const [selector, setSelector] = useState<"gemini" | "nim">("nim");
 
@@ -109,6 +110,7 @@ export function ShortsStudio({
 					maxSeconds,
 					aspect,
 					cropFocus,
+					speed,
 					captions,
 					selector,
 				}),
@@ -158,7 +160,7 @@ export function ShortsStudio({
 					</p>
 				</div>
 
-				<div className="grid gap-4 sm:grid-cols-4">
+				<div className="grid gap-4 sm:grid-cols-3">
 					<label className="block text-xs font-medium opacity-60">
 						Clips
 						<input
@@ -209,13 +211,32 @@ export function ShortsStudio({
 						<select
 							value={cropFocus}
 							onChange={(e) =>
-								setCropFocus(e.target.value as "center" | "left" | "right")
+								setCropFocus(
+									e.target.value as "auto" | "center" | "left" | "right",
+								)
 							}
 							className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
 						>
+							<option value="auto">Auto (face)</option>
 							<option value="center">Center</option>
 							<option value="left">Left</option>
 							<option value="right">Right</option>
+						</select>
+					</label>
+					<label className="block text-xs font-medium opacity-60">
+						Speed
+						<select
+							value={speed}
+							onChange={(e) => setSpeed(Number(e.target.value))}
+							className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+						>
+							<option value={1}>1x (normal)</option>
+							<option value={1.1}>1.1x</option>
+							<option value={1.25}>1.25x</option>
+							<option value={1.4}>1.4x</option>
+							<option value={1.5}>1.5x</option>
+							<option value={1.75}>1.75x</option>
+							<option value={2}>2x</option>
 						</select>
 					</label>
 				</div>

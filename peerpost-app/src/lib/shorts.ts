@@ -28,7 +28,8 @@ export type ShortsCreateInput = {
 	min_seconds?: number;
 	max_seconds?: number;
 	aspect?: string;
-	crop_focus?: "center" | "left" | "right";
+	crop_focus?: "auto" | "center" | "left" | "right";
+	speed?: number;
 	language?: string;
 	captions?: boolean;
 	selector?: "gemini" | "nim";

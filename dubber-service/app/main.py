@@ -240,7 +240,8 @@ class CreateShorts(BaseModel):
     gemini_model: Optional[str] = None
     media_resolution: str = "low"
     judge: bool = True
-    crop_focus: str = "center"
+    crop_focus: str = "auto"
+    speed: float = 1.0
     overlay_url: Optional[str] = None
     transition_url: Optional[str] = None
     endcard_url: Optional[str] = None
@@ -285,6 +286,7 @@ def _run_shorts(job: ShortsJob, body: CreateShorts) -> None:
                 media_resolution=body.media_resolution,
                 judge=body.judge,
                 crop_focus=body.crop_focus,
+                speed=body.speed,
                 overlay_url=body.overlay_url,
                 transition_url=body.transition_url,
                 endcard_url=body.endcard_url,

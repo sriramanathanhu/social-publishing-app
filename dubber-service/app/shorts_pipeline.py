@@ -32,6 +32,7 @@ from dubber.shorts_ai import (
     judge_clips,
 )
 from dubber.shorts_captions import make_ass_file
+from dubber.shorts_reframe import auto_crop_filter
 from dubber.shorts_render import concat_with, download_url, normalize_asset, scale_png
 from dubber.utils import log
 
@@ -59,7 +60,8 @@ class ShortsRequest:
     min_seconds: int = 90
     max_seconds: int = 120
     aspect: str = "9:16"
-    crop_focus: str = "center"        # center | left | right (9:16 / 1:1)
+    crop_focus: str = "auto"          # auto (face) | center | left | right
+    speed: float = 1.0                # playback speed of the final clip (e.g. 1.4)
     language: str = "en"
     source_type: str = "url"
     cookies_file: Optional[str] = None
@@ -115,23 +117,59 @@ def _probe_duration(path: str) -> float:
         return 0.0
 
 
-def _render_single_pass(video, start, end, crop, overlay_png, ass_path, out) -> bool:
-    """Extract [start,end], crop to aspect, overlay PNG, and burn captions — all
-    in ONE ffmpeg invocation (vs three separate re-encodes)."""
+def _probe_dims(path: str) -> tuple[int, int]:
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", path],
+        capture_output=True, text=True,
+    )
+    try:
+        w, h = r.stdout.strip().split("x")
+        return int(w), int(h)
+    except ValueError:
+        return 0, 0
+
+
+def _atempo(speed: float) -> str:
+    """ffmpeg atempo chain (each stage valid 0.5–2.0) for an arbitrary factor."""
+    parts, r = [], speed
+    while r > 2.0:
+        parts.append("atempo=2.0")
+        r /= 2.0
+    while r < 0.5:
+        parts.append("atempo=0.5")
+        r /= 0.5
+    parts.append(f"atempo={r:.4f}")
+    return ",".join(parts)
+
+
+def _render_single_pass(video, start, end, crop, overlay_png, ass_path, out,
+                        speed=1.0) -> bool:
+    """Extract [start,end], crop to aspect, overlay PNG, burn captions, and apply
+    the speed factor — all in ONE ffmpeg pass. setpts retimes the (already
+    caption-burned) frames and atempo speeds the audio by the same factor, so
+    they stay in sync."""
     args = ["ffmpeg", "-y", "-ss", str(start), "-t", str(end - start), "-i", video]
     if overlay_png:
         args += ["-i", overlay_png]
-    chain = f"[0:v]{crop}[c]"
-    last = "c"
+    parts = [f"[0:v]{crop}[s0]"]
+    last = "s0"
     if overlay_png:
-        chain += f";[{last}][1:v]overlay=0:0:format=auto[o]"
-        last = "o"
+        parts.append(f"[{last}][1:v]overlay=0:0:format=auto[s1]")
+        last = "s1"
     if ass_path:
-        chain += f";[{last}]ass={ass_path}[v]"
+        parts.append(f"[{last}]ass={ass_path}[s2]")
+        last = "s2"
+    sped = speed and abs(speed - 1.0) > 0.01
+    if sped:
+        parts.append(f"[{last}]setpts=PTS/{speed:.4f}[v]")
+        parts.append(f"[0:a]{_atempo(speed)}[a]")
+        vmap, amap = "[v]", "[a]"
     else:
-        chain += f";[{last}]null[v]"
+        parts.append(f"[{last}]null[v]")
+        vmap, amap = "[v]", "0:a?"
     args += [
-        "-filter_complex", chain, "-map", "[v]", "-map", "0:a?",
+        "-filter_complex", ";".join(parts), "-map", vmap, "-map", amap,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
         "-threads", str(_FFMPEG_THREADS),
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", out,
@@ -205,7 +243,8 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
     else:
         video_path = req.video_input
     duration = _probe_duration(video_path)
-    emit("download", 12, f"Source ready ({int(duration)}s)")
+    src_w, src_h = _probe_dims(video_path)
+    emit("download", 12, f"Source ready ({int(duration)}s, {src_w}x{src_h})")
 
     # 2) Transcribe (word-level)
     emit("transcribe", 18, "Transcribing (Deepgram) ...")
@@ -243,13 +282,22 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
         i, c = item
         start, end = c.get("start_seconds", 0), c.get("end_seconds", 0)
         base = os.path.join(clips_dir, f"{req.job_id}_{i}")
+        # Auto reframing: centre the crop on the speaker's face for this clip;
+        # fall back to the fixed (center/left/right) crop if no face is found.
+        clip_vf = vf
+        if req.crop_focus == "auto" and src_w and src_h:
+            auto = auto_crop_filter(video_path, start, end, clips_dir,
+                                    req.aspect, src_w, src_h, rx, ry)
+            if auto:
+                clip_vf = auto
         ass_path = None
         if req.captions and words:
             ass_path = f"{base}.ass"
             if not make_ass_file(words, start, end, rx, ry, req.settings, ass_path):
                 ass_path = None
         cur = f"{base}_a.mp4"
-        if not _render_single_pass(video_path, start, end, vf, overlay_png, ass_path, cur):
+        if not _render_single_pass(video_path, start, end, clip_vf, overlay_png,
+                                   ass_path, cur, speed=req.speed):
             log("SHORTS", f"clip {i} render failed, skipping")
             return None
         if extras:
@@ -257,12 +305,14 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
             if concat_with(cur, extras, joined, rx, ry):
                 cur = joined
         up = upload_clip(cur, f"shorts/{req.job_id}/{i}.mp4")
+        sp = req.speed if req.speed and req.speed > 0 else 1.0
         return {
             "idx": i, "title": c.get("title", f"Clip {i}"),
             "core_teaching": c.get("core_teaching", ""), "hook": c.get("hook", ""),
             "closing_line": c.get("closing_line", ""),
             "caption_text": c.get("caption_text", ""),
-            "start_seconds": start, "end_seconds": end, "duration": end - start,
+            "start_seconds": start, "end_seconds": end,
+            "duration": int(round((end - start) / sp)),
             "viral_score": c.get("viral_score"),
             "r2_key": up["key"], "public_url": up["publicUrl"],
         }
