@@ -40,8 +40,11 @@ export function ShortsStudio({
 	const [minSeconds, setMinSeconds] = useState(90);
 	const [maxSeconds, setMaxSeconds] = useState(120);
 	const [aspect, setAspect] = useState("9:16");
+	const [cropFocus, setCropFocus] = useState<"center" | "left" | "right">(
+		"center",
+	);
 	const [captions, setCaptions] = useState(true);
-	const [selector, setSelector] = useState<"gemini" | "nim">("gemini");
+	const [selector, setSelector] = useState<"gemini" | "nim">("nim");
 
 	const [progress, setProgress] = useState<Progress | null>(null);
 	const [phase, setPhase] = useState<"idle" | "running" | "done" | "failed">(
@@ -105,6 +108,7 @@ export function ShortsStudio({
 					minSeconds,
 					maxSeconds,
 					aspect,
+					cropFocus,
 					captions,
 					selector,
 				}),
@@ -198,6 +202,20 @@ export function ShortsStudio({
 							<option value="9:16">9:16 (Shorts/Reels)</option>
 							<option value="1:1">1:1 (Square)</option>
 							<option value="16:9">16:9 (Wide)</option>
+						</select>
+					</label>
+					<label className="block text-xs font-medium opacity-60">
+						Focus
+						<select
+							value={cropFocus}
+							onChange={(e) =>
+								setCropFocus(e.target.value as "center" | "left" | "right")
+							}
+							className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+						>
+							<option value="center">Center</option>
+							<option value="left">Left</option>
+							<option value="right">Right</option>
 						</select>
 					</label>
 				</div>

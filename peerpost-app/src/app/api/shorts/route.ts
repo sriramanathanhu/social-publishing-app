@@ -30,10 +30,13 @@ const createSchema = z.object({
 	minSeconds: z.number().int().min(10).max(600).default(90),
 	maxSeconds: z.number().int().min(15).max(900).default(120),
 	aspect: z.enum(["9:16", "1:1", "16:9"]).default("9:16"),
+	// Horizontal crop bias for 9:16 / 1:1 — useful when a side image sits in frame.
+	cropFocus: z.enum(["center", "left", "right"]).default("center"),
 	language: z.string().min(2).max(8).default("en"),
 	captions: z.boolean().default(true),
-	// "gemini" = visual selection (needs a Gemini key); falls back to text.
-	selector: z.enum(["gemini", "nim"]).default("gemini"),
+	// "nim" = text selection (default; best for static talking-head). "gemini" =
+	// visual selection (needs a Gemini key), only worth it for dynamic footage.
+	selector: z.enum(["gemini", "nim"]).default("nim"),
 });
 
 /**
@@ -89,6 +92,7 @@ export const POST = route(async (request: NextRequest) => {
 			min_seconds: input.minSeconds,
 			max_seconds: input.maxSeconds,
 			aspect: input.aspect,
+			crop_focus: input.cropFocus,
 			language: input.language,
 			captions: input.captions,
 			// Gemini visual selection when the user picked it AND has a key;

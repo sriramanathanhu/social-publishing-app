@@ -26,8 +26,10 @@ from dubber.r2_upload import upload_clip
 from dubber.shorts_ai import (
     DEFAULT_CLIP_MODEL,
     DEFAULT_TITLE_MODEL,
+    build_sentences,
     find_clips,
     generate_titles,
+    judge_clips,
 )
 from dubber.shorts_captions import make_ass_file
 from dubber.shorts_render import concat_with, download_url, normalize_asset, scale_png
@@ -48,14 +50,16 @@ class ShortsRequest:
     clip_model: str = DEFAULT_CLIP_MODEL
     title_model: str = DEFAULT_TITLE_MODEL
     # Visual selection (optional; falls back to NIM text selection).
-    selector: str = "gemini"          # "gemini" | "nim"
+    selector: str = "nim"             # "nim" (text, default) | "gemini" (visual)
     gemini_key: Optional[str] = None
     gemini_model: str = "gemini-2.5-flash"
     media_resolution: str = "low"
+    judge: bool = True                # score + standalone-comprehension filter
     num_clips: int = 15
     min_seconds: int = 90
     max_seconds: int = 120
     aspect: str = "9:16"
+    crop_focus: str = "center"        # center | left | right (9:16 / 1:1)
     language: str = "en"
     source_type: str = "url"
     cookies_file: Optional[str] = None
@@ -76,13 +80,27 @@ class ShortsResult:
 ProgressCb = Callable[[StageEvent], None]
 
 
-def _dims(aspect: str) -> tuple[str, int, int]:
+def _x_offset(width_expr: str, focus: str) -> str:
+    """Horizontal crop offset for the focus: left edge, right edge, or centered."""
+    if focus == "left":
+        return "0"
+    if focus == "right":
+        return f"iw-{width_expr}"
+    return f"(iw-{width_expr})/2"
+
+
+def _dims(aspect: str, focus: str = "center") -> tuple[str, int, int]:
     if aspect == "1:1":
-        return "crop=min(iw\\,ih):min(iw\\,ih),scale=1080:1080", 1080, 1080
+        s = "min(iw\\,ih)"
+        x = _x_offset(s, focus)
+        return f"crop={s}:{s}:{x}:0,scale=1080:1080", 1080, 1080
     if aspect == "16:9":
+        # Letterboxed — no horizontal crop, so focus doesn't apply.
         return ("scale=1920:1080:force_original_aspect_ratio=decrease,"
                 "pad=1920:1080:-1:-1"), 1920, 1080
-    return "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920", 1080, 1920
+    w = "ih*9/16"
+    x = _x_offset(w, focus)
+    return f"crop={w}:ih:{x}:0,scale=1080:1920", 1080, 1920
 
 
 def _probe_duration(path: str) -> float:
@@ -122,29 +140,49 @@ def _render_single_pass(video, start, end, crop, overlay_png, ass_path, out) -> 
     return os.path.exists(out) and os.path.getsize(out) > 10000
 
 
-def _select_clips(req, video_path, segments, words, duration, emit):
-    """Gemini visual selection with automatic fallback to NIM text selection."""
+def _find_candidates(req, video_path, segments, words, duration, candidate_n, emit):
+    """Get candidate clips: Gemini visual (if chosen + keyed) else NIM text,
+    with automatic fallback. Asks for a few extra so the judge can filter down."""
     if req.selector == "gemini" and req.gemini_key:
         try:
             from dubber.shorts_gemini import find_clips_gemini
 
             emit("analyze", 35, "Finding clips (Gemini visual) ...")
             return find_clips_gemini(
-                video_path, words, num_clips=req.num_clips,
+                video_path, words, num_clips=candidate_n,
                 min_sec=req.min_seconds, max_sec=req.max_seconds,
                 duration=duration, api_key=req.gemini_key, model=req.gemini_model,
                 media_resolution=req.media_resolution, settings=req.settings,
                 on_log=lambda m: emit("analyze", 40, m),
             )
         except Exception as e:  # noqa: BLE001
-            emit("analyze", 38, f"Gemini selection failed ({str(e)[:80]}); using text model")
+            emit("analyze", 38, f"Gemini failed ({str(e)[:80]}); using text model")
     emit("analyze", 42, "Finding clips (text model) ...")
     return find_clips(
-        segments, words=words, num_clips=req.num_clips, min_sec=req.min_seconds,
+        segments, words=words, num_clips=candidate_n, min_sec=req.min_seconds,
         max_sec=req.max_seconds, duration=duration, api_url=req.nvidia_url,
         api_key=req.nvidia_key, model=req.clip_model, settings=req.settings,
         on_log=lambda m: emit("analyze", 44, m),
     )
+
+
+def _select_clips(req, video_path, segments, words, duration, emit):
+    """Find candidates, then (optionally) judge them on a standalone/hook/
+    completeness rubric and keep the best num_clips."""
+    candidate_n = req.num_clips + 5 if req.judge else req.num_clips
+    clips = _find_candidates(req, video_path, segments, words, duration,
+                             candidate_n, emit)
+    if not clips:
+        return []
+    if req.judge:
+        emit("analyze", 47, "Scoring & filtering clips ...")
+        units = build_sentences(words) if words else segments
+        clips = judge_clips(
+            clips, units, api_url=req.nvidia_url, api_key=req.nvidia_key,
+            model=req.title_model, num_keep=req.num_clips,
+            on_log=lambda m: emit("analyze", 48, m),
+        )
+    return clips[:req.num_clips]
 
 
 def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> ShortsResult:
@@ -155,7 +193,7 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
 
     shutil.rmtree(req.workspace, ignore_errors=True)
     os.makedirs(req.workspace, exist_ok=True)
-    vf, rx, ry = _dims(req.aspect)
+    vf, rx, ry = _dims(req.aspect, req.crop_focus)
 
     # 1) Source
     emit("download", 5, "Downloading video ...")

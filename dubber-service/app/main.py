@@ -235,10 +235,12 @@ class CreateShorts(BaseModel):
     source_type: str = "url"
     cookies: str = ""
     captions: bool = True
-    selector: str = "gemini"
+    selector: str = "nim"
     gemini_key: str = ""
     gemini_model: Optional[str] = None
     media_resolution: str = "low"
+    judge: bool = True
+    crop_focus: str = "center"
     overlay_url: Optional[str] = None
     transition_url: Optional[str] = None
     endcard_url: Optional[str] = None
@@ -281,6 +283,8 @@ def _run_shorts(job: ShortsJob, body: CreateShorts) -> None:
                 gemini_key=body.gemini_key,
                 gemini_model=body.gemini_model or "gemini-2.5-flash",
                 media_resolution=body.media_resolution,
+                judge=body.judge,
+                crop_focus=body.crop_focus,
                 overlay_url=body.overlay_url,
                 transition_url=body.transition_url,
                 endcard_url=body.endcard_url,

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -316,6 +317,68 @@ def find_clips(segments, *, num_clips, min_sec, max_sec, duration,
         c["rank"] = i
     on_log(f"clip-find: {len(clips)} clip(s) from {len(all_clips)} raw")
     return clips
+
+
+def _clip_text(clip, units) -> str:
+    """The transcript text inside a clip's [start, end] window."""
+    s = clip.get("start_seconds", 0)
+    e = clip.get("end_seconds", 0)
+    return " ".join(
+        u["text"] for u in units if u["start"] >= s and u["end"] <= e
+    ).strip()[:1200]
+
+
+def _judge_prompt(text) -> str:
+    return f"""You are a ruthless short-form video editor judging ONE candidate clip for a standalone social reel (spiritual teaching).
+Transcript of the clip:
+\"\"\"{text}\"\"\"
+
+Return ONLY JSON, no markdown:
+{{"standalone": true, "hook": 0, "complete": 0, "overall": 0}}
+
+- standalone = false if the OPENING needs prior context (starts with and/but/so/this/that/he/she/it/they/then, or references something earlier that isn't explained here) OR if it ends mid-thought. Otherwise true.
+- hook = how scroll-stopping the FIRST sentence is (0-100).
+- complete = is it ONE whole self-contained teaching (0-100).
+- overall = publish-worthiness (0-100)."""
+
+
+def judge_clips(clips, units, *, api_url, api_key, model, num_keep,
+                min_score=55, on_log=print) -> list[dict]:
+    """Score each candidate clip on a rubric (standalone comprehension, hook,
+    completeness) with a fast model, drop the ones that fail the standalone gate
+    or score low, and keep the best ``num_keep``. Runs the judges in parallel."""
+    def judge(c):
+        text = _clip_text(c, units) or c.get("hook", "")
+        verdict = {}
+        try:
+            raw = _call_nim_fast(api_url, api_key, model, _judge_prompt(text))
+            raw = re.sub(r"^```json\s*|^```\s*|\s*```$", "", raw,
+                         flags=re.MULTILINE).strip()
+            try:
+                verdict = json.loads(raw)
+            except json.JSONDecodeError:
+                m = re.search(r"\{[\s\S]*\}", raw)
+                verdict = json.loads(m.group()) if m else {}
+        except Exception as ex:  # noqa: BLE001
+            on_log(f"judge clip {c.get('rank')} failed: {str(ex)[:80]}")
+        c["judge_score"] = int(verdict.get("overall", c.get("viral_score") or 50))
+        c["standalone"] = bool(verdict.get("standalone", True))
+        return c
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        judged = list(ex.map(judge, clips))
+
+    passing = [c for c in judged if c["standalone"] and c["judge_score"] >= min_score]
+    rest = [c for c in judged if not (c["standalone"] and c["judge_score"] >= min_score)]
+    passing.sort(key=lambda c: -c["judge_score"])
+    rest.sort(key=lambda c: -c["judge_score"])
+    # Keep all that pass the gate; only backfill from the rest if we'd otherwise
+    # return too few (never return fewer clips just because the judge was strict).
+    final = (passing + rest)[:num_keep]
+    for i, c in enumerate(final, 1):
+        c["rank"] = i
+    on_log(f"judge: {len(passing)}/{len(judged)} passed gate, kept {len(final)}")
+    return final
 
 
 def _title_prompt(clip, clip_text, ctx) -> str:
