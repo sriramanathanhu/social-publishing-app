@@ -100,6 +100,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return head + body
 
 
+def make_ass_file(words, start_s, end_s, rx, ry, settings, ass_path) -> bool:
+    """Write an ASS subtitle file for a clip's time range. Returns True if it
+    has content. Used by the single-pass renderer (apply via the ass= filter)."""
+    cwords = _clip_words(words, start_s, end_s)
+    if not cwords:
+        return False
+    style = settings.get("caption_style", "pop")
+    color = settings.get("caption_color", DEFAULT_COLOR)
+    font_size = int(settings.get("font_size", DEFAULT_FONT_SIZE))
+    max_words = int(settings.get("max_words_per_line", DEFAULT_MAX_WORDS))
+    ass = _make_ass(cwords, rx, ry, style, color, font_size, max_words)
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.write(ass)
+    return True
+
+
 def burn_captions(clip_path, words, start_s, end_s, out_path, rx, ry,
                   settings, on_log=log) -> bool:
     """Burn word-by-word captions onto ``clip_path`` → ``out_path``. Returns

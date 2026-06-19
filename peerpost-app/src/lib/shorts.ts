@@ -30,6 +30,9 @@ export type ShortsCreateInput = {
 	aspect?: string;
 	language?: string;
 	captions?: boolean;
+	selector?: "gemini" | "nim";
+	gemini_key?: string;
+	media_resolution?: string;
 	overlay_url?: string;
 	transition_url?: string;
 	endcard_url?: string;

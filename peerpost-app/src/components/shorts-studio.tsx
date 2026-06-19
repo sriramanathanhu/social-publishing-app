@@ -41,6 +41,7 @@ export function ShortsStudio({
 	const [maxSeconds, setMaxSeconds] = useState(120);
 	const [aspect, setAspect] = useState("9:16");
 	const [captions, setCaptions] = useState(true);
+	const [selector, setSelector] = useState<"gemini" | "nim">("gemini");
 
 	const [progress, setProgress] = useState<Progress | null>(null);
 	const [phase, setPhase] = useState<"idle" | "running" | "done" | "failed">(
@@ -105,6 +106,7 @@ export function ShortsStudio({
 					maxSeconds,
 					aspect,
 					captions,
+					selector,
 				}),
 			});
 			const d = await res.json();
@@ -198,6 +200,33 @@ export function ShortsStudio({
 							<option value="16:9">16:9 (Wide)</option>
 						</select>
 					</label>
+				</div>
+
+				<div>
+					<div className="mb-1 text-xs font-medium opacity-60">
+						Clip selection
+					</div>
+					<div className="inline-flex rounded-md border border-black/15 p-0.5 text-sm">
+						<button
+							type="button"
+							onClick={() => setSelector("gemini")}
+							className={`rounded px-3 py-1 ${selector === "gemini" ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
+						>
+							Gemini (visual)
+						</button>
+						<button
+							type="button"
+							onClick={() => setSelector("nim")}
+							className={`rounded px-3 py-1 ${selector === "nim" ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
+						>
+							Fast (text)
+						</button>
+					</div>
+					<p className="mt-1 text-xs opacity-50">
+						Gemini watches the video for stronger picks (needs a Gemini key in
+						Settings; falls back to the text model automatically). Fast uses the
+						transcript only.
+					</p>
 				</div>
 
 				<label className="flex items-center gap-2 text-sm">

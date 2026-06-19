@@ -32,6 +32,8 @@ const createSchema = z.object({
 	aspect: z.enum(["9:16", "1:1", "16:9"]).default("9:16"),
 	language: z.string().min(2).max(8).default("en"),
 	captions: z.boolean().default(true),
+	// "gemini" = visual selection (needs a Gemini key); falls back to text.
+	selector: z.enum(["gemini", "nim"]).default("gemini"),
 });
 
 /**
@@ -89,6 +91,11 @@ export const POST = route(async (request: NextRequest) => {
 			aspect: input.aspect,
 			language: input.language,
 			captions: input.captions,
+			// Gemini visual selection when the user picked it AND has a key;
+			// the sidecar falls back to the text model otherwise.
+			selector: input.selector,
+			gemini_key: keys.gemini ?? undefined,
+			media_resolution: "low",
 			overlay_url: assets.overlay ?? undefined,
 			transition_url: assets.transition ?? undefined,
 			endcard_url: assets.endcard ?? undefined,
