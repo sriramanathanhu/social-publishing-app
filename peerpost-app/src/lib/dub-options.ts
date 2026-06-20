@@ -71,6 +71,64 @@ export const DUB_LANGUAGES: DubLanguage[] = [
 			{ id: "ml-IN-SobhanaNeural", label: "Sobhana (female)" },
 		],
 	},
+	{
+		// Edge-TTS has no Bhojpuri voice; Bhojpuri uses Devanagari, so we
+		// synthesize it with the Hindi voice (reads the same script well).
+		code: "bho",
+		label: "Bhojpuri",
+		voices: [
+			{ id: "hi-IN-MadhurNeural", label: "Madhur (Hindi voice, male)" },
+			{ id: "hi-IN-SwaraNeural", label: "Swara (Hindi voice, female)" },
+		],
+	},
+	{
+		code: "ru",
+		label: "Russian",
+		voices: [
+			{ id: "ru-RU-DmitryNeural", label: "Dmitry (male)" },
+			{ id: "ru-RU-SvetlanaNeural", label: "Svetlana (female)" },
+		],
+	},
+	{
+		code: "fr",
+		label: "French",
+		voices: [
+			{ id: "fr-FR-HenriNeural", label: "Henri (male)" },
+			{ id: "fr-FR-DeniseNeural", label: "Denise (female)" },
+		],
+	},
+	{
+		code: "es",
+		label: "Spanish",
+		voices: [
+			{ id: "es-ES-AlvaroNeural", label: "Alvaro (male)" },
+			{ id: "es-ES-ElviraNeural", label: "Elvira (female)" },
+		],
+	},
+	{
+		code: "ko",
+		label: "Korean",
+		voices: [
+			{ id: "ko-KR-InJoonNeural", label: "InJoon (male)" },
+			{ id: "ko-KR-SunHiNeural", label: "SunHi (female)" },
+		],
+	},
+	{
+		code: "nl",
+		label: "Dutch",
+		voices: [
+			{ id: "nl-NL-MaartenNeural", label: "Maarten (male)" },
+			{ id: "nl-NL-ColetteNeural", label: "Colette (female)" },
+		],
+	},
+	{
+		code: "zh-CN",
+		label: "Chinese (Mandarin)",
+		voices: [
+			{ id: "zh-CN-YunxiNeural", label: "Yunxi (male)" },
+			{ id: "zh-CN-XiaoxiaoNeural", label: "Xiaoxiao (female)" },
+		],
+	},
 ];
 
 export const DUB_LANGUAGE_CODES = DUB_LANGUAGES.map((l) => l.code);

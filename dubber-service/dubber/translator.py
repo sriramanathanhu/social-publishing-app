@@ -83,6 +83,38 @@ LANGUAGE_SPECS = {
         "strict_script_validation": True,
         "pivot_via_english": False,
     },
+    "bho": {
+        # Bhojpuri uses Devanagari (like Hindi); synthesized with a Hindi voice.
+        "name": "Bhojpuri",
+        "script_ranges": [(0x0900, 0x097F)],
+        "strict_script_validation": True,
+        "pivot_via_english": False,
+    },
+    "fr": {
+        "name": "French",
+        "script_ranges": [(0x0041, 0x005A), (0x0061, 0x007A), (0x00C0, 0x00FF)],
+        "strict_script_validation": False,
+        "pivot_via_english": False,
+    },
+    "ko": {
+        "name": "Korean",
+        "script_ranges": [(0x1100, 0x11FF), (0x3130, 0x318F), (0xAC00, 0xD7A3)],
+        "strict_script_validation": True,
+        "pivot_via_english": False,
+    },
+    "nl": {
+        "name": "Dutch",
+        "script_ranges": [(0x0041, 0x005A), (0x0061, 0x007A), (0x00C0, 0x00FF)],
+        "strict_script_validation": False,
+        "pivot_via_english": False,
+    },
+    "zh-cn": {
+        # _language_spec lowercases the lookup, so key this as "zh-cn".
+        "name": "Chinese (Simplified)",
+        "script_ranges": [(0x3400, 0x4DBF), (0x4E00, 0x9FFF)],
+        "strict_script_validation": True,
+        "pivot_via_english": False,
+    },
 }
 
 LANGUAGE_NAMES = {
