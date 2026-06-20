@@ -36,6 +36,8 @@ async function request<T>(
 			...(rest.headers ?? {}),
 		},
 		cache: "no-store",
+		// Cap so a slow provider can't hang a background publish forever.
+		signal: AbortSignal.timeout(120_000),
 	});
 
 	const text = await res.text();

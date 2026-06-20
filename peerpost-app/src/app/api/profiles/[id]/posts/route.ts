@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import type { NextRequest } from "next/server";
+import { after, type NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { platformEnum, postsLog, providerProfiles } from "@/db/schema";
@@ -101,19 +101,17 @@ export const POST = route(async (request: NextRequest, { params }: Ctx) => {
 
 	const mediaItems = input.mediaItems as ProviderMediaItem[] | undefined;
 
-	// Publish each account INDEPENDENTLY (its own provider call + posts_log row)
-	// so a single disconnected / needs-reauth account can't fail the others — the
-	// batch call would reject the whole group on one bad account. Run in parallel.
-	const settled = await Promise.all(
+	// One posts_log row per account, all starting as "publishing".
+	const jobs = await Promise.all(
 		input.platforms.map(async (p) => {
 			const provider = providerByAccount.get(p.accountId) as ProviderName;
-			const [logRow] = await db
+			const [row] = await db
 				.insert(postsLog)
 				.values({
 					profileId: id,
 					authorUserId: user.id,
 					provider,
-					status: isScheduled ? "scheduled" : "publishing",
+					status: "publishing",
 					content: input.content,
 					platforms: [
 						{
@@ -128,74 +126,71 @@ export const POST = route(async (request: NextRequest, { params }: Ctx) => {
 					timezone: input.timezone ?? null,
 				})
 				.returning();
-
-			try {
-				const result = await getProvider(provider).createPost({
-					content: input.content,
-					platforms: [p] as ProviderPlatformTarget[],
-					mediaItems,
-					publishNow: input.publishNow,
-					scheduledFor: input.scheduledFor,
-					timezone: input.timezone,
-					profileExternalId: externalProfileId(provider),
-				});
-				const pr: PlatformResult = result.platforms[0] ?? {
-					platform: p.platform,
-					success: result.success,
-					error: result.success ? undefined : (result.message ?? "failed"),
-				};
-				const ok = result.success && pr.success !== false;
-				await db
-					.update(postsLog)
-					.set(
-						ok
-							? {
-									postpeerPostId: result.postId,
-									status: isScheduled ? "scheduled" : "published",
-								}
-							: {
-									status: "failed",
-									postpeerPostId: result.postId,
-									error: pr.error ?? result.message ?? "failed",
-								},
-					)
-					.where(eq(postsLog.id, logRow.id));
-				return {
-					pr,
-					failure: ok ? null : `${p.platform}: ${pr.error ?? "failed"}`,
-				};
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				await db
-					.update(postsLog)
-					.set({ status: "failed", error: msg })
-					.where(eq(postsLog.id, logRow.id));
-				return {
-					pr: { platform: p.platform, success: false, error: msg },
-					failure: `${p.platform}: ${msg}`,
-				};
-			}
+			return { logId: row.id, p, provider };
 		}),
 	);
 
-	const allResults: PlatformResult[] = settled.map((s) => s.pr);
-	const failures = settled
-		.map((s) => s.failure)
-		.filter((f): f is string => Boolean(f));
-
-	// Hard error only if EVERY account failed; partial success returns 201 with
-	// the per-platform breakdown so the good accounts are clearly published.
-	if (!allResults.some((r) => r.success)) {
-		return Response.json(
-			{
-				error: failures.join("; ") || "Publishing failed",
-				platforms: allResults,
-			},
-			{ status: 400 },
+	// Publish in the BACKGROUND so the request returns immediately — posting a
+	// video to several accounts can exceed the gateway timeout (524). Each
+	// account is independent; the client polls each row's status. after() runs
+	// the work after the response is sent.
+	after(async () => {
+		await Promise.all(
+			jobs.map(async ({ logId, p, provider }) => {
+				try {
+					const result = await getProvider(provider).createPost({
+						content: input.content,
+						platforms: [p] as ProviderPlatformTarget[],
+						mediaItems,
+						publishNow: input.publishNow,
+						scheduledFor: input.scheduledFor,
+						timezone: input.timezone,
+						profileExternalId: externalProfileId(provider),
+					});
+					const pr: PlatformResult = result.platforms[0] ?? {
+						platform: p.platform,
+						success: result.success,
+						error: result.success ? undefined : (result.message ?? "failed"),
+					};
+					const ok = result.success && pr.success !== false;
+					await db
+						.update(postsLog)
+						.set(
+							ok
+								? {
+										postpeerPostId: result.postId,
+										status: isScheduled ? "scheduled" : "published",
+									}
+								: {
+										status: "failed",
+										postpeerPostId: result.postId,
+										error: pr.error ?? result.message ?? "failed",
+									},
+						)
+						.where(eq(postsLog.id, logId));
+				} catch (err) {
+					await db
+						.update(postsLog)
+						.set({
+							status: "failed",
+							error: err instanceof Error ? err.message : String(err),
+						})
+						.where(eq(postsLog.id, logId));
+				}
+			}),
 		);
-	}
+	});
+
 	return Response.json(
-		{ ok: true, platforms: allResults, errors: failures },
-		{ status: 201 },
+		{
+			ok: true,
+			scheduled: isScheduled,
+			jobs: jobs.map((j) => ({
+				id: j.logId,
+				platform: j.p.platform,
+				accountId: j.p.accountId,
+			})),
+		},
+		{ status: 202 },
 	);
 });

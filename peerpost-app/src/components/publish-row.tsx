@@ -16,7 +16,11 @@ export type Ecosystem = {
 	teamName: string;
 	accounts: EcoAccount[];
 };
-type PlatformResult = { platform: string; success: boolean; error?: string };
+type RowResult = {
+	platform: string;
+	status: "publishing" | "published" | "scheduled" | "failed";
+	error?: string;
+};
 
 const PROVIDER_LABEL: Record<Provider, string> = {
 	postpeer: "PostPeer",
@@ -34,6 +38,9 @@ export async function readJson(res: Response): Promise<{
 	error?: string;
 	publicUrl?: string;
 	platforms?: { platform: string; success: boolean; error?: string }[];
+	scheduled?: boolean;
+	jobs?: { id: string; platform: string; accountId: string }[];
+	statuses?: { id: string; status: string; error?: string | null }[];
 }> {
 	const text = await res.text();
 	try {
@@ -78,7 +85,7 @@ export function PublishRow({
 	const [scheduledFor, setScheduledFor] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [msg, setMsg] = useState<string | null>(null);
-	const [results, setResults] = useState<PlatformResult[]>([]);
+	const [results, setResults] = useState<RowResult[]>([]);
 
 	const eco = ecosystems.find((e) => e.id === ecoId);
 	const providers = Array.from(
@@ -127,6 +134,7 @@ export function PublishRow({
 		setBusy(true);
 		setMsg(null);
 		setResults([]);
+		let jobs: { id: string; platform: string }[] = [];
 		try {
 			const mediaUrl = await prepareMedia();
 			const res = await fetch(`/api/profiles/${ecoId}/posts`, {
@@ -144,20 +152,76 @@ export function PublishRow({
 				}),
 			});
 			const d = await readJson(res);
-			const platforms = d.platforms ?? [];
-			setResults(platforms);
 			if (!res.ok) throw new Error(d.error ?? "Publish failed");
-			// Partial success: good accounts went out; bad ones (disconnected /
-			// needs re-auth) are shown per-platform below without failing the rest.
-			const failed = platforms.filter((p) => !p.success).length;
-			const verb = scheduledFor ? "Scheduled" : "Published";
-			setMsg(failed ? `${verb} — ${failed} account(s) failed` : `${verb} ✓`);
-			router.refresh();
+			jobs = d.jobs ?? [];
+			if (jobs.length === 0) throw new Error("Nothing was queued to publish.");
 		} catch (err) {
 			setMsg(err instanceof Error ? err.message : "Error");
-		} finally {
 			setBusy(false);
+			return;
 		}
+		// Queued — publishing now runs in the background; poll each account's
+		// status so a slow platform never times out the request. Stays "busy".
+		setResults(
+			jobs.map((j) => ({ platform: j.platform, status: "publishing" })),
+		);
+		setMsg(scheduledFor ? "Scheduling…" : "Publishing…");
+		pollStatuses(jobs, !!scheduledFor);
+	}
+
+	function pollStatuses(
+		jobs: { id: string; platform: string }[],
+		sched: boolean,
+	) {
+		const ids = jobs.map((j) => j.id).join(",");
+		const started = Date.now();
+		const tick = async () => {
+			try {
+				const r = await fetch(`/api/profiles/${ecoId}/posts/status?ids=${ids}`);
+				const d = await readJson(r);
+				const byId = new Map((d.statuses ?? []).map((s) => [s.id, s]));
+				const updated: RowResult[] = jobs.map((j) => {
+					const st = byId.get(j.id)?.status ?? "publishing";
+					const status =
+						st === "published" || st === "scheduled" || st === "failed"
+							? (st as RowResult["status"])
+							: "publishing";
+					return {
+						platform: j.platform,
+						status,
+						error: byId.get(j.id)?.error ?? undefined,
+					};
+				});
+				setResults(updated);
+				const pending = updated.some((u) => u.status === "publishing");
+				if (pending && Date.now() - started < 180_000) {
+					setTimeout(tick, 3000);
+					return;
+				}
+				const failed = updated.filter((u) => u.status === "failed").length;
+				const stillGoing = updated.filter(
+					(u) => u.status === "publishing",
+				).length;
+				const verb = sched ? "Scheduled" : "Published";
+				setMsg(
+					stillGoing
+						? "Still publishing — check back shortly"
+						: failed
+							? `${verb} — ${failed} account(s) failed`
+							: `${verb} ✓`,
+				);
+				setBusy(false);
+				router.refresh();
+			} catch {
+				// Transient — keep polling for a bit.
+				if (Date.now() - started < 180_000) setTimeout(tick, 4000);
+				else {
+					setMsg("Lost track of publish status — check the post log.");
+					setBusy(false);
+				}
+			}
+		};
+		setTimeout(tick, 2000);
 	}
 
 	return (
@@ -280,7 +344,15 @@ export function PublishRow({
 						</button>
 						{msg && (
 							<span
-								className={`text-sm ${msg.includes("✓") ? "text-green-600" : "text-red-600"}`}
+								className={`text-sm ${
+									msg.includes("✓")
+										? "text-green-600"
+										: busy ||
+												msg.includes("publishing") ||
+												msg.includes("Publishing")
+											? "opacity-60"
+											: "text-red-600"
+								}`}
 							>
 								{msg}
 							</span>
@@ -289,15 +361,31 @@ export function PublishRow({
 
 					{results.length > 0 && (
 						<div className="flex flex-wrap gap-2 text-xs">
-							{results.map((p) => (
-								<span
-									key={p.platform}
-									className={`rounded px-1.5 py-0.5 ${p.success ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}
-									title={p.error}
-								>
-									{p.platform} {p.success ? "✓" : "✗"}
-								</span>
-							))}
+							{results.map((p) => {
+								const cls =
+									p.status === "publishing"
+										? "bg-black/10 text-black/60"
+										: p.status === "failed"
+											? "bg-red-100 text-red-700"
+											: "bg-green-100 text-green-700";
+								const mark =
+									p.status === "publishing"
+										? "…"
+										: p.status === "failed"
+											? "✗"
+											: p.status === "scheduled"
+												? "⏱"
+												: "✓";
+								return (
+									<span
+										key={p.platform}
+										className={`rounded px-1.5 py-0.5 ${cls}`}
+										title={p.error}
+									>
+										{p.platform} {mark}
+									</span>
+								);
+							})}
 						</div>
 					)}
 				</div>
