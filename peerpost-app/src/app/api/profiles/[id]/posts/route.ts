@@ -57,7 +57,6 @@ const publishSchema = z
 		message: "Provide publishNow:true or scheduledFor",
 	});
 
-type Target = z.infer<typeof publishSchema>["platforms"][number];
 type PlatformResult = {
 	platform: string;
 	success: boolean;
@@ -70,10 +69,10 @@ type PlatformResult = {
  *
  * Editor+ on the profile. Every target accountId is re-validated against
  * integrations_cache for THIS profile (a client can never publish to an account
- * it doesn't own), which also tells us each account's PROVIDER. Targets are
- * grouped by provider and dispatched to the matching client (PostPeer / Zernio);
- * each provider call is logged as its own posts_log row, and the per-platform
- * results are merged for the response.
+ * it doesn't own), which also tells us each account's PROVIDER. Each account is
+ * then published INDEPENDENTLY through its provider (PostPeer / Zernio) — so a
+ * single disconnected / needs-reauth account can't fail the others — and the
+ * per-account results are merged for the response (201 unless ALL fail).
  */
 export const POST = route(async (request: NextRequest, { params }: Ctx) => {
 	const user = await requireUser();
@@ -92,15 +91,6 @@ export const POST = route(async (request: NextRequest, { params }: Ctx) => {
 		providerByAccount.set(p.accountId, integrations[i].provider);
 	});
 
-	// Group targets by provider.
-	const groups = new Map<ProviderName, Target[]>();
-	for (const p of input.platforms) {
-		const provider = providerByAccount.get(p.accountId) as ProviderName;
-		const list = groups.get(provider) ?? [];
-		list.push(p);
-		groups.set(provider, list);
-	}
-
 	// Resolve external profile ids (Zernio needs the profile id in the body).
 	const mappings = await db
 		.select()
@@ -110,85 +100,102 @@ export const POST = route(async (request: NextRequest, { params }: Ctx) => {
 		mappings.find((m) => m.provider === provider)?.externalProfileId;
 
 	const mediaItems = input.mediaItems as ProviderMediaItem[] | undefined;
-	const allResults: PlatformResult[] = [];
-	const failures: string[] = [];
 
-	// Dispatch each provider group, logging one posts_log row per group.
-	for (const [provider, targets] of groups) {
-		const [logRow] = await db
-			.insert(postsLog)
-			.values({
-				profileId: id,
-				authorUserId: user.id,
-				provider,
-				status: isScheduled ? "scheduled" : "publishing",
-				content: input.content,
-				platforms: targets.map((p) => ({
+	// Publish each account INDEPENDENTLY (its own provider call + posts_log row)
+	// so a single disconnected / needs-reauth account can't fail the others — the
+	// batch call would reject the whole group on one bad account. Run in parallel.
+	const settled = await Promise.all(
+		input.platforms.map(async (p) => {
+			const provider = providerByAccount.get(p.accountId) as ProviderName;
+			const [logRow] = await db
+				.insert(postsLog)
+				.values({
+					profileId: id,
+					authorUserId: user.id,
+					provider,
+					status: isScheduled ? "scheduled" : "publishing",
+					content: input.content,
+					platforms: [
+						{
+							platform: p.platform,
+							accountId: p.accountId,
+							content: p.content,
+						},
+					],
+					scheduledFor: input.scheduledFor
+						? new Date(input.scheduledFor)
+						: null,
+					timezone: input.timezone ?? null,
+				})
+				.returning();
+
+			try {
+				const result = await getProvider(provider).createPost({
+					content: input.content,
+					platforms: [p] as ProviderPlatformTarget[],
+					mediaItems,
+					publishNow: input.publishNow,
+					scheduledFor: input.scheduledFor,
+					timezone: input.timezone,
+					profileExternalId: externalProfileId(provider),
+				});
+				const pr: PlatformResult = result.platforms[0] ?? {
 					platform: p.platform,
-					accountId: p.accountId,
-					content: p.content,
-				})),
-				scheduledFor: input.scheduledFor ? new Date(input.scheduledFor) : null,
-				timezone: input.timezone ?? null,
-			})
-			.returning();
-
-		try {
-			const result = await getProvider(provider).createPost({
-				content: input.content,
-				platforms: targets as ProviderPlatformTarget[],
-				mediaItems,
-				publishNow: input.publishNow,
-				scheduledFor: input.scheduledFor,
-				timezone: input.timezone,
-				profileExternalId: externalProfileId(provider),
-			});
-			allResults.push(...result.platforms);
-
-			if (!result.success) {
-				const detail =
-					result.platforms
-						.filter((p) => !p.success)
-						.map((p) => `${p.platform}: ${p.error ?? "failed"}`)
-						.join("; ") ||
-					result.message ||
-					`${provider}: publishing failed`;
-				failures.push(detail);
+					success: result.success,
+					error: result.success ? undefined : (result.message ?? "failed"),
+				};
+				const ok = result.success && pr.success !== false;
 				await db
 					.update(postsLog)
-					.set({
-						status: "failed",
-						postpeerPostId: result.postId,
-						error: detail,
-					})
+					.set(
+						ok
+							? {
+									postpeerPostId: result.postId,
+									status: isScheduled ? "scheduled" : "published",
+								}
+							: {
+									status: "failed",
+									postpeerPostId: result.postId,
+									error: pr.error ?? result.message ?? "failed",
+								},
+					)
 					.where(eq(postsLog.id, logRow.id));
-			} else {
+				return {
+					pr,
+					failure: ok ? null : `${p.platform}: ${pr.error ?? "failed"}`,
+				};
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
 				await db
 					.update(postsLog)
-					.set({
-						postpeerPostId: result.postId,
-						status: isScheduled ? "scheduled" : "published",
-					})
+					.set({ status: "failed", error: msg })
 					.where(eq(postsLog.id, logRow.id));
+				return {
+					pr: { platform: p.platform, success: false, error: msg },
+					failure: `${p.platform}: ${msg}`,
+				};
 			}
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			failures.push(`${provider}: ${msg}`);
-			for (const t of targets)
-				allResults.push({ platform: t.platform, success: false, error: msg });
-			await db
-				.update(postsLog)
-				.set({ status: "failed", error: msg })
-				.where(eq(postsLog.id, logRow.id));
-		}
-	}
+		}),
+	);
 
-	if (failures.length > 0) {
+	const allResults: PlatformResult[] = settled.map((s) => s.pr);
+	const failures = settled
+		.map((s) => s.failure)
+		.filter((f): f is string => Boolean(f));
+
+	// Hard error only if EVERY account failed; partial success returns 201 with
+	// the per-platform breakdown so the good accounts are clearly published.
+	if (!allResults.some((r) => r.success)) {
 		return Response.json(
-			{ error: failures.join("; "), platforms: allResults },
+			{
+				error: failures.join("; ") || "Publishing failed",
+				platforms: allResults,
+			},
 			{ status: 400 },
 		);
 	}
-
-	return Response.json({ ok: true, platforms: allResults }, { status: 201 });
+	return Response.json(
+		{ ok: true, platforms: allResults, errors: failures },
+		{ status: 201 },
+	);
 });

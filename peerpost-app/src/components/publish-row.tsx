@@ -144,9 +144,14 @@ export function PublishRow({
 				}),
 			});
 			const d = await readJson(res);
-			setResults(d.platforms ?? []);
+			const platforms = d.platforms ?? [];
+			setResults(platforms);
 			if (!res.ok) throw new Error(d.error ?? "Publish failed");
-			setMsg(scheduledFor ? "Scheduled ✓" : "Published ✓");
+			// Partial success: good accounts went out; bad ones (disconnected /
+			// needs re-auth) are shown per-platform below without failing the rest.
+			const failed = platforms.filter((p) => !p.success).length;
+			const verb = scheduledFor ? "Scheduled" : "Published";
+			setMsg(failed ? `${verb} — ${failed} account(s) failed` : `${verb} ✓`);
 			router.refresh();
 		} catch (err) {
 			setMsg(err instanceof Error ? err.message : "Error");
