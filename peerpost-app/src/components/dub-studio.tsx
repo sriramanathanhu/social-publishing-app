@@ -4,22 +4,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { DUB_LANGUAGES } from "@/lib/dub-options";
 
-type DubJobRow = {
-	id: string;
-	status: string;
-	pct: number;
-	stage: string | null;
-	message: string | null;
-	sourceInput: string;
-	targetLang: string;
-	error: string | null;
-	createdAt: string | Date;
-};
-
 type Progress = { pct: number; stage: string; message: string };
 
-/** Compose a dub job and stream its progress over SSE. */
-export function DubStudio({ recentJobs }: { recentJobs: DubJobRow[] }) {
+/** Compose a dub job and stream its progress over SSE. Publishing happens from
+ * the DubTable below, which re-renders when this calls router.refresh(). */
+export function DubStudio() {
 	const router = useRouter();
 	const [tab, setTab] = useState<"url" | "upload">("url");
 	const [url, setUrl] = useState("");
@@ -35,7 +24,6 @@ export function DubStudio({ recentJobs }: { recentJobs: DubJobRow[] }) {
 		"idle",
 	);
 	const [error, setError] = useState<string | null>(null);
-	const [exportingId, setExportingId] = useState<string | null>(null);
 	const esRef = useRef<EventSource | null>(null);
 
 	const language = DUB_LANGUAGES.find((l) => l.code === langCode);
@@ -138,22 +126,6 @@ export function DubStudio({ recentJobs }: { recentJobs: DubJobRow[] }) {
 	}
 
 	const running = phase === "running" || uploading;
-
-	// Move a finished dub into PostPeer media, then hand it to the composer.
-	async function publish(id: string) {
-		setExportingId(id);
-		setError(null);
-		try {
-			const res = await fetch(`/api/dub/${id}/export`, { method: "POST" });
-			const d = await res.json();
-			if (!res.ok)
-				throw new Error(d.error ?? "Failed to prepare for publishing");
-			router.push(`/publishing/create?dub=${id}`);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "Error");
-			setExportingId(null);
-		}
-	}
 
 	return (
 		<div className="space-y-6">
@@ -309,84 +281,20 @@ export function DubStudio({ recentJobs }: { recentJobs: DubJobRow[] }) {
 					)}
 					{error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 					{phase === "done" && jobId && (
-						<div className="mt-3 flex flex-wrap gap-2">
-							<button
-								type="button"
-								onClick={() => publish(jobId)}
-								disabled={exportingId === jobId}
-								className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-							>
-								{exportingId === jobId ? "Preparing…" : "Publish to social"}
-							</button>
+						<div className="mt-3 flex flex-wrap items-center gap-3">
 							<a
 								href={`/api/dub/${jobId}/result`}
 								className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5"
 							>
 								Download dubbed video
 							</a>
+							<span className="text-xs opacity-60">
+								Publish it from the table below ↓
+							</span>
 						</div>
 					)}
 				</div>
 			)}
-
-			{recentJobs.length > 0 && (
-				<div>
-					<h2 className="mb-2 text-sm font-semibold opacity-70">Recent jobs</h2>
-					<div className="divide-y divide-black/5 rounded-lg border border-black/10">
-						{recentJobs.map((j) => (
-							<div
-								key={j.id}
-								className="flex items-center justify-between gap-4 px-4 py-3 text-sm"
-							>
-								<div className="min-w-0">
-									<div className="truncate">{j.sourceInput}</div>
-									<div className="text-xs opacity-50">
-										→ {j.targetLang} · {new Date(j.createdAt).toLocaleString()}
-									</div>
-								</div>
-								<div className="flex shrink-0 items-center gap-3">
-									<StatusBadge status={j.status} />
-									{j.status === "done" && (
-										<>
-											<button
-												type="button"
-												onClick={() => publish(j.id)}
-												disabled={exportingId === j.id}
-												className="text-xs font-medium text-primary disabled:opacity-50"
-											>
-												{exportingId === j.id ? "Preparing…" : "Publish"}
-											</button>
-											<a
-												href={`/api/dub/${j.id}/result`}
-												className="text-xs underline opacity-70 hover:opacity-100"
-											>
-												Download
-											</a>
-										</>
-									)}
-								</div>
-							</div>
-						))}
-					</div>
-				</div>
-			)}
 		</div>
-	);
-}
-
-function StatusBadge({ status }: { status: string }) {
-	const styles: Record<string, string> = {
-		done: "bg-green-100 text-green-700",
-		failed: "bg-red-100 text-red-700",
-		running: "bg-blue-100 text-blue-700",
-		queued: "bg-black/10 text-black/60",
-		awaiting_review: "bg-amber-100 text-amber-700",
-	};
-	return (
-		<span
-			className={`rounded px-1.5 py-0.5 text-xs ${styles[status] ?? "bg-black/10"}`}
-		>
-			{status}
-		</span>
 	);
 }

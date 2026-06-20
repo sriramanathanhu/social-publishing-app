@@ -34,6 +34,20 @@ function r2(): { client: S3Client; bucket: string } | null {
 export const r2Enabled = (): boolean => r2() !== null;
 
 /**
+ * Public URL for an R2 object via the bucket's custom domain
+ * (R2_PUBLIC_BASE_URL, e.g. https://socialmedia.kailasa.ai). Returns null if the
+ * domain isn't configured. Used to serve/publish archived dubs without a
+ * separate upload.
+ */
+export function r2PublicUrl(key: string | null | undefined): string | null {
+	if (!key) return null;
+	let base = (process.env.R2_PUBLIC_BASE_URL ?? "").trim().replace(/\/$/, "");
+	if (!base) return null;
+	if (!/^https?:\/\//.test(base)) base = `https://${base}`;
+	return `${base}/${key}`;
+}
+
+/**
  * Upload a finished dub to R2 under `dubs/<jobId>.mp4` and return the object
  * key. Returns null if R2 is not configured. Throws on a genuine upload error
  * so callers can keep it best-effort.
