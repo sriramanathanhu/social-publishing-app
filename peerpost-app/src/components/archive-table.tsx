@@ -40,6 +40,7 @@ export function ArchiveTable({
 				<PublishRow
 					key={it.key}
 					previewUrl={it.videoUrl}
+					dubSourceUrl={it.videoUrl}
 					tags={[
 						{ label: it.type, tone: it.type === "Dubbed" ? "dub" : "orig" },
 						{ label: it.language, tone: "lang" },

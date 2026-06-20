@@ -85,6 +85,7 @@ export function ShortsTable({
 										<PublishRow
 											key={c.id}
 											previewUrl={c.publicUrl}
+											dubSourceUrl={c.publicUrl ?? undefined}
 											meta={[
 												`#${c.idx}`,
 												c.durationSec ? `${c.durationSec}s` : null,

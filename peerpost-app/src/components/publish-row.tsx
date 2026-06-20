@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { DubClipControl } from "@/components/dub-clip-control";
 
 export type Provider = "postpeer" | "zernio";
 export type EcoAccount = {
@@ -69,6 +70,7 @@ export function PublishRow({
 	initialCaption,
 	ecosystems,
 	prepareMedia,
+	dubSourceUrl,
 }: {
 	previewUrl: string | null;
 	meta?: string;
@@ -77,6 +79,7 @@ export function PublishRow({
 	initialCaption: string;
 	ecosystems: Ecosystem[];
 	prepareMedia: () => Promise<string>;
+	dubSourceUrl?: string;
 }) {
 	const router = useRouter();
 	const [title, setTitle] = useState(initialTitle);
@@ -408,6 +411,11 @@ export function PublishRow({
 							})}
 						</div>
 					)}
+				</div>
+			)}
+			{dubSourceUrl && (
+				<div className="mt-3 border-t border-black/5 pt-3">
+					<DubClipControl sourceUrl={dubSourceUrl} />
 				</div>
 			)}
 		</div>
