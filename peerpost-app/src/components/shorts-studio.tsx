@@ -3,37 +3,15 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-type ShortsJobRow = {
-	id: string;
-	status: string;
-	pct: number;
-	stage: string | null;
-	message: string | null;
-	sourceInput: string;
-	numClips: number;
-	error: string | null;
-	createdAt: string | Date;
-};
-type ClipRow = {
-	id: string;
-	jobId: string;
-	idx: number;
-	title: string | null;
-	description: string | null;
-	durationSec: number | null;
-	viralScore: number | null;
-	publicUrl: string | null;
-	status: string;
-};
 type Progress = { pct: number; stage: string; message: string };
 
-export function ShortsStudio({
-	recentJobs,
-	clips,
-}: {
-	recentJobs: ShortsJobRow[];
-	clips: ClipRow[];
-}) {
+const NUM =
+	"mt-1 w-full rounded-md border border-black/15 px-2.5 py-1.5 text-sm";
+const LBL = "block text-xs font-medium opacity-60";
+
+/** Compose a shorts job and stream its progress. Clips are published from the
+ * ShortsTable below, which re-renders when this calls router.refresh(). */
+export function ShortsStudio() {
 	const router = useRouter();
 	const [url, setUrl] = useState("");
 	const [numClips, setNumClips] = useState(15);
@@ -126,33 +104,24 @@ export function ShortsStudio({
 
 	const running = phase === "running";
 
-	async function publishClip(clip: ClipRow) {
-		if (!clip.publicUrl) return;
-		// Hand the clip to the composer as a pre-attached video + caption.
-		const params = new URLSearchParams({
-			media: clip.publicUrl,
-			text: clip.description ?? clip.title ?? "",
-		});
-		router.push(`/publishing/create?${params.toString()}`);
-	}
-
 	return (
-		<div className="space-y-6">
+		<div className="space-y-4">
 			<form
 				onSubmit={submit}
-				className="space-y-4 rounded-lg border border-black/10 p-4"
+				className="space-y-4 rounded-xl border border-black/10 bg-white p-5 shadow-sm"
 			>
 				<div>
-					<label className="mb-1 block text-xs font-medium opacity-60">
-						Long video URL (YouTube / Google Drive link / Instagram)
+					<label className={LBL} htmlFor="shorts-url">
+						Long video URL
 					</label>
 					<input
+						id="shorts-url"
 						value={url}
 						onChange={(e) => setUrl(e.target.value)}
 						required
 						type="url"
-						placeholder="https://www.youtube.com/watch?v=…"
-						className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+						placeholder="YouTube / Google Drive link / Instagram…"
+						className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
 					/>
 					<p className="mt-1 text-xs opacity-50">
 						Login/rate-limited sources may need cookies — add them under
@@ -160,8 +129,8 @@ export function ShortsStudio({
 					</p>
 				</div>
 
-				<div className="grid gap-4 sm:grid-cols-3">
-					<label className="block text-xs font-medium opacity-60">
+				<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+					<label className={LBL}>
 						Clips
 						<input
 							type="number"
@@ -169,44 +138,44 @@ export function ShortsStudio({
 							max={30}
 							value={numClips}
 							onChange={(e) => setNumClips(Number(e.target.value))}
-							className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+							className={NUM}
 						/>
 					</label>
-					<label className="block text-xs font-medium opacity-60">
-						Min seconds
+					<label className={LBL}>
+						Min sec
 						<input
 							type="number"
 							min={10}
 							max={600}
 							value={minSeconds}
 							onChange={(e) => setMinSeconds(Number(e.target.value))}
-							className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+							className={NUM}
 						/>
 					</label>
-					<label className="block text-xs font-medium opacity-60">
-						Max seconds
+					<label className={LBL}>
+						Max sec
 						<input
 							type="number"
 							min={15}
 							max={900}
 							value={maxSeconds}
 							onChange={(e) => setMaxSeconds(Number(e.target.value))}
-							className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+							className={NUM}
 						/>
 					</label>
-					<label className="block text-xs font-medium opacity-60">
+					<label className={LBL}>
 						Aspect
 						<select
 							value={aspect}
 							onChange={(e) => setAspect(e.target.value)}
-							className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+							className={NUM}
 						>
-							<option value="9:16">9:16 (Shorts/Reels)</option>
-							<option value="1:1">1:1 (Square)</option>
-							<option value="16:9">16:9 (Wide)</option>
+							<option value="9:16">9:16</option>
+							<option value="1:1">1:1</option>
+							<option value="16:9">16:9</option>
 						</select>
 					</label>
-					<label className="block text-xs font-medium opacity-60">
+					<label className={LBL}>
 						Focus
 						<select
 							value={cropFocus}
@@ -215,7 +184,7 @@ export function ShortsStudio({
 									e.target.value as "auto" | "center" | "left" | "right",
 								)
 							}
-							className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+							className={NUM}
 						>
 							<option value="auto">Auto (face)</option>
 							<option value="center">Center</option>
@@ -223,14 +192,14 @@ export function ShortsStudio({
 							<option value="right">Right</option>
 						</select>
 					</label>
-					<label className="block text-xs font-medium opacity-60">
+					<label className={LBL}>
 						Speed
 						<select
 							value={speed}
 							onChange={(e) => setSpeed(Number(e.target.value))}
-							className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+							className={NUM}
 						>
-							<option value={1}>1x (normal)</option>
+							<option value={1}>1x</option>
 							<option value={1.1}>1.1x</option>
 							<option value={1.25}>1.25x</option>
 							<option value={1.4}>1.4x</option>
@@ -241,53 +210,49 @@ export function ShortsStudio({
 					</label>
 				</div>
 
-				<div>
-					<div className="mb-1 text-xs font-medium opacity-60">
-						Clip selection
+				<div className="flex flex-wrap items-center justify-between gap-4 border-t border-black/5 pt-4">
+					<div className="flex flex-wrap items-center gap-4">
+						<div className="flex items-center gap-2">
+							<span className="text-xs opacity-60">Selection:</span>
+							<div className="inline-flex rounded-md border border-black/15 p-0.5 text-xs">
+								<button
+									type="button"
+									onClick={() => setSelector("nim")}
+									className={`rounded px-2.5 py-1 ${selector === "nim" ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
+								>
+									Fast (text)
+								</button>
+								<button
+									type="button"
+									onClick={() => setSelector("gemini")}
+									className={`rounded px-2.5 py-1 ${selector === "gemini" ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
+								>
+									Gemini (visual)
+								</button>
+							</div>
+						</div>
+						<label className="flex items-center gap-2 text-xs opacity-80">
+							<input
+								type="checkbox"
+								checked={captions}
+								onChange={(e) => setCaptions(e.target.checked)}
+							/>
+							Burn captions
+						</label>
 					</div>
-					<div className="inline-flex rounded-md border border-black/15 p-0.5 text-sm">
-						<button
-							type="button"
-							onClick={() => setSelector("gemini")}
-							className={`rounded px-3 py-1 ${selector === "gemini" ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
-						>
-							Gemini (visual)
-						</button>
-						<button
-							type="button"
-							onClick={() => setSelector("nim")}
-							className={`rounded px-3 py-1 ${selector === "nim" ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
-						>
-							Fast (text)
-						</button>
-					</div>
-					<p className="mt-1 text-xs opacity-50">
-						Gemini watches the video for stronger picks (needs a Gemini key in
-						Settings; falls back to the text model automatically). Fast uses the
-						transcript only.
-					</p>
+
+					<button
+						type="submit"
+						disabled={running}
+						className="h-10 rounded-md bg-primary px-5 text-sm font-medium text-white disabled:opacity-50"
+					>
+						{running ? "Generating…" : "Generate shorts"}
+					</button>
 				</div>
-
-				<label className="flex items-center gap-2 text-sm">
-					<input
-						type="checkbox"
-						checked={captions}
-						onChange={(e) => setCaptions(e.target.checked)}
-					/>
-					Burn word-by-word captions into each clip
-				</label>
-
-				<button
-					type="submit"
-					disabled={running}
-					className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-white disabled:opacity-50"
-				>
-					{running ? "Generating…" : "Generate shorts"}
-				</button>
 			</form>
 
 			{(progress || phase !== "idle") && (
-				<div className="rounded-lg border border-black/10 p-4">
+				<div className="rounded-xl border border-black/10 bg-white p-4 shadow-sm">
 					<div className="mb-2 flex items-center justify-between text-sm">
 						<span className="font-medium">
 							{phase === "done"
@@ -310,91 +275,11 @@ export function ShortsStudio({
 					{error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 					{phase === "done" && (
 						<p className="mt-2 text-sm text-green-600">
-							Clips ready below. They’re saved to R2.
+							Clips ready below — publish them from the table.
 						</p>
 					)}
 				</div>
 			)}
-
-			{recentJobs.map((job) => {
-				const jobClips = clips.filter((c) => c.jobId === job.id);
-				return (
-					<div key={job.id} className="rounded-lg border border-black/10">
-						<div className="flex items-center justify-between gap-4 border-b border-black/5 px-4 py-3 text-sm">
-							<div className="min-w-0">
-								<div className="truncate">{job.sourceInput}</div>
-								<div className="text-xs opacity-50">
-									{jobClips.length}/{job.numClips} clips ·{" "}
-									{new Date(job.createdAt).toLocaleString()}
-								</div>
-							</div>
-							<span
-								className={`rounded px-1.5 py-0.5 text-xs ${
-									job.status === "done"
-										? "bg-green-100 text-green-700"
-										: job.status === "failed"
-											? "bg-red-100 text-red-700"
-											: "bg-blue-100 text-blue-700"
-								}`}
-							>
-								{job.status}
-							</span>
-						</div>
-						{job.error && (
-							<p className="px-4 py-2 text-xs text-red-600">{job.error}</p>
-						)}
-						{jobClips.length > 0 && (
-							<div className="divide-y divide-black/5">
-								{jobClips.map((c) => (
-									<div
-										key={c.id}
-										className="flex items-center justify-between gap-3 px-4 py-2 text-sm"
-									>
-										<div className="min-w-0">
-											<div className="truncate font-medium">
-												#{c.idx} {c.title}
-											</div>
-											<div className="truncate text-xs opacity-50">
-												{c.durationSec ? `${c.durationSec}s` : ""}
-												{c.viralScore ? ` · score ${c.viralScore}` : ""}
-												{c.description ? ` · ${c.description}` : ""}
-											</div>
-										</div>
-										<div className="flex shrink-0 items-center gap-3 text-xs">
-											{c.publicUrl ? (
-												<>
-													<a
-														href={c.publicUrl}
-														target="_blank"
-														rel="noreferrer"
-														className="underline opacity-70 hover:opacity-100"
-													>
-														Open
-													</a>
-													<button
-														type="button"
-														onClick={() => publishClip(c)}
-														className="font-medium text-primary"
-													>
-														Publish
-													</button>
-												</>
-											) : (
-												<span
-													className="opacity-40"
-													title="Set R2_PUBLIC_BASE_URL (custom domain) to get public links"
-												>
-													stored (no public URL yet)
-												</span>
-											)}
-										</div>
-									</div>
-								))}
-							</div>
-						)}
-					</div>
-				);
-			})}
 		</div>
 	);
 }

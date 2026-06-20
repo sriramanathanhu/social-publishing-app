@@ -2,11 +2,13 @@ import { desc, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { ShortsAssets } from "@/components/shorts-assets";
 import { ShortsStudio } from "@/components/shorts-studio";
+import { ShortsTable } from "@/components/shorts-table";
 import { db } from "@/db";
 import { shortsClips, shortsJobs } from "@/db/schema";
 import { getUserKeyPresence } from "@/lib/api-keys";
 import { getUserAssets } from "@/lib/assets";
 import { requirePageUser } from "@/lib/page-auth";
+import { getAccessibleProfiles, getConnectedAccounts } from "@/lib/queries";
 import { isApproved } from "@/lib/rbac";
 import { reconcileRunningShorts } from "@/lib/shorts-jobs";
 
@@ -36,13 +38,35 @@ export default async function ShortsPage() {
 				.orderBy(shortsClips.idx)
 		: [];
 
+	// Ecosystems (with accounts) the user can publish clips to.
+	const profiles = await getAccessibleProfiles(user);
+	const ecosystems = await Promise.all(
+		profiles.map(async (p) => ({
+			id: p.id,
+			name: p.name,
+			teamName: p.teamName,
+			accounts: await getConnectedAccounts(p.id),
+		})),
+	);
+
+	const jobRows = jobs.map((j) => ({
+		id: j.id,
+		status: j.status,
+		sourceInput: j.sourceInput,
+		numClips: j.numClips,
+		error: j.error,
+		createdAt:
+			j.createdAt instanceof Date ? j.createdAt.toISOString() : j.createdAt,
+	}));
+
 	return (
 		<div className="space-y-5">
 			<div>
 				<h1 className="text-xl font-semibold">Shorts</h1>
 				<p className="mt-1 text-sm opacity-60">
-					Turn one long video into {`{N}`} short clips — AI finds the moments,
-					crops to 9:16, and writes a title + description for each.
+					Turn one long video into many short clips — AI finds the moments,
+					auto-frames the speaker, writes a title + caption, and you publish
+					each straight from the table.
 				</p>
 			</div>
 
@@ -61,7 +85,8 @@ export default async function ShortsPage() {
 			) : (
 				<>
 					<ShortsAssets assets={assets} />
-					<ShortsStudio recentJobs={jobs} clips={clips} />
+					<ShortsStudio />
+					<ShortsTable jobs={jobRows} clips={clips} ecosystems={ecosystems} />
 				</>
 			)}
 		</div>
