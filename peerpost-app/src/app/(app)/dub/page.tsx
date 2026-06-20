@@ -3,38 +3,14 @@ import Link from "next/link";
 import { DubStudio } from "@/components/dub-studio";
 import { DubTable } from "@/components/dub-table";
 import { db } from "@/db";
-import { type DubCaption, dubJobs } from "@/db/schema";
+import { dubJobs } from "@/db/schema";
 import { getUserKeyPresence } from "@/lib/api-keys";
 import { reconcileRunningJobs } from "@/lib/dub-jobs";
+import { dubPrefill } from "@/lib/dub-prefill";
 import { requirePageUser } from "@/lib/page-auth";
 import { getAccessibleProfiles, getConnectedAccounts } from "@/lib/queries";
 import { r2PublicUrl } from "@/lib/r2";
 import { isApproved } from "@/lib/rbac";
-
-const CAPTION_PREFERENCE = ["instagram", "facebook", "youtube", "threads"];
-
-/** Pick a representative caption + title from the per-platform AI captions. */
-function prefill(captions: Record<string, DubCaption> | null | undefined): {
-	title: string;
-	caption: string;
-} {
-	if (!captions) return { title: "", caption: "" };
-	const all = Object.values(captions);
-	let caption = "";
-	for (const p of CAPTION_PREFERENCE) {
-		const c = captions[p]?.caption?.trim();
-		if (c) {
-			caption = c;
-			break;
-		}
-	}
-	if (!caption) caption = all.find((c) => c?.caption?.trim())?.caption ?? "";
-	// Prefer an explicit title (YouTube usually has one); else first words.
-	const title =
-		all.find((c) => c?.title?.trim())?.title ??
-		caption.split(/\s+/).slice(0, 8).join(" ");
-	return { title, caption };
-}
 
 /** Dub Video: submit a source, watch progress, then publish from a table. */
 export default async function DubPage() {
@@ -52,7 +28,7 @@ export default async function DubPage() {
 		.limit(20);
 
 	const rows = jobs.map((j) => {
-		const { title, caption } = prefill(j.captions);
+		const { title, caption } = dubPrefill(j.captions);
 		return {
 			id: j.id,
 			status: j.status,

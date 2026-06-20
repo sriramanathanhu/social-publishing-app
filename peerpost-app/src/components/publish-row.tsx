@@ -64,6 +64,7 @@ export async function readJson(res: Response): Promise<{
 export function PublishRow({
 	previewUrl,
 	meta,
+	tags,
 	initialTitle,
 	initialCaption,
 	ecosystems,
@@ -71,6 +72,7 @@ export function PublishRow({
 }: {
 	previewUrl: string | null;
 	meta?: string;
+	tags?: { label: string; tone?: "dub" | "orig" | "lang" }[];
 	initialTitle: string;
 	initialCaption: string;
 	ecosystems: Ecosystem[];
@@ -240,6 +242,24 @@ export function PublishRow({
 					) : (
 						<div className="flex aspect-[9/16] w-full items-center justify-center rounded-lg bg-black/5 text-xs opacity-40">
 							…
+						</div>
+					)}
+					{tags && tags.length > 0 && (
+						<div className="mt-1 flex flex-wrap justify-center gap-1">
+							{tags.map((t) => (
+								<span
+									key={t.label}
+									className={`rounded px-1 py-0.5 text-[10px] font-medium ${
+										t.tone === "dub"
+											? "bg-violet-100 text-violet-700"
+											: t.tone === "orig"
+												? "bg-sky-100 text-sky-700"
+												: "bg-black/10 text-black/60"
+									}`}
+								>
+									{t.label}
+								</span>
+							))}
 						</div>
 					)}
 					{meta && (
