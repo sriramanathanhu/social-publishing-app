@@ -87,8 +87,12 @@ export const POST = route(async (request: NextRequest, { params }: Ctx) => {
 		input.platforms.map((p) => assertAccountInProfile(user, id, p.accountId)),
 	);
 	const providerByAccount = new Map<string, ProviderName>();
+	// Each account's OWN Zernio profile id (groups span profiles), used over the
+	// ecosystem-wide mapping when present.
+	const profileByAccount = new Map<string, string | null>();
 	input.platforms.forEach((p, i) => {
 		providerByAccount.set(p.accountId, integrations[i].provider);
+		profileByAccount.set(p.accountId, integrations[i].externalProfileId);
 	});
 
 	// Resolve external profile ids (Zernio needs the profile id in the body).
@@ -145,7 +149,8 @@ export const POST = route(async (request: NextRequest, { params }: Ctx) => {
 						publishNow: input.publishNow,
 						scheduledFor: input.scheduledFor,
 						timezone: input.timezone,
-						profileExternalId: externalProfileId(provider),
+						profileExternalId:
+							profileByAccount.get(p.accountId) ?? externalProfileId(provider),
 					});
 					const pr: PlatformResult = result.platforms[0] ?? {
 						platform: p.platform,

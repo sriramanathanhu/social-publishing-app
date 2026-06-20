@@ -7,7 +7,11 @@ import {
 	providerProfiles,
 } from "@/db/schema";
 import { asIntegrationArray, postpeer } from "@/lib/postpeer";
-import { listZernioAccounts } from "@/lib/providers/zernio";
+import {
+	listZernioAccounts,
+	listZernioGroups,
+	type ZernioAccount,
+} from "@/lib/providers/zernio";
 
 type ProfileRow = typeof profiles.$inferSelect;
 
@@ -112,31 +116,12 @@ export async function importZernioProfile(
 		});
 
 	for (const a of supported) {
-		await db
-			.insert(integrationsCache)
-			.values({
-				profileId: profile.id,
-				provider: "zernio",
-				platform: a.platform as (typeof platformEnum.enumValues)[number],
-				postpeerAccountId: a.externalId,
-				handle: a.handle,
-				displayName: a.displayName,
-				status: "connected",
-				connectedByUserId: userId,
-				syncedAt: new Date(),
-			})
-			.onConflictDoUpdate({
-				target: integrationsCache.postpeerAccountId,
-				set: {
-					handle: a.handle,
-					displayName: a.displayName,
-					status: "connected",
-					syncedAt: new Date(),
-				},
-			});
+		await upsertZernioAccount(profile.id, a, userId);
 	}
 
-	// Prune Zernio accounts under THIS ecosystem that Zernio no longer reports.
+	// Prune accounts FROM THIS PROFILE that Zernio no longer reports. Scoped to
+	// this profile's externalProfileId so a group (or another profile) imported
+	// into the same ecosystem isn't touched.
 	const liveIds = new Set(supported.map((a) => a.externalId));
 	const cached = await db
 		.select()
@@ -148,7 +133,10 @@ export async function importZernioProfile(
 			),
 		);
 	for (const c of cached) {
-		if (!liveIds.has(c.postpeerAccountId)) {
+		if (
+			c.externalProfileId === externalProfileId &&
+			!liveIds.has(c.postpeerAccountId)
+		) {
 			await db
 				.delete(integrationsCache)
 				.where(eq(integrationsCache.postpeerAccountId, c.postpeerAccountId));
@@ -156,4 +144,63 @@ export async function importZernioProfile(
 	}
 
 	return supported.length;
+}
+
+/** Upsert one Zernio account into integrations_cache, keeping its own profile id. */
+async function upsertZernioAccount(
+	profileId: string,
+	a: ZernioAccount,
+	userId: string,
+) {
+	await db
+		.insert(integrationsCache)
+		.values({
+			profileId,
+			provider: "zernio",
+			platform: a.platform as (typeof platformEnum.enumValues)[number],
+			postpeerAccountId: a.externalId,
+			externalProfileId: a.externalProfileId,
+			handle: a.handle,
+			displayName: a.displayName,
+			status: "connected",
+			connectedByUserId: userId,
+			syncedAt: new Date(),
+		})
+		.onConflictDoUpdate({
+			target: integrationsCache.postpeerAccountId,
+			set: {
+				profileId,
+				externalProfileId: a.externalProfileId,
+				handle: a.handle,
+				displayName: a.displayName,
+				status: "connected",
+				syncedAt: new Date(),
+			},
+		});
+}
+
+/**
+ * Import a Zernio account GROUP into an ecosystem. Groups can span profiles, so
+ * each account keeps its own externalProfileId (used at publish time). Upsert
+ * only — no pruning, so it composes with profile imports in the same ecosystem.
+ * Returns the count imported.
+ */
+export async function importZernioGroup(
+	profile: ProfileRow,
+	groupId: string,
+	userId: string,
+): Promise<number> {
+	const groups = await listZernioGroups();
+	const group = groups.find((g) => g.externalId === groupId);
+	if (!group) throw new Error("Zernio group not found");
+
+	const ids = new Set(group.accountIds);
+	const all = await listZernioAccounts();
+	const accounts = all.filter(
+		(a) => ids.has(a.externalId) && KNOWN_PLATFORMS.has(a.platform),
+	);
+	for (const a of accounts) {
+		await upsertZernioAccount(profile.id, a, userId);
+	}
+	return accounts.length;
 }

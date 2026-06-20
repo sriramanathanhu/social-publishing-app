@@ -190,6 +190,10 @@ export const integrationsCache = pgTable(
 		// The provider's account id — what POST /posts targets (PostPeer integration
 		// id, or Zernio account `_id`). Column name kept for migration safety.
 		postpeerAccountId: text("postpeer_account_id").notNull(),
+		// For Zernio, the account's OWN profile id. Zernio groups can span profiles,
+		// so this is stored per-account and used (over the ecosystem mapping) when
+		// publishing. Null for PostPeer (which doesn't need it).
+		externalProfileId: text("external_profile_id"),
 		handle: text("handle"),
 		displayName: text("display_name"),
 		status: integrationStatusEnum("status").notNull().default("connected"),

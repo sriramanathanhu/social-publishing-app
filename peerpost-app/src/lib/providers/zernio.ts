@@ -125,6 +125,23 @@ export async function listZernioAccounts(
 	}));
 }
 
+type ZernioGroupRaw = { _id: string; name: string; accountIds?: string[] };
+export type ZernioGroup = {
+	externalId: string;
+	name: string;
+	accountIds: string[];
+};
+
+/** List Zernio account groups (named bags of account ids; can span profiles). */
+export async function listZernioGroups(): Promise<ZernioGroup[]> {
+	const res = await request<{ groups: ZernioGroupRaw[] }>("/account-groups");
+	return (res.groups ?? []).map((g) => ({
+		externalId: g._id,
+		name: g.name,
+		accountIds: g.accountIds ?? [],
+	}));
+}
+
 /** Hosted OAuth URL to connect a new account under a Zernio profile. */
 export async function zernioConnectUrl(
 	platform: string,

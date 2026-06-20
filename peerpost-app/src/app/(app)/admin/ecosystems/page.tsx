@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { EditableName } from "@/components/editable-name";
 import { LinkZernio } from "@/components/link-zernio";
+import { LinkZernioGroup } from "@/components/link-zernio-group";
 import { requireAdminPage } from "@/lib/page-auth";
 import { PLATFORM_SHORT } from "@/lib/platform-fields";
 import { getAllEcosystems } from "@/lib/queries";
@@ -79,7 +80,10 @@ export default async function AdminEcosystemsPage() {
 									)}
 								</td>
 								<td className="px-4 py-3">
-									<LinkZernio ecosystemId={e.id} />
+									<div className="flex flex-col gap-1.5">
+										<LinkZernio ecosystemId={e.id} />
+										<LinkZernioGroup ecosystemId={e.id} />
+									</div>
 								</td>
 							</tr>
 						))}
