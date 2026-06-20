@@ -1,6 +1,6 @@
 "use client";
 
-import { type Ecosystem, PublishRow } from "@/components/publish-row";
+import { type Ecosystem, PublishRow, readJson } from "@/components/publish-row";
 
 type ShortsJobRow = {
 	id: string;
@@ -102,7 +102,7 @@ export function ShortsTable({
 													headers: { "Content-Type": "application/json" },
 													body: JSON.stringify({ url: c.publicUrl }),
 												});
-												const d = await r.json();
+												const d = await readJson(r);
 												if (!r.ok)
 													throw new Error(d.error ?? "Couldn’t prepare clip");
 												return d.publicUrl as string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { type Ecosystem, PublishRow } from "@/components/publish-row";
+import { type Ecosystem, PublishRow, readJson } from "@/components/publish-row";
 
 type DubRowData = {
 	id: string;
@@ -49,7 +49,7 @@ export function DubTable({
 							const ex = await fetch(`/api/dub/${r.id}/export`, {
 								method: "POST",
 							});
-							const d = await ex.json();
+							const d = await readJson(ex);
 							if (!ex.ok)
 								throw new Error(d.error ?? "Couldn’t prepare the video");
 							return d.publicUrl as string;

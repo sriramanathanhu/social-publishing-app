@@ -24,6 +24,31 @@ const PROVIDER_LABEL: Record<Provider, string> = {
 };
 
 /**
+ * Parse a fetch Response as JSON, but if the body is HTML (a proxy timeout /
+ * error page — common when publishing a large video through the gateway),
+ * throw a readable error with the status instead of the cryptic
+ * "Unexpected token '<'". Returns the parsed object; the caller still checks
+ * res.ok to read per-platform results from a JSON 4xx.
+ */
+export async function readJson(res: Response): Promise<{
+	error?: string;
+	publicUrl?: string;
+	platforms?: { platform: string; success: boolean; error?: string }[];
+}> {
+	const text = await res.text();
+	try {
+		return text ? JSON.parse(text) : {};
+	} catch {
+		const gateway = res.status >= 502 && res.status <= 524;
+		throw new Error(
+			gateway
+				? `Publish timed out at the gateway (${res.status}). The video may be too large or slow to process — try again, or a shorter clip.`
+				: `Server returned a non-JSON response (${res.status}).`,
+		);
+	}
+}
+
+/**
  * One publishable media row: a preview, editable title + caption, and an inline
  * mini-composer (ecosystem → accounts → provider toggle → optional schedule →
  * publish), with per-platform results. `prepareMedia` returns the provider-ready
@@ -118,7 +143,7 @@ export function PublishRow({
 					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 				}),
 			});
-			const d = await res.json();
+			const d = await readJson(res);
 			setResults(d.platforms ?? []);
 			if (!res.ok) throw new Error(d.error ?? "Publish failed");
 			setMsg(scheduledFor ? "Scheduled ✓" : "Published ✓");
