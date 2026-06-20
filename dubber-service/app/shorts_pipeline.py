@@ -178,41 +178,71 @@ def _render_single_pass(video, start, end, crop, overlay_png, ass_path, out,
     return os.path.exists(out) and os.path.getsize(out) > 10000
 
 
+def _even_clips(duration, num_clips, min_sec, max_sec):
+    """Transcript-free fallback (e.g. a song / music video with no speech):
+    evenly-spaced clips of a target length across the whole timeline."""
+    length = max(float(min_sec), min(float(max_sec),
+                                     (float(min_sec) + float(max_sec)) / 2))
+    if duration <= length:
+        return [{"start_seconds": 0.0, "end_seconds": round(float(duration), 2),
+                 "title": "Clip 1", "rank": 1}]
+    n = max(1, int(num_clips))
+    step = (duration - length) / (n - 1) if n > 1 else 0.0
+    clips = []
+    for i in range(n):
+        start = round(i * step, 2)
+        end = round(min(float(duration), start + length), 2)
+        clips.append({"start_seconds": start, "end_seconds": end,
+                      "title": f"Clip {i + 1}", "rank": i + 1})
+    return clips
+
+
 def _find_candidates(req, video_path, segments, words, duration, candidate_n, emit):
-    """Get candidate clips: Gemini visual (if chosen + keyed) else NIM text,
-    with automatic fallback. Asks for a few extra so the judge can filter down."""
+    """Get candidate clips: Gemini visual (if chosen + keyed) → NIM text (needs a
+    transcript) → evenly-spaced (no transcript, e.g. a song). Asks for a few
+    extra so the judge can filter down."""
     if req.selector == "gemini" and req.gemini_key:
         try:
             from dubber.shorts_gemini import find_clips_gemini
 
             emit("analyze", 35, "Finding clips (Gemini visual) ...")
-            return find_clips_gemini(
+            clips = find_clips_gemini(
                 video_path, words, num_clips=candidate_n,
                 min_sec=req.min_seconds, max_sec=req.max_seconds,
                 duration=duration, api_key=req.gemini_key, model=req.gemini_model,
                 media_resolution=req.media_resolution, settings=req.settings,
                 on_log=lambda m: emit("analyze", 40, m),
             )
+            if clips:
+                return clips
         except Exception as e:  # noqa: BLE001
-            emit("analyze", 38, f"Gemini failed ({str(e)[:80]}); using text model")
-    emit("analyze", 42, "Finding clips (text model) ...")
-    return find_clips(
-        segments, words=words, num_clips=candidate_n, min_sec=req.min_seconds,
-        max_sec=req.max_seconds, duration=duration, api_url=req.nvidia_url,
-        api_key=req.nvidia_key, model=req.clip_model, settings=req.settings,
-        on_log=lambda m: emit("analyze", 44, m),
-    )
+            emit("analyze", 38, f"Gemini failed ({str(e)[:80]}); using fallback")
+    # The text model needs a transcript; a song has none.
+    if segments:
+        emit("analyze", 42, "Finding clips (text model) ...")
+        clips = find_clips(
+            segments, words=words, num_clips=candidate_n, min_sec=req.min_seconds,
+            max_sec=req.max_seconds, duration=duration, api_url=req.nvidia_url,
+            api_key=req.nvidia_key, model=req.clip_model, settings=req.settings,
+            on_log=lambda m: emit("analyze", 44, m),
+        )
+        if clips:
+            return clips
+    emit("analyze", 44, "No speech transcript — selecting evenly-spaced clips")
+    return _even_clips(duration, candidate_n, req.min_seconds, req.max_seconds)
 
 
 def _select_clips(req, video_path, segments, words, duration, emit):
     """Find candidates, then (optionally) judge them on a standalone/hook/
-    completeness rubric and keep the best num_clips."""
-    candidate_n = req.num_clips + 5 if req.judge else req.num_clips
+    completeness rubric and keep the best num_clips. Judging needs a transcript,
+    so it's skipped for speechless sources."""
+    use_judge = req.judge and bool(segments)
+    candidate_n = req.num_clips + 5 if use_judge else req.num_clips
     clips = _find_candidates(req, video_path, segments, words, duration,
                              candidate_n, emit)
     if not clips:
         return []
-    if req.judge:
+    if use_judge:
         emit("analyze", 47, "Scoring & filtering clips ...")
         units = build_sentences(words) if words else segments
         clips = judge_clips(
@@ -246,12 +276,23 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
     src_w, src_h = _probe_dims(video_path)
     emit("download", 12, f"Source ready ({int(duration)}s, {src_w}x{src_h})")
 
-    # 2) Transcribe (word-level)
+    # 2) Transcribe (word-level). A song / music video may have no transcribable
+    # speech — that's fine; we fall back to visual or evenly-spaced selection and
+    # skip captions, rather than failing the whole job.
     emit("transcribe", 18, "Transcribing (Deepgram) ...")
-    segments, words = transcribe_with_words(
-        video_path, req.workspace, api_key=req.deepgram_key, language=req.language,
-    )
-    emit("transcribe", 30, f"{len(segments)} segments, {len(words)} words")
+    try:
+        segments, words = transcribe_with_words(
+            video_path, req.workspace, api_key=req.deepgram_key,
+            language=req.language,
+        )
+        emit("transcribe", 30, f"{len(segments)} segments, {len(words)} words")
+    except RuntimeError as e:
+        if "no transcribable speech" in str(e).lower():
+            segments, words = [], []
+            emit("transcribe", 30,
+                 "No speech detected — selecting clips by video / timing")
+        else:
+            raise
 
     # 3) Clip selection (Gemini visual → NIM fallback)
     clips = _select_clips(req, video_path, segments, words, duration, emit)
@@ -331,13 +372,21 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
     if not out_clips:
         raise RuntimeError("All clip renders failed.")
 
-    # 5) Titles & descriptions (NIM text)
-    emit("titles", 88, "Generating titles & descriptions ...")
-    generate_titles(
-        out_clips, segments, api_url=req.nvidia_url, api_key=req.nvidia_key,
-        model=req.title_model, settings=req.settings,
-        on_log=lambda m: emit("titles", 92, m),
-    )
+    # 5) Titles & descriptions (NIM text) — only with a transcript. For a
+    # speechless source there's nothing to title from, so name clips after the
+    # source video and let the user edit them in the publish table.
+    if segments:
+        emit("titles", 88, "Generating titles & descriptions ...")
+        generate_titles(
+            out_clips, segments, api_url=req.nvidia_url, api_key=req.nvidia_key,
+            model=req.title_model, settings=req.settings,
+            on_log=lambda m: emit("titles", 92, m),
+        )
+    else:
+        emit("titles", 92, "No transcript — naming clips after the source")
+        base = (req.settings.get("video_title") or "").strip()
+        for c in out_clips:
+            c["title"] = f"{base} — Part {c['idx']}" if base else f"Clip {c['idx']}"
 
     emit("done", 100, f"{len(out_clips)} clips ready", count=len(out_clips))
     return ShortsResult(clips=out_clips)
