@@ -66,7 +66,6 @@ export function Sidebar({ user }: { user: NavUser }) {
 					<div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide opacity-40">
 						Settings
 					</div>
-					<NavLink href="/settings/api-keys" label="API keys (Claude)" />
 					<NavLink href="/settings" label="Service keys (Dub)" />
 				</div>
 

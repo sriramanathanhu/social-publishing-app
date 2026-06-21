@@ -2,8 +2,10 @@ import { eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { db } from "@/db";
 import { shortsClips, shortsJobs } from "@/db/schema";
-import { requireUser } from "@/lib/auth";
+import { HttpError, requireUser } from "@/lib/auth";
 import { route } from "@/lib/http";
+import { deleteR2Object } from "@/lib/r2";
+import { isAdmin } from "@/lib/rbac";
 import { shorts } from "@/lib/shorts";
 import { getOwnedShortsJob, persistClips } from "@/lib/shorts-jobs";
 
@@ -56,4 +58,36 @@ export const GET = route(async (_req: NextRequest, { params }: Ctx) => {
 		.orderBy(shortsClips.idx);
 
 	return Response.json({ job, clips });
+});
+
+/**
+ * DELETE /api/shorts/:id — remove a whole shorts JOB and its clips (e.g. a run
+ * that produced 0 usable clips). Owner OR admin. Clears each clip's R2 object,
+ * then deletes the job row (clip rows cascade).
+ */
+export const DELETE = route(async (_req: NextRequest, { params }: Ctx) => {
+	const user = await requireUser();
+	const { id } = await params;
+
+	const job = await db.query.shortsJobs.findFirst({
+		where: eq(shortsJobs.id, id),
+	});
+	if (!job) throw new HttpError(404, "Shorts job not found");
+	if (job.userId !== user.id && !isAdmin(user)) {
+		throw new HttpError(403, "You can only delete shorts you generated");
+	}
+
+	const clips = await db
+		.select({ r2Key: shortsClips.r2Key })
+		.from(shortsClips)
+		.where(eq(shortsClips.jobId, id));
+	for (const c of clips) {
+		try {
+			await deleteR2Object(c.r2Key);
+		} catch {
+			// Orphaned object is harmless; keep deleting.
+		}
+	}
+	await db.delete(shortsJobs).where(eq(shortsJobs.id, id));
+	return Response.json({ ok: true });
 });

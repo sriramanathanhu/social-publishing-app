@@ -240,6 +240,7 @@ export async function getAllEcosystems() {
 	return rows.map((r) => ({
 		id: r.profile.id,
 		name: r.profile.name,
+		teamId: r.profile.teamId,
 		teamName: r.teamName ?? "—",
 		integrations: byProfile.get(r.profile.id) ?? [],
 	}));

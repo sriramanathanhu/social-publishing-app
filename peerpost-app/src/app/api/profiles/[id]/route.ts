@@ -12,6 +12,8 @@ type Ctx = { params: Promise<{ id: string }> };
 const patchSchema = z.object({
 	name: z.string().min(1).max(200).optional(),
 	description: z.string().max(1000).optional(),
+	// Reassign the ecosystem to a different team.
+	teamId: z.string().uuid().optional(),
 });
 
 /** PATCH /api/profiles/:id — rename / update an ecosystem (ADMIN ONLY). */

@@ -1,6 +1,37 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { type Ecosystem, PublishRow, readJson } from "@/components/publish-row";
+
+/** Delete a whole shorts job (and its clips). Owner/admin enforced server-side. */
+function DeleteJobButton({ id }: { id: string }) {
+	const router = useRouter();
+	const [busy, setBusy] = useState(false);
+	async function remove() {
+		if (!window.confirm("Delete this shorts job and all its clips?")) return;
+		setBusy(true);
+		try {
+			const r = await fetch(`/api/shorts/${id}`, { method: "DELETE" });
+			const d = await readJson(r);
+			if (!r.ok) throw new Error(d.error ?? "Delete failed");
+			router.refresh();
+		} catch (err) {
+			setBusy(false);
+			window.alert(err instanceof Error ? err.message : "Delete failed");
+		}
+	}
+	return (
+		<button
+			type="button"
+			onClick={remove}
+			disabled={busy}
+			className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+		>
+			{busy ? "Deleting…" : "Delete"}
+		</button>
+	);
+}
 
 type ShortsJobRow = {
 	id: string;
@@ -66,7 +97,10 @@ export function ShortsTable({
 									{new Date(job.createdAt).toLocaleString()}
 								</div>
 							</div>
-							<StatusBadge status={job.status} />
+							<div className="flex shrink-0 items-center gap-2">
+								<StatusBadge status={job.status} />
+								<DeleteJobButton id={job.id} />
+							</div>
 						</div>
 						{job.error && (
 							<p className="px-4 text-xs text-red-600">{job.error}</p>

@@ -2,9 +2,10 @@ import Link from "next/link";
 import { EditableName } from "@/components/editable-name";
 import { LinkZernio } from "@/components/link-zernio";
 import { LinkZernioGroup } from "@/components/link-zernio-group";
+import { TeamSelect } from "@/components/team-select";
 import { requireAdminPage } from "@/lib/page-auth";
 import { PLATFORM_SHORT } from "@/lib/platform-fields";
-import { getAllEcosystems } from "@/lib/queries";
+import { getAllEcosystems, getTeamsForUser } from "@/lib/queries";
 
 /**
  * Admin: all ecosystems with their connected platforms. Kept compact — one row
@@ -12,9 +13,12 @@ import { getAllEcosystems } from "@/lib/queries";
  * scannable.
  */
 export default async function AdminEcosystemsPage() {
-	await requireAdminPage();
+	const user = await requireAdminPage();
 
-	const ecosystems = await getAllEcosystems();
+	const [ecosystems, teams] = await Promise.all([
+		getAllEcosystems(),
+		getTeamsForUser(user),
+	]);
 	const totalConnections = ecosystems.reduce(
 		(n, e) => n + e.integrations.length,
 		0,
@@ -61,7 +65,13 @@ export default async function AdminEcosystemsPage() {
 										Open →
 									</Link>
 								</td>
-								<td className="px-4 py-3 opacity-70">{e.teamName}</td>
+								<td className="px-4 py-3">
+									<TeamSelect
+										ecosystemId={e.id}
+										teamId={e.teamId}
+										teams={teams}
+									/>
+								</td>
 								<td className="px-4 py-3">
 									{e.integrations.length === 0 ? (
 										<span className="text-xs opacity-40">none</span>

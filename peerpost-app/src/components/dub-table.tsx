@@ -1,6 +1,37 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { type Ecosystem, PublishRow, readJson } from "@/components/publish-row";
+
+/** Delete a dub job. Owner/admin enforced server-side. */
+function DeleteDubButton({ id }: { id: string }) {
+	const router = useRouter();
+	const [busy, setBusy] = useState(false);
+	async function remove() {
+		if (!window.confirm("Delete this dub?")) return;
+		setBusy(true);
+		try {
+			const r = await fetch(`/api/dub/${id}`, { method: "DELETE" });
+			const d = await readJson(r);
+			if (!r.ok) throw new Error(d.error ?? "Delete failed");
+			router.refresh();
+		} catch (err) {
+			setBusy(false);
+			window.alert(err instanceof Error ? err.message : "Delete failed");
+		}
+	}
+	return (
+		<button
+			type="button"
+			onClick={remove}
+			disabled={busy}
+			className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+		>
+			{busy ? "Deleting…" : "Delete"}
+		</button>
+	);
+}
 
 type DubRowData = {
 	id: string;
@@ -65,15 +96,18 @@ export function DubTable({
 							{r.targetLang.toUpperCase()} ·{" "}
 							{new Date(r.createdAt).toLocaleString()}
 						</span>
-						<span
-							className={`rounded px-1.5 py-0.5 text-xs ${
-								r.status === "failed"
-									? "bg-red-100 text-red-700"
-									: "bg-blue-100 text-blue-700"
-							}`}
-						>
-							{r.status}
-						</span>
+						<div className="flex items-center gap-2">
+							<span
+								className={`rounded px-1.5 py-0.5 text-xs ${
+									r.status === "failed"
+										? "bg-red-100 text-red-700"
+										: "bg-blue-100 text-blue-700"
+								}`}
+							>
+								{r.status}
+							</span>
+							<DeleteDubButton id={r.id} />
+						</div>
 					</div>
 				),
 			)}
