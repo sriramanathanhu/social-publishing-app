@@ -182,7 +182,21 @@ def download_video(url, output_dir="workspace", source_type="url", cookies_file=
     if r.returncode != 0:
         # Distinguish "this source needs login" from a transient failure so the
         # user knows to supply cookies rather than just retrying forever.
-        if _looks_like_auth_error(r.stderr) and not _ytdlp_auth_flags(cookies_file):
+        if _looks_like_auth_error(r.stderr):
+            if _ytdlp_auth_flags(cookies_file):
+                # Cookies WERE supplied but YouTube still blocked us — they're
+                # almost always anonymous (not signed in) or expired.
+                raise RuntimeError(
+                    "YouTube rejected the request even with the uploaded cookies — "
+                    "they're not from a signed-in session (or have expired). A valid "
+                    "export must contain the login cookies (SID, SAPISID, "
+                    "__Secure-1PSID/3PSID). To export them: open a NEW private/incognito "
+                    "window, sign in to YouTube, export cookies for youtube.com with a "
+                    "cookies.txt browser extension, then CLOSE the window immediately "
+                    "(so YouTube doesn't rotate the session) and re-upload under "
+                    "Settings → Service keys.\n"
+                    f"yt-dlp said:\n{r.stderr[-400:]}"
+                )
             raise RuntimeError(
                 "This source requires authentication (login required or rate-limited "
                 "for anonymous access — common for Instagram/YouTube on a server IP). "

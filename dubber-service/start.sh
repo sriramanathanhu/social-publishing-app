@@ -14,6 +14,13 @@ set -a
 set +a
 
 mkdir -p outputs logs
+
+# yt-dlp needs a JavaScript runtime (Deno) to solve YouTube's nsig/EJS challenge;
+# without it YouTube only exposes image formats → "Requested format is not
+# available". Warn loudly rather than fail mysteriously mid-download.
+command -v deno >/dev/null 2>&1 || \
+  echo "WARNING: 'deno' not found on PATH — YouTube downloads will fail the nsig challenge. Install it (see https://github.com/yt-dlp/yt-dlp/wiki/EJS)."
+
 HOST="${DUBBER_HOST:-127.0.0.1}"
 PORT="${DUBBER_PORT:-8800}"
 exec uvicorn app.main:app --host "$HOST" --port "$PORT"
