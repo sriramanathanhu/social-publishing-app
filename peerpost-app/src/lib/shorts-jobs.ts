@@ -25,6 +25,12 @@ export async function getOwnedShortsJob(
 export async function persistClips(jobId: string, shortsJobId: string) {
 	const clips = await shorts.getClips(shortsJobId);
 	if (clips.length === 0) return;
+	// start/end can be fractional seconds (word-level cut precision); the
+	// columns are integer (display only — the render already used the exact
+	// values), so round to avoid a Postgres "invalid input for integer" that
+	// would otherwise abort persistence and leave the job stuck "running".
+	const sec = (v: number | null | undefined) =>
+		v == null ? null : Math.round(v);
 	await db.delete(shortsClips).where(eq(shortsClips.jobId, jobId));
 	await db.insert(shortsClips).values(
 		clips.map((c) => ({
@@ -33,9 +39,9 @@ export async function persistClips(jobId: string, shortsJobId: string) {
 			title: c.youtube_title ?? c.title ?? null,
 			description: c.youtube_description ?? null,
 			hashtags: c.hashtags ?? null,
-			startSec: c.start_seconds ?? null,
-			endSec: c.end_seconds ?? null,
-			durationSec: c.duration ?? null,
+			startSec: sec(c.start_seconds),
+			endSec: sec(c.end_seconds),
+			durationSec: sec(c.duration),
 			viralScore: c.viral_score ?? null,
 			r2Key: c.r2_key ?? null,
 			publicUrl: c.public_url ?? null,
