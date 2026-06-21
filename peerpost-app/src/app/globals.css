@@ -1,10 +1,33 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Class-based dark mode: `dark:` variants and the token overrides below respond
+   to a `.dark` class on <html> (toggled by the theme switch), not just the OS. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
 	--background: #ffffff;
 	--foreground: #171717;
 	--primary: #4f46e5;
+	color-scheme: light;
+}
+
+/* The app paints black-on-white: white surfaces (bg-white), black text/borders/
+   overlays (text-black, border-black/x, bg-black/x). Inverting Tailwind's
+   black/white tokens flips the whole UI to light-on-dark coherently, in one
+   place, instead of adding dark: variants to every component. */
+.dark {
+	--background: #0b0e14;
+	--foreground: #e6e8eb;
+	--color-white: #161b22; /* surfaces: bg-white cards */
+	--color-black: #e6e8eb; /* text + borders + subtle overlays */
+	color-scheme: dark;
+}
+
+/* …but text-white must stay white (e.g. on the indigo primary buttons), since
+   we inverted --color-white above. */
+.dark .text-white {
+	color: #ffffff;
 }
 
 @theme inline {
@@ -12,13 +35,6 @@
 	--color-foreground: var(--foreground);
 	--color-primary: var(--primary);
 	--font-sans: var(--font-geist-sans);
-}
-
-@media (prefers-color-scheme: dark) {
-	:root {
-		--background: #0a0a0a;
-		--foreground: #ededed;
-	}
 }
 
 body {

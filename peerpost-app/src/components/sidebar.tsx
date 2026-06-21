@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 
 type NavUser = { name: string | null; email: string | null; isAdmin: boolean };
@@ -84,6 +85,9 @@ export function Sidebar({ user }: { user: NavUser }) {
 			<div className="mt-4 border-t border-black/10 pt-4">
 				<div className="px-2 text-sm">{user.name ?? user.email}</div>
 				{user.isAdmin && <div className="px-2 text-xs text-primary">Admin</div>}
+				<div className="mt-2">
+					<ThemeToggle />
+				</div>
 				<button
 					type="button"
 					onClick={logout}
