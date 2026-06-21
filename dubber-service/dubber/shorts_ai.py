@@ -223,35 +223,82 @@ def _parse_boundaries(segments):
 
 
 def _snap(clips, bounds, min_sec, max_sec):
+    """Snap each clip to complete-sentence boundaries.
+
+    Rules:
+    - The clip ALWAYS ends on a complete sentence (never mid-sentence).
+    - ``max_sec`` is a HARD ceiling (social platforms reject longer): the end is
+      chosen so duration never exceeds it. If completing the model's sentence
+      would overflow ``max_sec``, the START is slid later so a whole thought
+      still fits under the ceiling, instead of cutting the sentence short.
+    - ``min_sec`` is honoured by extending the end to a later complete sentence
+      when possible; clips that still can't reach it are flagged ``_under_min``
+      for the caller to drop (hard floor).
+    """
     if not bounds:
         return clips
+    good_starts = sorted({bs for bs, _be, fw, _lw in bounds if fw not in BAD_START})
+    good_ends = sorted({be for _bs, be, _fw, lw in bounds if lw not in BAD_END})
+    if not good_starts or not good_ends:
+        return clips
+
     for c in clips:
-        s = c.get("start_seconds", 0)
-        e = c.get("end_seconds", 0)
-        # Start: snap to the nearest sentence START that isn't a weak opener.
-        for bs, _be, fw, _lw in sorted(bounds, key=lambda x: abs(x[0] - s)):
-            if fw not in BAD_START:
-                c["start_seconds"] = bs
-                break
-        # End: prefer COMPLETING the sentence — the first sentence END at or
-        # after the model's cut (so we never stop mid-sentence), as long as that
-        # doesn't blow past max duration. Otherwise fall back to the nearest end.
-        start = c["start_seconds"]
-        forward = [
-            (be, lw) for _bs, be, _fw, lw in bounds
-            if be >= e - 1 and (be - start) <= max_sec and lw not in BAD_END
-        ]
-        if forward:
-            c["end_seconds"] = min(forward, key=lambda x: x[0])[0]
+        s0 = c.get("start_seconds", 0)
+        e0 = c.get("end_seconds", 0)
+        # Start: nearest strong sentence opener to the model's start.
+        S = min(good_starts, key=lambda b: abs(b - s0))
+        # End: complete the thought within the max ceiling.
+        ends_in = [be for be in good_ends if be > S and be - S <= max_sec]
+        if ends_in:
+            # First complete sentence at/after the model's cut (don't stop early);
+            # if that's under min, push to a later complete sentence still <= max.
+            complete = [be for be in ends_in if be >= e0 - 1] or ends_in
+            E = min(complete)
+            if E - S < min_sec:
+                longer = [be for be in ends_in if be - S >= min_sec]
+                E = min(longer) if longer else max(ends_in)
         else:
-            for _bs, be, _fw, lw in sorted(bounds, key=lambda x: abs(x[1] - e)):
-                if lw not in BAD_END:
-                    c["end_seconds"] = be
+            # The clip's own sentence is longer than max → slide START later so a
+            # COMPLETE sentence fits under the ceiling (honours platform max,
+            # stays meaningful), preferring the most content (latest end).
+            E = None
+            for be in reversed(good_ends):
+                if be <= s0:
+                    continue
+                fits = [bs for bs in good_starts if min_sec <= be - bs <= max_sec]
+                if fits:
+                    S, E = max(fits), be
                     break
-        dur = c["end_seconds"] - c["start_seconds"]
-        if dur < min_sec or dur > max_sec:
-            c["_warn"] = f"duration {dur}s outside [{min_sec},{max_sec}]"
+            if E is None:
+                # Can't satisfy both bounds with complete sentences; take the
+                # longest complete end still within max (caller drops if < min).
+                cap = [be for be in good_ends if be > S and be - S <= max_sec]
+                E = max(cap) if cap else min(b for b in good_ends if b > S)
+
+        c["start_seconds"] = S
+        c["end_seconds"] = E
+        dur = E - S
+        c["_under_min"] = dur < min_sec - 0.5
+        c["_over_max"] = dur > max_sec + 0.5
     return clips
+
+
+def enforce_duration(clips, min_sec, max_sec, on_log=print) -> list[dict]:
+    """Hard floor + ceiling after snapping. ``min_sec`` is a hard floor (a reel
+    shorter than the user asked for isn't useful) and ``max_sec`` a hard ceiling
+    (platforms reject longer). Snapping already tried to repair to a complete
+    thought within max, so this only drops what couldn't be salvaged."""
+    keep = []
+    for c in clips:
+        dur = c.get("end_seconds", 0) - c.get("start_seconds", 0)
+        if dur < min_sec - 0.5:
+            on_log(f"drop clip {c.get('rank')}: {int(dur)}s < min {min_sec}s")
+            continue
+        if dur > max_sec + 0.5:
+            on_log(f"drop clip {c.get('rank')}: {int(dur)}s > max {max_sec}s")
+            continue
+        keep.append(c)
+    return keep
 
 
 def _dedup(clips, min_gap=15):
@@ -312,7 +359,9 @@ def find_clips(segments, *, num_clips, min_sec, max_sec, duration,
                 if attempt < MAX_ATTEMPTS - 1:
                     time.sleep(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)])
 
-    clips = _dedup(all_clips)[:num_clips]
+    # Enforce duration BEFORE truncating, so dropping a too-short/long clip lets
+    # the next valid candidate fill the slot instead of shrinking the count.
+    clips = enforce_duration(_dedup(all_clips), min_sec, max_sec, on_log)[:num_clips]
     for i, c in enumerate(clips, 1):
         c["rank"] = i
     on_log(f"clip-find: {len(clips)} clip(s) from {len(all_clips)} raw")

@@ -23,6 +23,7 @@ from .shorts_ai import (
     _parse_boundaries,
     _snap,
     build_sentences,
+    enforce_duration,
 )
 from .utils import log
 
@@ -120,10 +121,12 @@ def find_clips_gemini(video_path, words, *, num_clips, min_sec, max_sec, duratio
     if not clips:
         raise RuntimeError("Gemini returned no clips")
 
-    # Snap to sentence boundaries (word-level) so cuts complete sentences.
+    # Snap to sentence boundaries (word-level) so cuts complete sentences, then
+    # hard-enforce min floor / max ceiling (when we have boundaries to repair to).
     bounds = _parse_boundaries(build_sentences(words)) if words else []
     if bounds:
         clips = _snap(clips, bounds, min_sec, max_sec)
+        clips = enforce_duration(clips, min_sec, max_sec)
     clips = _dedup(clips)[:num_clips]
     for i, c in enumerate(clips, 1):
         c["rank"] = i
