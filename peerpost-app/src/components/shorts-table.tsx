@@ -96,6 +96,7 @@ export function ShortsTable({
 											initialTitle={c.title ?? ""}
 											initialCaption={c.description ?? ""}
 											ecosystems={ecosystems}
+											deleteUrl={`/api/shorts/clips/${c.id}`}
 											prepareMedia={async () => {
 												// Re-host the public R2 clip into PostPeer media.
 												const r = await fetch("/api/media/from-url", {

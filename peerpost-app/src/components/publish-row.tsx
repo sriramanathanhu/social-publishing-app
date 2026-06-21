@@ -71,6 +71,7 @@ export function PublishRow({
 	ecosystems,
 	prepareMedia,
 	dubSourceUrl,
+	deleteUrl,
 }: {
 	previewUrl: string | null;
 	meta?: string;
@@ -80,6 +81,9 @@ export function PublishRow({
 	ecosystems: Ecosystem[];
 	prepareMedia: () => Promise<string>;
 	dubSourceUrl?: string;
+	/** When set, show a Delete button that DELETEs this URL (owner/admin only —
+	 * the server enforces it). */
+	deleteUrl?: string;
 }) {
 	const router = useRouter();
 	const [title, setTitle] = useState(initialTitle);
@@ -91,6 +95,23 @@ export function PublishRow({
 	const [busy, setBusy] = useState(false);
 	const [msg, setMsg] = useState<string | null>(null);
 	const [results, setResults] = useState<RowResult[]>([]);
+	const [deleting, setDeleting] = useState(false);
+
+	async function remove() {
+		if (!deleteUrl) return;
+		if (!window.confirm("Delete this video permanently? This can't be undone."))
+			return;
+		setDeleting(true);
+		try {
+			const res = await fetch(deleteUrl, { method: "DELETE" });
+			const d = await readJson(res);
+			if (!res.ok) throw new Error(d.error ?? "Delete failed");
+			router.refresh();
+		} catch (err) {
+			setMsg(err instanceof Error ? err.message : "Delete failed");
+			setDeleting(false);
+		}
+	}
 
 	const eco = ecosystems.find((e) => e.id === ecoId);
 	const providers = Array.from(
@@ -269,6 +290,16 @@ export function PublishRow({
 						<div className="mt-1 text-center text-[11px] opacity-50">
 							{meta}
 						</div>
+					)}
+					{deleteUrl && (
+						<button
+							type="button"
+							onClick={remove}
+							disabled={deleting}
+							className="mt-1.5 w-full rounded-md border border-red-200 px-2 py-1 text-[11px] text-red-600 hover:bg-red-50 disabled:opacity-50"
+						>
+							{deleting ? "Deleting…" : "Delete"}
+						</button>
 					)}
 				</div>
 

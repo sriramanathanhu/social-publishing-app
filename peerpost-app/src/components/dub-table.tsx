@@ -44,6 +44,7 @@ export function DubTable({
 						initialTitle={r.title}
 						initialCaption={r.caption}
 						ecosystems={ecosystems}
+						deleteUrl={`/api/dub/${r.id}`}
 						prepareMedia={async () => {
 							// Host the dub where providers can fetch it (idempotent).
 							const ex = await fetch(`/api/dub/${r.id}/export`, {

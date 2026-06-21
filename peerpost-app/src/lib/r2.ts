@@ -1,4 +1,8 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+	DeleteObjectCommand,
+	PutObjectCommand,
+	S3Client,
+} from "@aws-sdk/client-s3";
 
 /**
  * Cloudflare R2 (S3-compatible) client for durably archiving finished dubs.
@@ -45,6 +49,20 @@ export function r2PublicUrl(key: string | null | undefined): string | null {
 	if (!base) return null;
 	if (!/^https?:\/\//.test(base)) base = `https://${base}`;
 	return `${base}/${key}`;
+}
+
+/**
+ * Best-effort delete of an R2 object by key. No-op if R2 isn't configured or the
+ * key is empty. Used when a user/admin deletes a generated dub or short clip so
+ * we don't leave orphaned media in the bucket.
+ */
+export async function deleteR2Object(
+	key: string | null | undefined,
+): Promise<void> {
+	if (!key) return;
+	const r = r2();
+	if (!r) return;
+	await r.client.send(new DeleteObjectCommand({ Bucket: r.bucket, Key: key }));
 }
 
 /**

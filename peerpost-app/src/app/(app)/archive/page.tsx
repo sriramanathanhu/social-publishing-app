@@ -6,6 +6,7 @@ import { dubPrefill, languageLabel } from "@/lib/dub-prefill";
 import { requirePageUser } from "@/lib/page-auth";
 import { getAccessibleProfiles, getConnectedAccounts } from "@/lib/queries";
 import { r2PublicUrl } from "@/lib/r2";
+import { isAdmin } from "@/lib/rbac";
 
 /**
  * Archive: every dubbed + original (shorts) video generated across the team,
@@ -14,6 +15,8 @@ import { r2PublicUrl } from "@/lib/r2";
  */
 export default async function ArchivePage() {
 	const user = await requirePageUser();
+	// Admins can delete anything; everyone else only their own generated items.
+	const admin = isAdmin(user);
 
 	// All finished dubs and all shorts clips with a public URL — every user's.
 	const dubs = await db
@@ -30,6 +33,7 @@ export default async function ArchivePage() {
 			publicUrl: shortsClips.publicUrl,
 			createdAt: shortsClips.createdAt,
 			settings: shortsJobs.settings,
+			ownerId: shortsJobs.userId,
 		})
 		.from(shortsClips)
 		.innerJoin(shortsJobs, eq(shortsClips.jobId, shortsJobs.id))
@@ -50,6 +54,8 @@ export default async function ArchivePage() {
 					title,
 					caption,
 					videoUrl,
+					deleteUrl:
+						admin || d.userId === user.id ? `/api/dub/${d.id}` : undefined,
 				},
 				createdAt: d.createdAt,
 			};
@@ -68,6 +74,10 @@ export default async function ArchivePage() {
 				title: c.title ?? "",
 				caption: c.description ?? "",
 				videoUrl: c.publicUrl as string,
+				deleteUrl:
+					admin || c.ownerId === user.id
+						? `/api/shorts/clips/${c.id}`
+						: undefined,
 			},
 			createdAt: c.createdAt,
 		}));

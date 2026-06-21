@@ -11,7 +11,9 @@ export default async function AppLayout({
 	const user = await requirePageUser();
 
 	return (
-		<div className="flex min-h-screen">
+		// h-screen + overflow-hidden pins the shell to the viewport so only the
+		// main column scrolls; the sidebar stays fixed.
+		<div className="flex h-screen overflow-hidden">
 			<Sidebar
 				user={{ name: user.name, email: user.email, isAdmin: isAdmin(user) }}
 			/>

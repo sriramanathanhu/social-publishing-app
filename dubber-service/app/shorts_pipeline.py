@@ -56,7 +56,7 @@ class ShortsRequest:
     gemini_model: str = "gemini-2.5-flash"
     media_resolution: str = "low"
     judge: bool = True                # score + standalone-comprehension filter
-    num_clips: int = 15
+    num_clips: int = 3
     min_seconds: int = 90
     max_seconds: int = 120
     aspect: str = "9:16"

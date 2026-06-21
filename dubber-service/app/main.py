@@ -227,7 +227,7 @@ class CreateShorts(BaseModel):
     nvidia_url: str = "https://integrate.api.nvidia.com/v1/chat/completions"
     clip_model: Optional[str] = None
     title_model: Optional[str] = None
-    num_clips: int = 15
+    num_clips: int = 3
     min_seconds: int = 90
     max_seconds: int = 120
     aspect: str = "9:16"

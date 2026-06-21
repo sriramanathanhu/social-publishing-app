@@ -9,6 +9,8 @@ export type ArchiveItem = {
 	title: string;
 	caption: string;
 	videoUrl: string;
+	/** Set only when the viewer may delete this item (owner or admin). */
+	deleteUrl?: string;
 };
 
 /** One shared table of every generated dub + short, each publishable inline to
@@ -48,6 +50,7 @@ export function ArchiveTable({
 					initialTitle={it.title}
 					initialCaption={it.caption}
 					ecosystems={ecosystems}
+					deleteUrl={it.deleteUrl}
 					prepareMedia={async () => {
 						// Re-host the public video into PostPeer media (works for anyone's
 						// content — no ownership needed, just a public URL).

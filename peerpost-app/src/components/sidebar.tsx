@@ -38,7 +38,7 @@ export function Sidebar({ user }: { user: NavUser }) {
 				<div className="text-xs opacity-50">Social publishing</div>
 			</div>
 
-			<nav className="flex-1 space-y-4">
+			<nav className="flex-1 space-y-4 overflow-y-auto">
 				<div>
 					<NavLink href="/accounts" label="Connected Accounts" />
 				</div>

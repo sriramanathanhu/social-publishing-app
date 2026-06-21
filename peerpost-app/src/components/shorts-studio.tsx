@@ -14,7 +14,7 @@ const LBL = "block text-xs font-medium opacity-60";
 export function ShortsStudio() {
 	const router = useRouter();
 	const [url, setUrl] = useState("");
-	const [numClips, setNumClips] = useState(15);
+	const [numClips, setNumClips] = useState(3);
 	const [minSeconds, setMinSeconds] = useState(90);
 	const [maxSeconds, setMaxSeconds] = useState(120);
 	const [aspect, setAspect] = useState("9:16");

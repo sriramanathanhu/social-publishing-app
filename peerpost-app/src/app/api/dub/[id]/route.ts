@@ -2,10 +2,12 @@ import { eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { db } from "@/db";
 import { dubJobs } from "@/db/schema";
-import { requireUser } from "@/lib/auth";
+import { HttpError, requireUser } from "@/lib/auth";
 import { archiveDoneJob, getOwnedJob } from "@/lib/dub-jobs";
 import { dubber } from "@/lib/dubber";
 import { route } from "@/lib/http";
+import { deleteR2Object } from "@/lib/r2";
+import { isAdmin } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
@@ -71,4 +73,28 @@ export const GET = route(async (_req: NextRequest, { params }: Ctx) => {
 		// Service unreachable — return the last known state rather than erroring.
 		return Response.json({ job });
 	}
+});
+
+/**
+ * DELETE /api/dub/:id — remove a generated dub. Allowed for the job's owner OR
+ * an admin (admins can delete anyone's; users only their own). Drops the R2
+ * archive (best-effort) and the DB row.
+ */
+export const DELETE = route(async (_req: NextRequest, { params }: Ctx) => {
+	const user = await requireUser();
+	const { id } = await params;
+
+	const job = await db.query.dubJobs.findFirst({ where: eq(dubJobs.id, id) });
+	if (!job) throw new HttpError(404, "Dub not found");
+	if (job.userId !== user.id && !isAdmin(user)) {
+		throw new HttpError(403, "You can only delete dubs you generated");
+	}
+
+	try {
+		await deleteR2Object(job.archiveKey);
+	} catch {
+		// Orphaned object is harmless; proceed with the row delete.
+	}
+	await db.delete(dubJobs).where(eq(dubJobs.id, id));
+	return Response.json({ ok: true });
 });

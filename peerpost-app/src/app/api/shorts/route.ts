@@ -26,7 +26,7 @@ export const GET = route(async () => {
 const createSchema = z.object({
 	sourceType: z.enum(["url", "upload"]).default("url"),
 	sourceInput: z.string().url(),
-	numClips: z.number().int().min(1).max(30).default(15),
+	numClips: z.number().int().min(1).max(30).default(3),
 	minSeconds: z.number().int().min(10).max(600).default(90),
 	maxSeconds: z.number().int().min(15).max(900).default(120),
 	aspect: z.enum(["9:16", "1:1", "16:9"]).default("9:16"),
