@@ -48,6 +48,8 @@ BAD_END = {
 }
 # Seconds added after the snapped end so the last word fully plays.
 _TAIL_PAD = 0.3
+# Terminal punctuation that marks a real sentence end.
+_TERMINAL = (".", "?", "!", "…", "।")
 
 
 def build_sentences(words: list[dict]) -> list[dict]:
@@ -60,7 +62,7 @@ def build_sentences(words: list[dict]) -> list[dict]:
     for i, w in enumerate(words):
         buf.append(w)
         token = (w.get("word") or "").strip()
-        terminal = token.endswith((".", "?", "!", "…", "।"))
+        terminal = token.endswith(_TERMINAL)
         gap = (words[i + 1]["start"] - w["end"]) if i + 1 < len(words) else 999
         if terminal or (gap > 0.6 and len(buf) >= 4) or i == len(words) - 1:
             sentences.append({
@@ -212,20 +214,27 @@ TRANSCRIPT:
 
 
 def _parse_boundaries(segments):
-    """(start, end, first_word, last_word) tuples used to snap clip edges.
+    """(start, end, first_word, last_word, hard_end) tuples used to snap clips.
 
     Float seconds (word-level precision) — NOT rounded to whole seconds — so a
     cut lands exactly on the sentence edge instead of up to a second early (which
-    clipped the final word). A small tail pad is added at snap time."""
+    clipped the final word). A small tail pad is added at snap time.
+
+    ``hard_end`` is True when the boundary text ends with terminal punctuation
+    (. ? ! …) — a TRUE sentence end — and False when it was split only by a
+    mid-sentence pause. The end snapper prefers hard ends so a reel never stops
+    on a fragment."""
     out = []
     for s in segments:
-        words = (s.get("text") or "").strip().split()
+        text = (s.get("text") or "").strip()
+        words = text.split()
         if not words:
             continue
         out.append((round(float(s.get("start", 0)), 2),
                     round(float(s.get("end", 0)), 2),
                     words[0].lower().strip(".,!?;:"),
-                    words[-1].lower().strip(".,!?;:")))
+                    words[-1].lower().strip(".,!?;:"),
+                    text.endswith(_TERMINAL)))
     return out
 
 
@@ -244,32 +253,43 @@ def _snap(clips, bounds, min_sec, max_sec):
     """
     if not bounds:
         return clips
-    good_starts = sorted({bs for bs, _be, fw, _lw in bounds if fw not in BAD_START})
-    good_ends = sorted({be for _bs, be, _fw, lw in bounds if lw not in BAD_END})
-    if not good_starts or not good_ends:
+    good_starts = sorted({bs for bs, _be, fw, _lw, _h in bounds if fw not in BAD_START})
+    # HARD ends = real sentence ends (terminal punctuation). SOFT ends = pause
+    # splits, used only when no hard end fits. Preferring hard ends is what stops
+    # reels from ending on a fragment.
+    hard_ends = sorted({be for _bs, be, _fw, _lw, h in bounds if h})
+    soft_ends = sorted({be for _bs, be, _fw, lw, _h in bounds if lw not in BAD_END})
+    if not good_starts or not (hard_ends or soft_ends):
         return clips
+
+    def choose_end(cands, S, e0):
+        """Pick a sentence end in (S, S+max]: closest to the model's intended end
+        e0 so we neither cut the thought short nor pull in a sentence that
+        belongs to the next reel, while honouring min when reachable."""
+        within = [e for e in cands if e > S and e - S <= max_sec]
+        if not within:
+            return None
+        meet_min = [e for e in within if e - S >= min_sec - 0.5]
+        pool = meet_min or within
+        # Complete the model's thought: the EARLIEST end at/after e0 (don't pull
+        # extra). If none reaches e0 (the sentence overflows max), take the latest
+        # complete end that still fits.
+        after = [e for e in pool if e >= e0 - 0.5]
+        return min(after) if after else max(pool)
 
     for c in clips:
         s0 = c.get("start_seconds", 0)
         e0 = c.get("end_seconds", 0)
         # Start: nearest strong sentence opener to the model's start.
         S = min(good_starts, key=lambda b: abs(b - s0))
-        # End: complete the thought within the max ceiling.
-        ends_in = [be for be in good_ends if be > S and be - S <= max_sec]
-        if ends_in:
-            # First complete sentence at/after the model's cut (don't stop early);
-            # if that's under min, push to a later complete sentence still <= max.
-            complete = [be for be in ends_in if be >= e0 - 1] or ends_in
-            E = min(complete)
-            if E - S < min_sec:
-                longer = [be for be in ends_in if be - S >= min_sec]
-                E = min(longer) if longer else max(ends_in)
-        else:
-            # The clip's own sentence is longer than max → slide START later so a
-            # COMPLETE sentence fits under the ceiling (honours platform max,
-            # stays meaningful), preferring the most content (latest end).
-            E = None
-            for be in reversed(good_ends):
+        # End: prefer a TRUE sentence end; fall back to a soft pause-end; then to
+        # sliding the start later so a complete sentence fits under max.
+        E = choose_end(hard_ends, S, e0)
+        if E is None:
+            E = choose_end(soft_ends, S, e0)
+        if E is None:
+            ends = hard_ends or soft_ends
+            for be in reversed(ends):
                 if be <= s0:
                     continue
                 fits = [bs for bs in good_starts if min_sec <= be - bs <= max_sec]
@@ -277,10 +297,9 @@ def _snap(clips, bounds, min_sec, max_sec):
                     S, E = max(fits), be
                     break
             if E is None:
-                # Can't satisfy both bounds with complete sentences; take the
-                # longest complete end still within max (caller drops if < min).
-                cap = [be for be in good_ends if be > S and be - S <= max_sec]
-                E = max(cap) if cap else min(b for b in good_ends if b > S)
+                cap = [be for be in ends if be > S and be - S <= max_sec]
+                later = [be for be in ends if be > S]
+                E = max(cap) if cap else (min(later) if later else S + min_sec)
 
         # Small tail pad so the final word fully plays (cut precision / breath),
         # without exceeding the ceiling beyond enforce_duration's tolerance.
