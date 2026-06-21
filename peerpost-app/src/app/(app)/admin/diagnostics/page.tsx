@@ -97,7 +97,18 @@ export default async function DiagnosticsPage() {
 										</span>
 									</td>
 									<td className="px-3 py-2">
-										{u.topIssue ? <IssueBadge category={u.topIssue} /> : "—"}
+										{u.topIssue ? (
+											<span className="flex flex-wrap items-center gap-1">
+												{u.topProvider && (
+													<span className="rounded bg-black/10 px-1.5 py-0.5 text-[11px] font-semibold">
+														{u.topProvider}
+													</span>
+												)}
+												<IssueBadge category={u.topIssue} />
+											</span>
+										) : (
+											"—"
+										)}
 									</td>
 									<td className="px-3 py-2 text-xs">
 										<KeyDots keys={u.keys} />

@@ -59,16 +59,25 @@ export const CATEGORY_LABEL: Record<
 	},
 };
 
-/** Which provider an error most likely came from, for a clearer message. */
-function providerOf(low: string): string | null {
+/** Which provider an error most likely came from, for a clearer message.
+ * Reads the error text first, then falls back to the failed STAGE (each stage
+ * uses a known provider: transcribe→Deepgram, titles→NVIDIA). */
+function providerOf(low: string, stage: string | null): string | null {
 	if (low.includes("deepgram")) return "Deepgram";
 	if (low.includes("gemini") || low.includes("google")) return "Gemini";
 	if (low.includes("nvidia") || low.includes("nim")) return "NVIDIA";
+	// Fall back to the stage that failed.
+	const s = (stage ?? "").toLowerCase();
+	if (s === "transcribe") return "Deepgram";
+	if (s === "titles") return "NVIDIA";
 	return null;
 }
 
-/** Classify a job's failure from its error text. */
-export function classifyIssue(error: string | null): {
+/** Classify a job's failure from its error text + the stage it died at. */
+export function classifyIssue(
+	error: string | null,
+	stage: string | null = null,
+): {
 	category: IssueCategory;
 	provider: string | null;
 } {
@@ -110,7 +119,7 @@ export function classifyIssue(error: string | null): {
 	else if (has("timed out", "timeout", "killed", "524", "gateway"))
 		category = "timeout";
 
-	return { category, provider: providerOf(low) };
+	return { category, provider: providerOf(low, stage) };
 }
 
 export type FailureRow = {
@@ -131,6 +140,8 @@ export type UserSummary = {
 	shortDone: number;
 	shortFailed: number;
 	topIssue: IssueCategory | null;
+	/** Provider tied to the top issue (e.g. which key is out of credits). */
+	topProvider: string | null;
 	keys: {
 		deepgram: boolean;
 		gemini: boolean;
@@ -224,7 +235,8 @@ export async function getDiagnostics() {
 	failures.sort((a, b) => b.at.getTime() - a.at.getTime());
 
 	// Per-user rollup.
-	const byEmail = new Map<string, UserSummary & { issues: IssueCategory[] }>();
+	type Issue = { category: IssueCategory; provider: string | null };
+	const byEmail = new Map<string, UserSummary & { issues: Issue[] }>();
 	const ensure = (r: JobRow) => {
 		const key = r.email ?? "(unknown)";
 		let s = byEmail.get(key);
@@ -238,6 +250,7 @@ export async function getDiagnostics() {
 				shortDone: 0,
 				shortFailed: 0,
 				topIssue: null,
+				topProvider: null,
 				keys: {
 					deepgram: !!k?.deepgramKeyEnc,
 					gemini: !!k?.geminiKeyEnc,
@@ -255,7 +268,7 @@ export async function getDiagnostics() {
 		if (r.status === "done") s.dubDone++;
 		else if (r.status === "failed") {
 			s.dubFailed++;
-			s.issues.push(classifyIssue(r.error).category);
+			s.issues.push(classifyIssue(r.error, r.stage));
 		}
 	}
 	for (const r of shorts) {
@@ -263,17 +276,25 @@ export async function getDiagnostics() {
 		if (r.status === "done") s.shortDone++;
 		else if (r.status === "failed") {
 			s.shortFailed++;
-			s.issues.push(classifyIssue(r.error).category);
+			s.issues.push(classifyIssue(r.error, r.stage));
 		}
 	}
 	const userSummary: UserSummary[] = [...byEmail.values()]
 		.map(({ issues, ...s }) => {
-			// Most common failure category for the user, if any.
+			// Most common failure category for the user, and the provider tied to
+			// it (so "out of credits" names WHICH key).
 			const tally = new Map<IssueCategory, number>();
-			for (const c of issues) tally.set(c, (tally.get(c) ?? 0) + 1);
+			for (const i of issues)
+				tally.set(i.category, (tally.get(i.category) ?? 0) + 1);
 			const topIssue =
 				[...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-			return { ...s, topIssue };
+			const provTally = new Map<string, number>();
+			for (const i of issues)
+				if (i.category === topIssue && i.provider)
+					provTally.set(i.provider, (provTally.get(i.provider) ?? 0) + 1);
+			const topProvider =
+				[...provTally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+			return { ...s, topIssue, topProvider };
 		})
 		.sort(
 			(a, b) =>
