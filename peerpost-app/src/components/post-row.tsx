@@ -9,6 +9,7 @@ export function PostRow({
 	status,
 	action,
 	metrics,
+	publishedUrl,
 }: {
 	content: string | null;
 	platforms: PostPlatformTarget[] | null;
@@ -17,6 +18,7 @@ export function PostRow({
 	status: string;
 	action?: React.ReactNode;
 	metrics?: { likes: number | null; views: number | null } | null;
+	publishedUrl?: string | null;
 }) {
 	const statusColor =
 		status === "published"
@@ -44,6 +46,16 @@ export function PostRow({
 					</span>
 				</div>
 				<p className="truncate text-sm">{content ?? "—"}</p>
+				{publishedUrl && (
+					<a
+						href={publishedUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="text-xs text-primary underline hover:no-underline"
+					>
+						View published post ↗
+					</a>
+				)}
 			</div>
 			{metrics && (metrics.likes != null || metrics.views != null) && (
 				<span className="shrink-0 text-xs opacity-50">

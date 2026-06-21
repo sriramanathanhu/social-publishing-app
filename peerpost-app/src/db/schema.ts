@@ -252,6 +252,9 @@ export const postsLog = pgTable(
 		// Which provider published this post, and its post id there.
 		provider: providerEnum("provider").notNull().default("postpeer"),
 		postpeerPostId: text("postpeer_post_id"),
+		// Public link to the published content on the platform (e.g. the tweet /
+		// reel URL), fetched from the provider once it finishes publishing.
+		publishedUrl: text("published_url"),
 		status: postStatusEnum("status").notNull().default("draft"),
 		content: text("content"),
 		// Snapshot of the platform targets sent to PostPeer.

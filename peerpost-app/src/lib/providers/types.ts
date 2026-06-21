@@ -51,4 +51,7 @@ export interface PublishProvider {
 	readonly name: ProviderName;
 	createPost(input: ProviderCreatePost): Promise<ProviderPostResult>;
 	cancelScheduled(postId: string): Promise<void>;
+	/** Public link to the published content for one account, once available.
+	 * Optional — publishing is async, so this is fetched after the fact. */
+	getPublishedUrl?(postId: string, accountId: string): Promise<string | null>;
 }

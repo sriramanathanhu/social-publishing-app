@@ -164,6 +164,9 @@ export const POST = route(async (request: NextRequest, { params }: Ctx) => {
 							ok
 								? {
 										postpeerPostId: result.postId,
+										// Some providers return the link immediately; otherwise
+										// the status poll backfills it from the provider.
+										publishedUrl: pr.url ?? null,
 										status: isScheduled ? "scheduled" : "published",
 									}
 								: {

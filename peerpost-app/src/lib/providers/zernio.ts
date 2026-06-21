@@ -206,4 +206,30 @@ export const zernioProvider: PublishProvider = {
 	async cancelScheduled(postId: string): Promise<void> {
 		await request<unknown>(`/posts/${postId}`, { method: "DELETE" });
 	},
+
+	/** Fetch the live published link for one account from GET /posts/:id. The
+	 * platform entry carries `platformPostUrl` once it has finished publishing
+	 * (accountId there is a populated object, so match on its _id). */
+	async getPublishedUrl(
+		postId: string,
+		accountId: string,
+	): Promise<string | null> {
+		type PlatformEntry = {
+			platform?: string;
+			accountId?: string | { _id?: string };
+			platformPostUrl?: string;
+			status?: string;
+		};
+		const res = await request<{
+			post?: { platforms?: PlatformEntry[] };
+			platforms?: PlatformEntry[];
+		}>(`/posts/${postId}`, { method: "GET" });
+		const platforms = res.post?.platforms ?? res.platforms ?? [];
+		const idOf = (a: PlatformEntry["accountId"]) =>
+			typeof a === "string" ? a : (a?._id ?? "");
+		const match =
+			platforms.find((p) => idOf(p.accountId) === accountId) ??
+			(platforms.length === 1 ? platforms[0] : undefined);
+		return match?.platformPostUrl || null;
+	},
 };

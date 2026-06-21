@@ -47,6 +47,7 @@ export default async function OverviewPage() {
 						profileName={p.profileName}
 						when={shortDate(p.createdAt)}
 						status={p.status}
+						publishedUrl={p.publishedUrl}
 						metrics={
 							p.postpeerPostId ? metricsById.get(p.postpeerPostId) : null
 						}

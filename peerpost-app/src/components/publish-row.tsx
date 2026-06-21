@@ -21,6 +21,7 @@ type RowResult = {
 	platform: string;
 	status: "publishing" | "published" | "scheduled" | "failed";
 	error?: string;
+	url?: string;
 };
 
 const PROVIDER_LABEL: Record<Provider, string> = {
@@ -41,7 +42,12 @@ export async function readJson(res: Response): Promise<{
 	platforms?: { platform: string; success: boolean; error?: string }[];
 	scheduled?: boolean;
 	jobs?: { id: string; platform: string; accountId: string }[];
-	statuses?: { id: string; status: string; error?: string | null }[];
+	statuses?: {
+		id: string;
+		status: string;
+		error?: string | null;
+		url?: string | null;
+	}[];
 }> {
 	const text = await res.text();
 	try {
@@ -216,10 +222,16 @@ export function PublishRow({
 						platform: j.platform,
 						status,
 						error: byId.get(j.id)?.error ?? undefined,
+						url: byId.get(j.id)?.url ?? undefined,
 					};
 				});
 				setResults(updated);
-				const pending = updated.some((u) => u.status === "publishing");
+				// Keep polling while anything is still publishing OR a just-published
+				// post hasn't surfaced its link yet (it appears a beat after publish).
+				const pending = updated.some(
+					(u) =>
+						u.status === "publishing" || (u.status === "published" && !u.url),
+				);
 				if (pending && Date.now() - started < 180_000) {
 					setTimeout(tick, 3000);
 					return;
@@ -433,10 +445,20 @@ export function PublishRow({
 								return (
 									<span
 										key={p.platform}
-										className={`rounded px-1.5 py-0.5 ${cls}`}
+										className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 ${cls}`}
 										title={p.error}
 									>
 										{p.platform} {mark}
+										{p.url && (
+											<a
+												href={p.url}
+												target="_blank"
+												rel="noopener noreferrer"
+												className="underline hover:no-underline"
+											>
+												View ↗
+											</a>
+										)}
 									</span>
 								);
 							})}
