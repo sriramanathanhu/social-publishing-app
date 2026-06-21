@@ -77,7 +77,8 @@ For each clip return: start_seconds and end_seconds (integers on the video timel
 
 
 def find_clips_gemini(video_path, words, *, num_clips, min_sec, max_sec, duration,
-                      api_key, model, media_resolution, settings, on_log=print):
+                      api_key, model, media_resolution, settings, segments=None,
+                      on_log=print):
     """Upload the video to Gemini, get clip picks, snap to sentence boundaries.
     Raises on any failure so the caller can fall back to the NIM selector."""
     client = genai.Client(api_key=api_key)
@@ -121,9 +122,12 @@ def find_clips_gemini(video_path, words, *, num_clips, min_sec, max_sec, duratio
     if not clips:
         raise RuntimeError("Gemini returned no clips")
 
-    # Snap to sentence boundaries (word-level) so cuts complete sentences, then
-    # hard-enforce min floor / max ceiling (when we have boundaries to repair to).
-    bounds = _parse_boundaries(build_sentences(words)) if words else []
+    # Always snap so cuts complete sentences: prefer word-built sentences, but
+    # fall back to Deepgram utterance segments when word timings are sparse/absent
+    # (Gemini returns whole-second guesses that otherwise cut mid-sentence). Then
+    # hard-enforce min floor / max ceiling.
+    units = build_sentences(words) if words else (segments or [])
+    bounds = _parse_boundaries(units)
     if bounds:
         clips = _snap(clips, bounds, min_sec, max_sec)
         clips = enforce_duration(clips, min_sec, max_sec)

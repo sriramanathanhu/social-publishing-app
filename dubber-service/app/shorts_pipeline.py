@@ -211,6 +211,7 @@ def _find_candidates(req, video_path, segments, words, duration, candidate_n, em
                 min_sec=req.min_seconds, max_sec=req.max_seconds,
                 duration=duration, api_key=req.gemini_key, model=req.gemini_model,
                 media_resolution=req.media_resolution, settings=req.settings,
+                segments=segments,
                 on_log=lambda m: emit("analyze", 40, m),
             )
             if clips:

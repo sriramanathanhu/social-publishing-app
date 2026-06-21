@@ -46,6 +46,8 @@ BAD_END = {
     "going", "trying", "when", "where", "who", "the", "a", "an", "of", "to",
     "in",
 }
+# Seconds added after the snapped end so the last word fully plays.
+_TAIL_PAD = 0.3
 
 
 def build_sentences(words: list[dict]) -> list[dict]:
@@ -74,7 +76,7 @@ def segments_to_transcript(segments: list[dict]) -> str:
     """Format segments/sentences as ``[start→end] text`` lines for the model."""
     lines = []
     for s in segments:
-        a, b = int(s.get("start", 0)), int(s.get("end", 0)) + 1
+        a, b = round(float(s.get("start", 0)), 1), round(float(s.get("end", 0)), 1)
         text = (s.get("text") or "").strip()
         if text:
             lines.append(f"[{a}→{b}] {text}")
@@ -210,13 +212,18 @@ TRANSCRIPT:
 
 
 def _parse_boundaries(segments):
-    """(start, end, first_word, last_word) tuples used to snap clip edges."""
+    """(start, end, first_word, last_word) tuples used to snap clip edges.
+
+    Float seconds (word-level precision) — NOT rounded to whole seconds — so a
+    cut lands exactly on the sentence edge instead of up to a second early (which
+    clipped the final word). A small tail pad is added at snap time."""
     out = []
     for s in segments:
         words = (s.get("text") or "").strip().split()
         if not words:
             continue
-        out.append((int(s.get("start", 0)), int(s.get("end", 0)) + 1,
+        out.append((round(float(s.get("start", 0)), 2),
+                    round(float(s.get("end", 0)), 2),
                     words[0].lower().strip(".,!?;:"),
                     words[-1].lower().strip(".,!?;:")))
     return out
@@ -275,9 +282,11 @@ def _snap(clips, bounds, min_sec, max_sec):
                 cap = [be for be in good_ends if be > S and be - S <= max_sec]
                 E = max(cap) if cap else min(b for b in good_ends if b > S)
 
-        c["start_seconds"] = S
-        c["end_seconds"] = E
-        dur = E - S
+        # Small tail pad so the final word fully plays (cut precision / breath),
+        # without exceeding the ceiling beyond enforce_duration's tolerance.
+        c["start_seconds"] = round(S, 2)
+        c["end_seconds"] = round(E + _TAIL_PAD, 2)
+        dur = c["end_seconds"] - c["start_seconds"]
         c["_under_min"] = dur < min_sec - 0.5
         c["_over_max"] = dur > max_sec + 0.5
     return clips
