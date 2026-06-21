@@ -78,6 +78,7 @@ export function Sidebar({ user }: { user: NavUser }) {
 						<NavLink href="/admin/teams" label="Teams" />
 						<NavLink href="/admin/ecosystems" label="Ecosystems" />
 						<NavLink href="/admin/members" label="Members" />
+						<NavLink href="/admin/diagnostics" label="Diagnostics" />
 					</div>
 				)}
 			</nav>
