@@ -50,6 +50,7 @@ export function Sidebar({ user }: { user: NavUser }) {
 					</div>
 					<NavLink href="/dub" label="Dub Video" />
 					<NavLink href="/shorts" label="Shorts" />
+					<NavLink href="/quotes" label="Quotes" />
 					<NavLink href="/archive" label="Archive" />
 				</div>
 
