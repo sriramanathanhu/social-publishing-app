@@ -13,6 +13,7 @@ function token(): string {
 export type CardInput = {
 	photoUrl: string;
 	quote: string;
+	overlayUrl?: string;
 	panY?: number;
 	zoom?: number;
 	finalize?: boolean;
@@ -30,6 +31,7 @@ export function renderQuoteCard(input: CardInput): Promise<Response> {
 		body: JSON.stringify({
 			photo_url: input.photoUrl,
 			quote: input.quote,
+			overlay_url: input.overlayUrl,
 			pan_y: input.panY ?? 0.4,
 			zoom: input.zoom ?? 1,
 			finalize: input.finalize ?? false,

@@ -86,6 +86,7 @@ def render_quote_card(
     photo_url: str,
     quote: str,
     *,
+    overlay_url: str | None = None,
     pan_y: float = 0.4,
     zoom: float = 1.0,
     box=DEFAULT_BOX,
@@ -94,10 +95,13 @@ def render_quote_card(
     min_size: int = 24,
     align: str = "left",
 ) -> bytes:
-    """Render the card and return PNG bytes."""
+    """Render the card and return PNG bytes. ``overlay_url`` selects a specific
+    overlay (else the bundled default brand overlay)."""
     photo = _cover_fit(_load_photo(photo_url), CARD_W, CARD_H, pan_y, zoom)
     card = photo.convert("RGBA")
-    overlay = Image.open(OVERLAY_PATH).convert("RGBA")
+    overlay = (
+        _load_photo(overlay_url) if overlay_url else Image.open(OVERLAY_PATH)
+    ).convert("RGBA")
     if overlay.size != (CARD_W, CARD_H):
         overlay = overlay.resize((CARD_W, CARD_H), Image.LANCZOS)
     card.alpha_composite(overlay)

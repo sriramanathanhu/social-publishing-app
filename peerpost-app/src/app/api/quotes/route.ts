@@ -1,5 +1,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
+import { db } from "@/db";
+import { quoteItems } from "@/db/schema";
 import { getUserKeys } from "@/lib/api-keys";
 import { requireUser } from "@/lib/auth";
 import { route } from "@/lib/http";
@@ -17,8 +19,8 @@ const schema = z.object({
 
 /**
  * POST /api/quotes — generate social-media quotes from long-form content using
- * the caller's own Gemini (→ NVIDIA fallback) key. Text-only; no persistence —
- * the user publishes the ones they like, which are then logged like any post.
+ * the caller's own Gemini (→ NVIDIA fallback) key, and PERSIST them so the
+ * user's set survives a refresh. Returns the saved rows (with ids).
  */
 export const POST = route(async (req: NextRequest) => {
 	const user = await requireUser();
@@ -31,5 +33,17 @@ export const POST = route(async (req: NextRequest) => {
 		tone: input.tone,
 		avoid: input.avoid,
 	});
-	return Response.json(result);
+	const saved = result.quotes.length
+		? await db
+				.insert(quoteItems)
+				.values(
+					result.quotes.map((q) => ({
+						userId: user.id,
+						text: q.text,
+						hashtags: q.hashtags,
+					})),
+				)
+				.returning()
+		: [];
+	return Response.json({ provider: result.provider, quotes: saved });
 });

@@ -366,6 +366,7 @@ async def shorts_events(job_id: str) -> StreamingResponse:
 class QuoteCard(BaseModel):
     photo_url: str
     quote: str
+    overlay_url: Optional[str] = None     # selected overlay (else default brand)
     pan_y: float = 0.4
     zoom: float = 1.0
     box: Optional[list[int]] = None       # [left, top, right, bottom]
@@ -378,7 +379,12 @@ class QuoteCard(BaseModel):
 def quote_card(body: QuoteCard):
     """Render a 1080×1350 quote card. Preview → PNG bytes; finalize → upload to
     R2 and return {publicUrl} for publishing."""
-    kwargs = {"pan_y": body.pan_y, "zoom": body.zoom, "align": body.align}
+    kwargs = {
+        "overlay_url": body.overlay_url,
+        "pan_y": body.pan_y,
+        "zoom": body.zoom,
+        "align": body.align,
+    }
     if body.box and len(body.box) == 4:
         kwargs["box"] = tuple(body.box)
     if body.color and len(body.color) == 3:

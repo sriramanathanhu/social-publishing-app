@@ -1,20 +1,21 @@
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { QuoteStudio } from "@/components/quote-studio";
 import { db } from "@/db";
-import { quoteBackgrounds } from "@/db/schema";
+import { quoteBackgrounds, quoteItems, quoteOverlays } from "@/db/schema";
 import { requirePageUser } from "@/lib/page-auth";
 import { getAccessibleProfiles, getConnectedAccounts } from "@/lib/queries";
 
 /**
  * Quotes: paste long-form content → AI distills several powerful, postable
- * quotes (Gemini → NVIDIA), each publishable/schedulable to the viewer's own
- * ecosystems (text-capable accounts).
+ * quotes (Gemini → NVIDIA). Each can be posted as text or as a branded image
+ * card, published/scheduled to the viewer's ecosystems. Saved per user, so the
+ * set (and any rendered cards) survives a refresh.
  */
 export default async function QuotesPage() {
 	const user = await requirePageUser();
 
 	const profiles = await getAccessibleProfiles(user);
-	const [ecosystems, backgrounds] = await Promise.all([
+	const [ecosystems, backgrounds, overlays, items] = await Promise.all([
 		Promise.all(
 			profiles.map(async (p) => ({
 				id: p.id,
@@ -31,6 +32,21 @@ export default async function QuotesPage() {
 			})
 			.from(quoteBackgrounds)
 			.orderBy(desc(quoteBackgrounds.createdAt)),
+		db
+			.select({
+				id: quoteOverlays.id,
+				url: quoteOverlays.url,
+				label: quoteOverlays.label,
+				isDefault: quoteOverlays.isDefault,
+			})
+			.from(quoteOverlays)
+			.orderBy(desc(quoteOverlays.isDefault), desc(quoteOverlays.createdAt)),
+		db
+			.select()
+			.from(quoteItems)
+			.where(eq(quoteItems.userId, user.id))
+			.orderBy(desc(quoteItems.createdAt))
+			.limit(120),
 	]);
 
 	return (
@@ -38,11 +54,26 @@ export default async function QuotesPage() {
 			<div>
 				<h1 className="text-xl font-semibold">Quotes</h1>
 				<p className="mt-1 text-sm opacity-60">
-					Turn long-form content into powerful, ready-to-post quotes — then
-					publish or schedule them to your ecosystems.
+					Turn long-form content into powerful, ready-to-post quotes — as text
+					or branded image cards — then publish or schedule them. Your set is
+					saved.
 				</p>
 			</div>
-			<QuoteStudio ecosystems={ecosystems} backgrounds={backgrounds} />
+			<QuoteStudio
+				ecosystems={ecosystems}
+				backgrounds={backgrounds}
+				overlays={overlays}
+				initialItems={items.map((i) => ({
+					id: i.id,
+					text: i.text,
+					hashtags: i.hashtags ?? [],
+					bgUrl: i.bgUrl,
+					overlayUrl: i.overlayUrl,
+					cardUrl: i.cardUrl,
+					panY: i.panY,
+					zoom: i.zoom,
+				}))}
+			/>
 		</div>
 	);
 }

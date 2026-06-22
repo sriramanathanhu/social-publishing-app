@@ -6,10 +6,16 @@ import {
 	type Provider,
 	readJson,
 } from "@/components/publish-row";
+import { QuoteCardPreview } from "@/components/quote-card-preview";
+import {
+	patchQuoteItem,
+	type QuoteBackground,
+	type QuoteItem,
+	type QuoteOverlay,
+} from "@/components/quote-types";
 
-export type QuoteBackground = { id: string; url: string; label: string | null };
+export type { QuoteBackground, QuoteOverlay, QuoteItem };
 
-/** Platforms that accept a text-only post. */
 const TEXT_PLATFORMS = new Set([
 	"twitter",
 	"linkedin",
@@ -22,7 +28,6 @@ const TEXT_PLATFORMS = new Set([
 	"whatsapp",
 	"googlebusiness",
 ]);
-/** Platforms that accept an image post (card mode) — i.e. not video-only. */
 const CARD_PLATFORMS = new Set([
 	"twitter",
 	"linkedin",
@@ -51,32 +56,35 @@ type RowResult = {
 };
 
 /**
- * One generated quote with an inline publish/schedule composer. Two modes:
- * - Text: post the quote as text to text-capable accounts (with per-platform
- *   tailoring).
- * - Image card: composite the quote onto a branded 1080×1350 card (pick a
- *   background, pan/zoom, live preview) and post it as an image to image-capable
- *   accounts. Mirrors PublishRow's background publish + status polling.
+ * One saved quote with an inline publish/schedule composer. Text edits + card
+ * composition are persisted (so they survive a refresh). Two modes: plain text
+ * (text-capable accounts, per-platform tailoring) or a branded image card (pick
+ * a background + overlay, pan/zoom, live preview) posted as an image with the
+ * quote as the caption to image-capable accounts.
  */
 export function QuoteRow({
-	initialText,
-	hashtags,
+	item,
 	ecosystems,
 	backgrounds,
+	overlays,
 	tone,
 	regenerating,
 	onRegenerate,
+	onDelete,
+	onChange,
 }: {
-	readonly initialText: string;
-	readonly hashtags: string[];
+	readonly item: QuoteItem;
 	readonly ecosystems: Ecosystem[];
 	readonly backgrounds: QuoteBackground[];
+	readonly overlays: QuoteOverlay[];
 	readonly tone?: string;
 	readonly regenerating?: boolean;
 	readonly onRegenerate?: () => void;
+	readonly onDelete?: () => void;
+	readonly onChange?: (patch: Partial<QuoteItem>) => void;
 }) {
-	const [text, setText] = useState(initialText);
-	const [includeTags, setIncludeTags] = useState(hashtags.length > 0);
+	const [text, setText] = useState(item.text);
+	const [includeTags, setIncludeTags] = useState(item.hashtags.length > 0);
 	const [ecoId, setEcoId] = useState("");
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [provider, setProvider] = useState<Provider>("postpeer");
@@ -87,15 +95,22 @@ export function QuoteRow({
 	const [tailored, setTailored] = useState<Record<string, string>>({});
 	const [tailoring, setTailoring] = useState(false);
 
-	// Image-card mode.
-	const [cardMode, setCardMode] = useState(false);
-	const [bgUrl, setBgUrl] = useState<string | null>(null);
-	const [panY, setPanY] = useState(0.4);
-	const [zoom, setZoom] = useState(1);
-	const [preview, setPreview] = useState<string | null>(null);
+	const defaultOverlay = overlays.find((o) => o.isDefault)?.url ?? null;
+	const [cardMode, setCardMode] = useState(!!item.cardUrl);
+	const [bgUrl, setBgUrl] = useState<string | null>(item.bgUrl);
+	const [overlayUrl, setOverlayUrl] = useState<string | null>(
+		item.overlayUrl ?? defaultOverlay,
+	);
+	const [panY, setPanY] = useState(item.panY);
+	const [zoom, setZoom] = useState(item.zoom);
+	const [preview, setPreview] = useState<string | null>(item.cardUrl);
 	const [rendering, setRendering] = useState(false);
 	const [uploadBusy, setUploadBusy] = useState(false);
+	const [lightbox, setLightbox] = useState(false);
 	const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const textTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+		undefined,
+	);
 
 	const eco = ecosystems.find((e) => e.id === ecoId);
 	const platformSet = cardMode ? CARD_PLATFORMS : TEXT_PLATFORMS;
@@ -117,16 +132,33 @@ export function QuoteRow({
 		),
 	];
 
-	const tagLine = hashtags.map((h) => `#${h}`).join(" ");
+	const tagLine = item.hashtags.map((h) => `#${h}`).join(" ");
 	const body = includeTags && tagLine ? `${text}\n\n${tagLine}` : text;
 	const chars = body.length;
 
-	// Live card preview (debounced) when in card mode with a background chosen.
+	function editText(v: string) {
+		setText(v);
+		clearTimeout(textTimer.current);
+		textTimer.current = setTimeout(() => {
+			onChange?.({ text: v });
+			patchQuoteItem(item.id, { text: v });
+		}, 600);
+	}
+
+	// Persist card composition (debounced) when it changes in card mode.
 	useEffect(() => {
-		if (!cardMode || !bgUrl || !text.trim()) {
-			setPreview(null);
-			return;
-		}
+		if (!cardMode) return;
+		const t = setTimeout(() => {
+			onChange?.({ bgUrl, overlayUrl, panY, zoom });
+			patchQuoteItem(item.id, { bgUrl, overlayUrl, panY, zoom });
+		}, 800);
+		return () => clearTimeout(t);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [cardMode, bgUrl, overlayUrl, panY, zoom]);
+
+	// Live card preview (debounced).
+	useEffect(() => {
+		if (!cardMode || !bgUrl || !text.trim()) return;
 		setRendering(true);
 		clearTimeout(debounce.current);
 		debounce.current = setTimeout(async () => {
@@ -134,7 +166,13 @@ export function QuoteRow({
 				const res = await fetch("/api/quotes/card", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ photoUrl: bgUrl, quote: text, panY, zoom }),
+					body: JSON.stringify({
+						photoUrl: bgUrl,
+						overlayUrl: overlayUrl ?? undefined,
+						quote: text,
+						panY,
+						zoom,
+					}),
 				});
 				if (!res.ok) {
 					const d = await res.json().catch(() => ({}));
@@ -142,7 +180,7 @@ export function QuoteRow({
 				}
 				const url = URL.createObjectURL(await res.blob());
 				setPreview((prev) => {
-					if (prev) URL.revokeObjectURL(prev);
+					if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
 					return url;
 				});
 				setMsg(null);
@@ -153,7 +191,8 @@ export function QuoteRow({
 			}
 		}, 500);
 		return () => clearTimeout(debounce.current);
-	}, [cardMode, bgUrl, text, panY, zoom]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [cardMode, bgUrl, overlayUrl, text, panY, zoom]);
 
 	function pickEco(id: string) {
 		setEcoId(id);
@@ -244,7 +283,6 @@ export function QuoteRow({
 		setMsg(null);
 		setResults([]);
 
-		// Card mode: finalize the card to a public URL to attach as media.
 		let mediaUrl: string | undefined;
 		if (cardMode) {
 			if (!bgUrl) {
@@ -258,6 +296,7 @@ export function QuoteRow({
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
 						photoUrl: bgUrl,
+						overlayUrl: overlayUrl ?? undefined,
 						quote: text,
 						panY,
 						zoom,
@@ -268,6 +307,14 @@ export function QuoteRow({
 				if (!res.ok) throw new Error(d.error ?? "Card render failed");
 				mediaUrl = (d as { publicUrl?: string }).publicUrl;
 				if (!mediaUrl) throw new Error("Card render returned no URL");
+				onChange?.({ cardUrl: mediaUrl, bgUrl, overlayUrl, panY, zoom });
+				patchQuoteItem(item.id, {
+					cardUrl: mediaUrl,
+					bgUrl,
+					overlayUrl,
+					panY,
+					zoom,
+				});
 			} catch (err) {
 				setMsg(err instanceof Error ? err.message : "Card render failed");
 				setBusy(false);
@@ -370,29 +417,44 @@ export function QuoteRow({
 
 	return (
 		<div className="rounded-xl border border-black/10 bg-white p-3 shadow-sm">
+			{lightbox && preview && (
+				<QuoteCardPreview url={preview} onClose={() => setLightbox(false)} />
+			)}
 			<div className="flex items-start gap-2">
 				<textarea
 					value={text}
-					onChange={(e) => setText(e.target.value)}
+					onChange={(e) => editText(e.target.value)}
 					rows={3}
 					disabled={regenerating}
 					className="w-full resize-y rounded-md border border-black/15 px-3 py-2 text-sm disabled:opacity-50"
 				/>
-				{onRegenerate && (
-					<button
-						type="button"
-						onClick={onRegenerate}
-						disabled={regenerating}
-						title="Replace with a different quote"
-						className="shrink-0 rounded-md border border-black/15 px-2 py-1 text-xs hover:bg-black/5 disabled:opacity-50"
-					>
-						{regenerating ? "…" : "↻"}
-					</button>
-				)}
+				<div className="flex shrink-0 flex-col gap-1">
+					{onRegenerate && (
+						<button
+							type="button"
+							onClick={onRegenerate}
+							disabled={regenerating}
+							title="Replace with a different quote"
+							className="rounded-md border border-black/15 px-2 py-1 text-xs hover:bg-black/5 disabled:opacity-50"
+						>
+							{regenerating ? "…" : "↻"}
+						</button>
+					)}
+					{onDelete && (
+						<button
+							type="button"
+							onClick={onDelete}
+							title="Delete this quote"
+							className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+						>
+							✕
+						</button>
+					)}
+				</div>
 			</div>
 
 			<div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-				{hashtags.length > 0 && (
+				{item.hashtags.length > 0 && (
 					<label className="flex items-center gap-1 opacity-70">
 						<input
 							type="checkbox"
@@ -421,12 +483,16 @@ export function QuoteRow({
 				</span>
 			</div>
 
-			{/* Card designer */}
 			{cardMode && (
 				<div className="mt-2 grid gap-3 rounded-lg bg-black/[0.02] p-2 sm:grid-cols-[200px_1fr]">
-					<div>
+					<button
+						type="button"
+						onClick={() => preview && setLightbox(true)}
+						className="block"
+						title="Click to enlarge"
+					>
 						{preview ? (
-							// biome-ignore lint/performance/noImgElement: client-side blob preview
+							// biome-ignore lint/performance/noImgElement: client-side card preview
 							<img
 								src={preview}
 								alt="card preview"
@@ -434,10 +500,10 @@ export function QuoteRow({
 							/>
 						) : (
 							<div className="flex aspect-[4/5] w-full items-center justify-center rounded-md border border-dashed border-black/15 text-xs opacity-40">
-								{rendering ? "Rendering…" : bgUrl ? "…" : "Pick a background →"}
+								{rendering ? "Rendering…" : "Pick a background →"}
 							</div>
 						)}
-					</div>
+					</button>
 					<div className="space-y-2">
 						<div className="text-[11px] font-medium uppercase tracking-wide opacity-40">
 							Background
@@ -472,6 +538,22 @@ export function QuoteRow({
 								/>
 							</label>
 						</div>
+						{overlays.length > 0 && (
+							<label className="block text-[11px] opacity-60">
+								Overlay
+								<select
+									value={overlayUrl ?? ""}
+									onChange={(e) => setOverlayUrl(e.target.value || null)}
+									className="mt-0.5 block w-full rounded-md border border-black/15 px-2 py-1 text-xs"
+								>
+									{overlays.map((o) => (
+										<option key={o.id} value={o.url}>
+											{o.label ?? "Overlay"}
+										</option>
+									))}
+								</select>
+							</label>
+						)}
 						{bgUrl && (
 							<div className="space-y-1.5 pt-1">
 								<label className="block text-[11px] opacity-60">
@@ -499,13 +581,13 @@ export function QuoteRow({
 									/>
 								</label>
 								{preview && (
-									<a
-										href={preview}
-										download="quote-card.png"
-										className="inline-block text-[11px] text-primary hover:underline"
+									<button
+										type="button"
+										onClick={() => setLightbox(true)}
+										className="text-[11px] text-primary hover:underline"
 									>
-										Download PNG ↓
-									</a>
+										Enlarge preview ⛶
+									</button>
 								)}
 							</div>
 						)}

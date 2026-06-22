@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import {
 	boolean,
+	doublePrecision,
 	index,
 	integer,
 	jsonb,
@@ -530,3 +531,47 @@ export const quoteBackgrounds = pgTable("quote_backgrounds", {
 		.defaultNow()
 		.notNull(),
 });
+
+/** Curated overlay PNGs (brand frames) for Quote cards. */
+export const quoteOverlays = pgTable("quote_overlays", {
+	id: uuid("id").defaultRandom().primaryKey(),
+	label: text("label"),
+	r2Key: text("r2_key").notNull(),
+	url: text("url").notNull(),
+	isDefault: boolean("is_default").notNull().default(false),
+	createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+		onDelete: "set null",
+	}),
+	createdAt: timestamp("created_at", { withTimezone: true })
+		.defaultNow()
+		.notNull(),
+});
+
+/**
+ * Persisted generated quotes + their rendered cards, so a user's work survives a
+ * refresh. One row per quote; the card fields fill in once a card is rendered.
+ */
+export const quoteItems = pgTable(
+	"quote_items",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		text: text("text").notNull(),
+		hashtags: jsonb("hashtags").$type<string[]>().default([]),
+		// Card composition (filled when a card is made).
+		bgUrl: text("bg_url"),
+		overlayUrl: text("overlay_url"),
+		cardUrl: text("card_url"),
+		panY: doublePrecision("pan_y").notNull().default(0.4),
+		zoom: doublePrecision("zoom").notNull().default(1),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [index("quote_items_user_idx").on(t.userId)],
+);

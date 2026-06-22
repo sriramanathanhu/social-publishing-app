@@ -1,13 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Ecosystem } from "@/components/publish-row";
 import { readJson } from "@/components/publish-row";
-import type { QuoteBackground } from "@/components/quote-row";
+import { QuoteCardPreview } from "@/components/quote-card-preview";
+import {
+	patchQuoteItem,
+	type QuoteBackground,
+	type QuoteItem,
+	type QuoteOverlay,
+} from "@/components/quote-types";
 
-type Quote = { id: number; text: string; hashtags: string[] };
-
-/** Image-capable platforms (cards are images). */
 const CARD_PLATFORMS = new Set([
 	"twitter",
 	"linkedin",
@@ -23,13 +26,6 @@ const CARD_PLATFORMS = new Set([
 	"googlebusiness",
 ]);
 
-type CardState = {
-	bg: string | null; // background url
-	cardUrl: string | null; // finalized R2 card url
-	status: "" | "rendering" | "ready" | "error";
-};
-
-/** Run async work over items with a small concurrency cap, reporting progress. */
 async function runPool<T>(
 	items: T[],
 	limit: number,
@@ -48,30 +44,34 @@ async function runPool<T>(
 }
 
 /**
- * Batch quote-card workflow: assign a background per quote (bulk upload / library
- * / per-card), render every card, then choose accounts + a schedule ONCE and
- * fan all of them out (auto-spaced across the calendar).
+ * Batch quote-card workflow over the saved quotes: edit each quote, assign a
+ * background per card (bulk upload / library / click-to-cycle), pick one overlay
+ * + global framing, render all, then choose accounts + a schedule ONCE and fan
+ * every card out (auto-spaced), each as an image post with the quote as caption.
+ * All edits/cards persist.
  */
 export function QuoteBatchPanel({
-	quotes,
+	items,
 	backgrounds,
+	overlays,
 	ecosystems,
+	onChange,
 }: {
-	readonly quotes: Quote[];
+	readonly items: QuoteItem[];
 	readonly backgrounds: QuoteBackground[];
+	readonly overlays: QuoteOverlay[];
 	readonly ecosystems: Ecosystem[];
+	readonly onChange: (id: string, patch: Partial<QuoteItem>) => void;
 }) {
-	// Pool of selectable backgrounds = library + anything uploaded here.
+	const defaultOverlay = overlays.find((o) => o.isDefault)?.url ?? null;
 	const [pool, setPool] = useState<string[]>(backgrounds.map((b) => b.url));
-	const [cards, setCards] = useState<Record<number, CardState>>(() =>
-		Object.fromEntries(
-			quotes.map((q) => [q.id, { bg: null, cardUrl: null, status: "" }]),
-		),
-	);
+	const [overlayUrl, setOverlayUrl] = useState<string | null>(defaultOverlay);
 	const [panY, setPanY] = useState(0.4);
 	const [zoom, setZoom] = useState(1);
 	const [uploadBusy, setUploadBusy] = useState(false);
 	const [rendering, setRendering] = useState(false);
+	const [renderingIds, setRenderingIds] = useState<Set<string>>(new Set());
+	const [lightbox, setLightbox] = useState<string | null>(null);
 
 	const [ecoId, setEcoId] = useState("");
 	const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -82,58 +82,50 @@ export function QuoteBatchPanel({
 	const [publishing, setPublishing] = useState(false);
 	const [done, setDone] = useState(0);
 	const [msg, setMsg] = useState<string | null>(null);
+	const textTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+		new Map(),
+	);
 
 	const eco = ecosystems.find((e) => e.id === ecoId);
 	const accounts = (eco?.accounts ?? []).filter((a) =>
 		CARD_PLATFORMS.has(a.platform),
 	);
-	const assignedCount = quotes.filter((q) => cards[q.id]?.bg).length;
-	const readyCount = quotes.filter((q) => cards[q.id]?.cardUrl).length;
+	const assignedCount = items.filter((q) => q.bgUrl).length;
+	const readyCount = items.filter((q) => q.cardUrl).length;
 
-	const update = (id: number, patch: Partial<CardState>) =>
-		setCards((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+	function editText(id: string, v: string) {
+		onChange(id, { text: v, cardUrl: null });
+		const timers = textTimers.current;
+		clearTimeout(timers.get(id));
+		timers.set(
+			id,
+			setTimeout(() => patchQuoteItem(id, { text: v }), 600),
+		);
+	}
+
+	function setBg(id: string, url: string | null) {
+		onChange(id, { bgUrl: url, cardUrl: null });
+		patchQuoteItem(id, { bgUrl: url, cardUrl: null });
+	}
 
 	function assignInOrder(urls: string[]) {
-		setCards((prev) => {
-			const next = { ...prev };
-			quotes.forEach((q, i) => {
-				if (i < urls.length)
-					next[q.id] = {
-						...next[q.id],
-						bg: urls[i],
-						cardUrl: null,
-						status: "",
-					};
-			});
-			return next;
+		items.forEach((q, i) => {
+			if (i < urls.length) setBg(q.id, urls[i]);
 		});
 	}
 
 	function fillFromLibrary() {
 		if (pool.length === 0) return;
-		setCards((prev) => {
-			const next = { ...prev };
-			quotes.forEach((q, i) => {
-				if (!next[q.id].bg)
-					next[q.id] = {
-						...next[q.id],
-						bg: pool[i % pool.length],
-						cardUrl: null,
-					};
-			});
-			return next;
+		items.forEach((q, i) => {
+			if (!q.bgUrl) setBg(q.id, pool[i % pool.length]);
 		});
 	}
 
-	function cycleBg(id: number) {
+	function cycleBg(id: string) {
 		if (pool.length === 0) return;
-		const cur = cards[id].bg;
+		const cur = items.find((q) => q.id === id)?.bgUrl ?? null;
 		const idx = cur ? pool.indexOf(cur) : -1;
-		update(id, {
-			bg: pool[(idx + 1) % pool.length],
-			cardUrl: null,
-			status: "",
-		});
+		setBg(id, pool[(idx + 1) % pool.length]);
 	}
 
 	async function uploadMany(files: FileList) {
@@ -164,15 +156,16 @@ export function QuoteBatchPanel({
 	async function renderAll() {
 		setRendering(true);
 		setMsg(null);
-		const todo = quotes.filter((q) => cards[q.id]?.bg);
+		const todo = items.filter((q) => q.bgUrl);
 		await runPool(todo, 3, async (q) => {
-			update(q.id, { status: "rendering" });
+			setRenderingIds((s) => new Set(s).add(q.id));
 			try {
 				const res = await fetch("/api/quotes/card", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
-						photoUrl: cards[q.id].bg,
+						photoUrl: q.bgUrl,
+						overlayUrl: overlayUrl ?? undefined,
 						quote: q.text,
 						panY,
 						zoom,
@@ -181,24 +174,34 @@ export function QuoteBatchPanel({
 				});
 				const d = await readJson(res);
 				if (!res.ok) throw new Error(d.error ?? "render failed");
-				update(q.id, {
-					cardUrl: (d as { publicUrl?: string }).publicUrl ?? null,
-					status: "ready",
+				const cardUrl = (d as { publicUrl?: string }).publicUrl ?? null;
+				onChange(q.id, { cardUrl, bgUrl: q.bgUrl, overlayUrl, panY, zoom });
+				patchQuoteItem(q.id, {
+					cardUrl,
+					bgUrl: q.bgUrl,
+					overlayUrl,
+					panY,
+					zoom,
 				});
 			} catch {
-				update(q.id, { status: "error" });
+				onChange(q.id, { cardUrl: null });
+			} finally {
+				setRenderingIds((s) => {
+					const n = new Set(s);
+					n.delete(q.id);
+					return n;
+				});
 			}
 		});
 		setRendering(false);
 	}
 
-	// Scheduled time for card index i.
 	const scheduleTimes = useMemo(() => {
 		if (mode !== "schedule" || !startAt) return [];
 		const base = new Date(startAt).getTime();
 		const stepMs = every * (unit === "days" ? 86_400_000 : 3_600_000);
-		return quotes.map((_, i) => new Date(base + i * stepMs));
-	}, [mode, startAt, every, unit, quotes]);
+		return items.map((_, i) => new Date(base + i * stepMs));
+	}, [mode, startAt, every, unit, items]);
 
 	async function publishAll() {
 		const targets = accounts
@@ -208,7 +211,7 @@ export function QuoteBatchPanel({
 			setMsg("Pick at least one account.");
 			return;
 		}
-		const ready = quotes.filter((q) => cards[q.id]?.cardUrl);
+		const ready = items.filter((q) => q.cardUrl);
 		if (ready.length === 0) {
 			setMsg("Render the cards first.");
 			return;
@@ -223,8 +226,7 @@ export function QuoteBatchPanel({
 		let failures = 0;
 		for (let i = 0; i < ready.length; i++) {
 			const q = ready[i];
-			const when =
-				mode === "schedule" ? scheduleTimes[quotes.indexOf(q)] : null;
+			const when = mode === "schedule" ? scheduleTimes[items.indexOf(q)] : null;
 			const caption = q.hashtags.length
 				? `${q.text}\n\n${q.hashtags.map((h) => `#${h}`).join(" ")}`
 				: q.text;
@@ -235,7 +237,7 @@ export function QuoteBatchPanel({
 					body: JSON.stringify({
 						content: caption,
 						platforms: targets,
-						mediaItems: [{ type: "image", url: cards[q.id].cardUrl }],
+						mediaItems: [{ type: "image", url: q.cardUrl }],
 						publishNow: when ? undefined : true,
 						scheduledFor: when ? when.toISOString() : undefined,
 						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -267,14 +269,17 @@ export function QuoteBatchPanel({
 
 	return (
 		<div className="space-y-4 rounded-xl border border-primary/30 bg-primary/[0.03] p-4">
+			{lightbox && (
+				<QuoteCardPreview url={lightbox} onClose={() => setLightbox(null)} />
+			)}
 			<h3 className="text-sm font-semibold">⚡ Batch cards &amp; schedule</h3>
 
-			{/* 1. Backgrounds */}
+			{/* 1. Cards: quote text + background per item */}
 			<section className="space-y-2">
 				<div className="flex flex-wrap items-center gap-2 text-sm">
-					<span className="font-medium">1. Backgrounds</span>
+					<span className="font-medium">1. Cards</span>
 					<span className="text-xs opacity-50">
-						{assignedCount}/{quotes.length} assigned
+						{assignedCount}/{items.length} backgrounds · {readyCount} rendered
 					</span>
 					<label className="cursor-pointer rounded-md border border-black/15 px-2.5 py-1 text-xs hover:bg-black/5">
 						{uploadBusy ? "Uploading…" : "Upload images (in order)"}
@@ -298,51 +303,97 @@ export function QuoteBatchPanel({
 						Fill from library
 					</button>
 				</div>
-				<div className="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8">
-					{quotes.map((q, i) => {
-						const c = cards[q.id];
-						return (
+				<div className="space-y-2">
+					{items.map((q, i) => (
+						<div
+							key={q.id}
+							className="flex gap-2 rounded-lg border border-black/10 bg-white p-2"
+						>
 							<button
 								type="button"
-								key={q.id}
-								onClick={() => cycleBg(q.id)}
-								title={`Card ${i + 1}: ${q.text.slice(0, 60)} — click to change background`}
-								className="relative aspect-[4/5] overflow-hidden rounded border border-black/10 bg-black/5"
+								onClick={() =>
+									q.cardUrl ? setLightbox(q.cardUrl) : cycleBg(q.id)
+								}
+								title={
+									q.cardUrl
+										? "Click to enlarge"
+										: "Click to set / change background"
+								}
+								className="relative h-20 w-16 shrink-0 overflow-hidden rounded border border-black/10 bg-black/5"
 							>
-								{c.cardUrl || c.bg ? (
+								{q.cardUrl || q.bgUrl ? (
 									// biome-ignore lint/performance/noImgElement: remote thumb
 									<img
-										src={c.cardUrl ?? c.bg ?? ""}
+										src={q.cardUrl ?? q.bgUrl ?? ""}
 										alt={`card ${i + 1}`}
 										className="h-full w-full object-cover"
 									/>
 								) : (
 									<span className="flex h-full items-center justify-center text-[10px] opacity-40">
-										{i + 1}
+										+
 									</span>
 								)}
 								<span className="absolute left-0 top-0 bg-black/50 px-1 text-[9px] text-white">
 									{i + 1}
 								</span>
-								{c.status === "rendering" && (
+								{renderingIds.has(q.id) && (
 									<span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[10px] text-white">
 										…
 									</span>
 								)}
-								{c.status === "error" && (
-									<span className="absolute inset-0 flex items-center justify-center bg-red-600/60 text-[10px] text-white">
-										✗
-									</span>
-								)}
 							</button>
-						);
-					})}
+							<div className="min-w-0 flex-1">
+								<textarea
+									value={q.text}
+									onChange={(e) => editText(q.id, e.target.value)}
+									rows={2}
+									className="w-full resize-y rounded-md border border-black/15 px-2 py-1 text-sm"
+								/>
+								<div className="mt-0.5 flex items-center gap-2 text-[11px] opacity-50">
+									{q.bgUrl && (
+										<button
+											type="button"
+											onClick={() => cycleBg(q.id)}
+											className="hover:underline"
+										>
+											change bg
+										</button>
+									)}
+									{q.cardUrl && (
+										<button
+											type="button"
+											onClick={() => setLightbox(q.cardUrl as string)}
+											className="text-primary hover:underline"
+										>
+											preview ⛶
+										</button>
+									)}
+								</div>
+							</div>
+						</div>
+					))}
 				</div>
 			</section>
 
-			{/* 2. Framing + 3. Render */}
-			<section className="flex flex-wrap items-end gap-4">
-				<div className="text-sm font-medium">2. Framing</div>
+			{/* 2. Overlay + framing + 3. Render */}
+			<section className="flex flex-wrap items-end gap-4 border-t border-black/5 pt-3">
+				<div className="text-sm font-medium">2. Style</div>
+				{overlays.length > 0 && (
+					<label className="text-[11px] opacity-60">
+						Overlay
+						<select
+							value={overlayUrl ?? ""}
+							onChange={(e) => setOverlayUrl(e.target.value || null)}
+							className="mt-0.5 block rounded-md border border-black/15 px-2 py-1 text-xs"
+						>
+							{overlays.map((o) => (
+								<option key={o.id} value={o.url}>
+									{o.label ?? "Overlay"}
+								</option>
+							))}
+						</select>
+					</label>
+				)}
 				<label className="text-[11px] opacity-60">
 					Vertical
 					<input
@@ -352,7 +403,7 @@ export function QuoteBatchPanel({
 						step={0.02}
 						value={panY}
 						onChange={(e) => setPanY(Number(e.target.value))}
-						className="block w-32"
+						className="block w-28"
 					/>
 				</label>
 				<label className="text-[11px] opacity-60">
@@ -364,7 +415,7 @@ export function QuoteBatchPanel({
 						step={0.05}
 						value={zoom}
 						onChange={(e) => setZoom(Number(e.target.value))}
-						className="block w-32"
+						className="block w-28"
 					/>
 				</label>
 				<button
@@ -377,9 +428,6 @@ export function QuoteBatchPanel({
 						? `Rendering… (${readyCount}/${assignedCount})`
 						: `3. Render all cards (${assignedCount})`}
 				</button>
-				{readyCount > 0 && !rendering && (
-					<span className="text-xs text-green-600">{readyCount} ready</span>
-				)}
 			</section>
 
 			{/* 4. Target + 5. Schedule */}
@@ -471,11 +519,10 @@ export function QuoteBatchPanel({
 						</>
 					)}
 				</div>
-				{mode === "schedule" && scheduleTimes.length > 0 && (
+				{mode === "schedule" && scheduleTimes.length > 1 && (
 					<p className="text-xs opacity-50">
-						Card 1 → {scheduleTimes[0].toLocaleString()} · Card 2 →{" "}
-						{scheduleTimes[1]?.toLocaleString()} · … · Card {quotes.length} →{" "}
-						{scheduleTimes[quotes.length - 1]?.toLocaleString()}
+						Card 1 → {scheduleTimes[0].toLocaleString()} · … · Card{" "}
+						{items.length} → {scheduleTimes[items.length - 1]?.toLocaleString()}
 					</p>
 				)}
 

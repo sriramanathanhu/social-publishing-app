@@ -1,11 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { Ecosystem } from "@/components/publish-row";
 import { QuoteBatchPanel } from "@/components/quote-batch-panel";
-import { type QuoteBackground, QuoteRow } from "@/components/quote-row";
-
-type Quote = { id: number; text: string; hashtags: string[] };
+import { QuoteRow } from "@/components/quote-row";
+import type {
+	QuoteBackground,
+	QuoteItem,
+	QuoteOverlay,
+} from "@/components/quote-types";
 
 const TONES = [
 	"",
@@ -17,35 +20,34 @@ const TONES = [
 ];
 
 /**
- * Paste long-form content → AI distills several powerful, postable quotes
- * (Gemini, NVIDIA fallback). Each quote publishes/schedules inline below, can be
- * regenerated individually, and more can be appended ("more like this").
+ * Paste long-form content → AI distills several powerful quotes (Gemini → NVIDIA
+ * fallback). Quotes are SAVED, so the set + any rendered cards survive a refresh.
+ * Each can be posted as text or a branded image card; regenerate one, append
+ * more, or batch-schedule the whole set.
  */
 export function QuoteStudio({
 	ecosystems,
 	backgrounds,
+	overlays,
+	initialItems,
 }: {
 	ecosystems: Ecosystem[];
 	backgrounds: QuoteBackground[];
+	overlays: QuoteOverlay[];
+	initialItems: QuoteItem[];
 }) {
 	const [content, setContent] = useState("");
 	const [count, setCount] = useState(6);
 	const [tone, setTone] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [moreBusy, setMoreBusy] = useState(false);
-	const [regenId, setRegenId] = useState<number | null>(null);
+	const [regenId, setRegenId] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [provider, setProvider] = useState<string | null>(null);
-	const [quotes, setQuotes] = useState<Quote[]>([]);
+	const [items, setItems] = useState<QuoteItem[]>(initialItems);
 	const [view, setView] = useState<"single" | "batch">("single");
-	const idRef = useRef(0);
 
-	const nextId = () => {
-		idRef.current += 1;
-		return idRef.current;
-	};
-
-	async function fetchQuotes(n: number, avoid: string[]) {
+	async function fetchQuotes(n: number, avoid: string[]): Promise<QuoteItem[]> {
 		const res = await fetch("/api/quotes", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -59,7 +61,19 @@ export function QuoteStudio({
 		const d = await res.json().catch(() => ({}));
 		if (!res.ok) throw new Error(d.error ?? "Generation failed");
 		setProvider(d.provider ?? null);
-		return (d.quotes ?? []) as { text: string; hashtags: string[] }[];
+		return ((d.quotes ?? []) as QuoteItem[]).map((q) => ({
+			...q,
+			hashtags: q.hashtags ?? [],
+			bgUrl: q.bgUrl ?? null,
+			overlayUrl: q.overlayUrl ?? null,
+			cardUrl: q.cardUrl ?? null,
+			panY: q.panY ?? 0.4,
+			zoom: q.zoom ?? 1,
+		}));
+	}
+
+	function patchLocal(id: string, patch: Partial<QuoteItem>) {
+		setItems((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)));
 	}
 
 	async function generate() {
@@ -69,11 +83,9 @@ export function QuoteStudio({
 		}
 		setBusy(true);
 		setError(null);
-		setQuotes([]);
-		setProvider(null);
 		try {
 			const fresh = await fetchQuotes(count, []);
-			setQuotes(fresh.map((q) => ({ id: nextId(), ...q })));
+			setItems((prev) => [...fresh, ...prev]);
 			if (fresh.length === 0)
 				setError("No quotes were generated — try more content.");
 		} catch (err) {
@@ -89,12 +101,9 @@ export function QuoteStudio({
 		try {
 			const more = await fetchQuotes(
 				3,
-				quotes.map((q) => q.text),
+				items.map((q) => q.text),
 			);
-			setQuotes((prev) => [
-				...prev,
-				...more.map((q) => ({ id: nextId(), ...q })),
-			]);
+			setItems((prev) => [...prev, ...more]);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Error");
 		} finally {
@@ -102,23 +111,28 @@ export function QuoteStudio({
 		}
 	}
 
-	async function regenerate(id: number) {
+	async function regenerate(id: string) {
 		setRegenId(id);
 		setError(null);
 		try {
 			const [fresh] = await fetchQuotes(
 				1,
-				quotes.map((q) => q.text),
+				items.map((q) => q.text),
 			);
-			if (fresh)
-				setQuotes((prev) =>
-					prev.map((q) => (q.id === id ? { id: nextId(), ...fresh } : q)),
-				);
+			if (fresh) {
+				setItems((prev) => prev.map((q) => (q.id === id ? fresh : q)));
+				fetch(`/api/quotes/items/${id}`, { method: "DELETE" }).catch(() => {});
+			}
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Error");
 		} finally {
 			setRegenId(null);
 		}
+	}
+
+	function removeItem(id: string) {
+		setItems((prev) => prev.filter((q) => q.id !== id));
+		fetch(`/api/quotes/items/${id}`, { method: "DELETE" }).catch(() => {});
 	}
 
 	return (
@@ -132,7 +146,7 @@ export function QuoteStudio({
 						id="src"
 						value={content}
 						onChange={(e) => setContent(e.target.value)}
-						rows={8}
+						rows={6}
 						placeholder="Paste a talk transcript, article, or any long passage. The AI distills the strongest standalone quotes from it."
 						className="mt-1 w-full resize-y rounded-md border border-black/15 px-3 py-2 text-sm"
 					/>
@@ -140,7 +154,6 @@ export function QuoteStudio({
 						{content.trim().length} characters
 					</p>
 				</div>
-
 				<div className="flex flex-wrap items-end gap-3">
 					<label className="block text-xs font-medium opacity-60">
 						Quotes
@@ -183,11 +196,11 @@ export function QuoteStudio({
 				</p>
 			</div>
 
-			{quotes.length > 0 && (
+			{items.length > 0 && (
 				<div className="space-y-3">
 					<div className="flex items-center justify-between gap-2">
 						<h2 className="flex items-center gap-2 text-sm font-semibold opacity-70">
-							{quotes.length} quotes
+							{items.length} saved quotes
 							{provider && (
 								<span className="rounded bg-black/5 px-1.5 py-0.5 text-[11px] font-normal uppercase opacity-60">
 									{provider}
@@ -200,7 +213,7 @@ export function QuoteStudio({
 									type="button"
 									key={v}
 									onClick={() => setView(v)}
-									className={`rounded px-2.5 py-1 capitalize ${view === v ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
+									className={`rounded px-2.5 py-1 ${view === v ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
 								>
 									{v === "batch" ? "⚡ Batch & schedule" : "Single"}
 								</button>
@@ -210,25 +223,30 @@ export function QuoteStudio({
 
 					{view === "batch" && (
 						<QuoteBatchPanel
-							quotes={quotes}
+							items={items}
 							backgrounds={backgrounds}
+							overlays={overlays}
 							ecosystems={ecosystems}
+							onChange={patchLocal}
 						/>
 					)}
 
 					{view === "single" &&
-						quotes.map((q) => (
+						items.map((q) => (
 							<QuoteRow
 								key={q.id}
-								initialText={q.text}
-								hashtags={q.hashtags}
+								item={q}
 								ecosystems={ecosystems}
 								backgrounds={backgrounds}
+								overlays={overlays}
 								tone={tone || undefined}
 								regenerating={regenId === q.id}
 								onRegenerate={() => regenerate(q.id)}
+								onDelete={() => removeItem(q.id)}
+								onChange={(patch) => patchLocal(q.id, patch)}
 							/>
 						))}
+
 					<button
 						type="button"
 						onClick={moreLikeThis}

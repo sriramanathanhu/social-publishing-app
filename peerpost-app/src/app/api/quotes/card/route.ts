@@ -9,6 +9,7 @@ export const runtime = "nodejs";
 const schema = z.object({
 	photoUrl: z.string().url(),
 	quote: z.string().min(1).max(2000),
+	overlayUrl: z.string().url().optional(),
 	panY: z.number().min(0).max(1).optional(),
 	zoom: z.number().min(1).max(3).optional(),
 	finalize: z.boolean().optional(),
