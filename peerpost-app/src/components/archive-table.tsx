@@ -51,6 +51,7 @@ export function ArchiveTable({
 					initialCaption={it.caption}
 					ecosystems={ecosystems}
 					deleteUrl={it.deleteUrl}
+					source={it.type === "Dubbed" ? "dub" : "short"}
 					prepareMedia={async () => {
 						// Re-host the public video into PostPeer media (works for anyone's
 						// content — no ownership needed, just a public URL).

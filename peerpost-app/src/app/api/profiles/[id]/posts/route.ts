@@ -52,6 +52,8 @@ const publishSchema = z
 		publishNow: z.boolean().optional(),
 		scheduledFor: z.string().datetime().optional(),
 		timezone: z.string().optional(),
+		// Where the post was composed (for activity reporting).
+		source: z.enum(["dub", "short", "composer"]).optional(),
 	})
 	.refine((d) => d.publishNow || d.scheduledFor, {
 		message: "Provide publishNow:true or scheduledFor",
@@ -116,6 +118,7 @@ export const POST = route(async (request: NextRequest, { params }: Ctx) => {
 					authorUserId: user.id,
 					provider,
 					status: "publishing",
+					source: input.source ?? "composer",
 					content: input.content,
 					platforms: [
 						{

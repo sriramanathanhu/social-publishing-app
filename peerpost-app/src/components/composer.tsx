@@ -242,6 +242,7 @@ export function Composer({
 						? new Date(scheduledFor).toISOString()
 						: undefined,
 					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					source: "composer",
 				}),
 			});
 			const data = await res.json();

@@ -78,6 +78,7 @@ export function PublishRow({
 	prepareMedia,
 	dubSourceUrl,
 	deleteUrl,
+	source,
 }: {
 	previewUrl: string | null;
 	meta?: string;
@@ -87,6 +88,8 @@ export function PublishRow({
 	ecosystems: Ecosystem[];
 	prepareMedia: () => Promise<string>;
 	dubSourceUrl?: string;
+	/** Where this content came from, recorded on the post for activity reports. */
+	source?: "dub" | "short" | "composer";
 	/** When set, show a Delete button that DELETEs this URL (owner/admin only —
 	 * the server enforces it). */
 	deleteUrl?: string;
@@ -181,6 +184,7 @@ export function PublishRow({
 						? new Date(scheduledFor).toISOString()
 						: undefined,
 					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					source,
 				}),
 			});
 			const d = await readJson(res);

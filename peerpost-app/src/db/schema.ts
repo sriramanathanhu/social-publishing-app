@@ -256,6 +256,9 @@ export const postsLog = pgTable(
 		// reel URL), fetched from the provider once it finishes publishing.
 		publishedUrl: text("published_url"),
 		status: postStatusEnum("status").notNull().default("draft"),
+		// Where the post was composed: "dub" (a dubbed video), "short" (a shorts
+		// clip), or "composer" (the manual composer). Null on historical rows.
+		source: text("source"),
 		content: text("content"),
 		// Snapshot of the platform targets sent to PostPeer.
 		platforms: jsonb("platforms").$type<PostPlatformTarget[]>(),

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray } from "drizzle-orm";
 import { cache } from "react";
 import { db } from "@/db";
 import {
@@ -500,6 +500,89 @@ type RecentPost = {
 	publishedUrl: string | null;
 	metrics: { likes: number | null; views: number | null } | null;
 };
+
+export type UserDailyActivity = {
+	email: string;
+	day: string; // YYYY-MM-DD (local) — stable sort key
+	dayLabel: string;
+	posts: number; // total published posts that day by that user
+	platforms: string[];
+	dubbed: number; // posts sourced from a dubbed video
+	shorts: number; // posts sourced from a shorts clip
+	total: number; // dubbed + shorts
+};
+
+/**
+ * Per-user, per-day publishing activity over the last `days`: how many posts
+ * each user published, to which platforms, split into dubbed vs shorts (with
+ * their total). Drives the sortable activity table on the overview.
+ */
+export async function getUserDailyActivity(
+	user: AppUser,
+	days = 30,
+): Promise<UserDailyActivity[]> {
+	const accessible = await getAccessibleProfiles(user);
+	if (accessible.length === 0) return [];
+	const ids = accessible.map((p) => p.id);
+	const since = new Date(Date.now() - days * 86_400_000);
+
+	const rows = await db
+		.select({
+			email: users.email,
+			platforms: postsLog.platforms,
+			source: postsLog.source,
+			createdAt: postsLog.createdAt,
+		})
+		.from(postsLog)
+		.leftJoin(users, eq(users.id, postsLog.authorUserId))
+		.where(
+			and(
+				inArray(postsLog.profileId, ids),
+				eq(postsLog.status, "published"),
+				gte(postsLog.createdAt, since),
+			),
+		);
+
+	type Group = UserDailyActivity & { _platforms: Set<string> };
+	const groups = new Map<string, Group>();
+	for (const r of rows) {
+		const email = r.email ?? "(unknown)";
+		const d = new Date(r.createdAt);
+		const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+		const key = `${email}|${day}`;
+		let g = groups.get(key);
+		if (!g) {
+			g = {
+				email,
+				day,
+				dayLabel: d.toLocaleDateString(undefined, {
+					month: "short",
+					day: "numeric",
+					year: "numeric",
+				}),
+				posts: 0,
+				platforms: [],
+				dubbed: 0,
+				shorts: 0,
+				total: 0,
+				_platforms: new Set<string>(),
+			};
+			groups.set(key, g);
+		}
+		g.posts++;
+		for (const pt of r.platforms ?? []) g._platforms.add(pt.platform);
+		if (r.source === "dub") g.dubbed++;
+		else if (r.source === "short") g.shorts++;
+	}
+
+	return [...groups.values()]
+		.map(({ _platforms, ...g }) => ({
+			...g,
+			platforms: [..._platforms].sort(),
+			total: g.dubbed + g.shorts,
+		}))
+		.sort((a, b) => b.day.localeCompare(a.day) || b.posts - a.posts);
+}
 
 /** Admin: simple list of all ecosystems (for assignment pickers). */
 export async function getEcosystemOptions() {

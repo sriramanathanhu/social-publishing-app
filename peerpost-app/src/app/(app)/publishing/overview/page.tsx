@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { PostRow, shortDate } from "@/components/post-row";
+import { UserActivityTable } from "@/components/user-activity-table";
 import { requirePageUser } from "@/lib/page-auth";
 import { PLATFORM_LABELS } from "@/lib/platform-fields";
-import { getPublishingInsights } from "@/lib/queries";
+import { getPublishingInsights, getUserDailyActivity } from "@/lib/queries";
 
 const nf = new Intl.NumberFormat();
 const platformLabel = (p: string) => PLATFORM_LABELS[p] ?? p;
@@ -11,7 +12,10 @@ const platformLabel = (p: string) => PLATFORM_LABELS[p] ?? p;
  * activity, engagement) with the recent posts below, not just a list of links. */
 export default async function OverviewPage() {
 	const user = await requirePageUser();
-	const ins = await getPublishingInsights(user);
+	const [ins, activity] = await Promise.all([
+		getPublishingInsights(user),
+		getUserDailyActivity(user, 30),
+	]);
 
 	const wow =
 		ins.week.previous > 0
@@ -204,6 +208,14 @@ export default async function OverviewPage() {
 							</ul>
 						</Card>
 					)}
+
+					{/* Per-user daily activity (sortable) */}
+					<Card
+						title="Who published what — by user & day"
+						hint="last 30 days · click a header to sort"
+					>
+						<UserActivityTable rows={activity} />
+					</Card>
 
 					{/* Recent published */}
 					<div className="space-y-2">
