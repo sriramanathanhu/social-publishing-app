@@ -19,7 +19,7 @@ multi-user deployment:
 
 ```
 download (yt-dlp) → transcribe (Deepgram) → merge → translate (Gemini/Google)
-→ TTS (Edge-TTS) → build (FFmpeg) → captions (Gemini vision + Mistral) → output.mp4
+→ TTS (Edge-TTS) → build (FFmpeg) → captions (Gemini vision + NVIDIA NIM) → output.mp4
 ```
 
 Captions are generated from the translated transcript per platform and exposed
@@ -88,7 +88,7 @@ curl -X POST http://localhost:8800/jobs \
     "voice": "gu-IN-NiranjanNeural",
     "deepgram_key": "<user deepgram key>",
     "gemini_key": "<user gemini key>",
-    "mistral_key": "<user mistral key, optional>"
+    "nvidia_key": "<user NVIDIA NIM key, writes captions>"
   }'
 ```
 
