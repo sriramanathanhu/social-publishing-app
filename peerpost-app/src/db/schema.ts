@@ -575,3 +575,30 @@ export const quoteItems = pgTable(
 	},
 	(t) => [index("quote_items_user_idx").on(t.userId)],
 );
+
+/** Grounded long-form articles generated from the Vertex AI Search corpus. */
+export const articles = pgTable(
+	"articles",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		topic: text("topic").notNull(),
+		title: text("title"),
+		// Markdown body of the article.
+		content: text("content").notNull().default(""),
+		// Source files the article was grounded on: [{n, file, uri}].
+		citations: jsonb("citations")
+			.$type<{ n: number; file: string; uri: string }[]>()
+			.default([]),
+		provider: text("provider"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [index("articles_user_idx").on(t.userId)],
+);
