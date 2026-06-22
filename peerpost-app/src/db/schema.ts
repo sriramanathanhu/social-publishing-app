@@ -359,10 +359,10 @@ export const integrationsRelations = relations(
 
 /**
  * Per-user, bring-your-own API keys for the dubbing pipeline (Deepgram for
- * transcription, Gemini for translation/vision, Mistral for captions). Values
- * are stored ENCRYPTED at rest (AES-256-GCM, see lib/crypto.ts) and only
- * decrypted server-side at job-dispatch time to pass to the dubber-service.
- * The shared PostPeer key is NOT here — that's platform config in env.
+ * transcription, Gemini for translation/vision, NVIDIA NIM for captions +
+ * Shorts). Values are stored ENCRYPTED at rest (AES-256-GCM, see lib/crypto.ts)
+ * and only decrypted server-side at job-dispatch time to pass to the
+ * dubber-service. The shared PostPeer key is NOT here — that's env config.
  */
 export const userApiKeys = pgTable("user_api_keys", {
 	userId: uuid("user_id")
@@ -371,8 +371,7 @@ export const userApiKeys = pgTable("user_api_keys", {
 	// Ciphertext blobs (null = not set). Never exposed to the client.
 	deepgramKeyEnc: text("deepgram_key_enc"),
 	geminiKeyEnc: text("gemini_key_enc"),
-	mistralKeyEnc: text("mistral_key_enc"),
-	// NVIDIA NIM key (Kimi clip-finding + Llama title/desc) for the Shorts factory.
+	// NVIDIA NIM key: Shorts clip-finding/titles (Kimi/Llama) + Dub AI captions.
 	nvidiaKeyEnc: text("nvidia_key_enc"),
 	// Encrypted yt-dlp cookies.txt (Netscape format) for login/rate-limited
 	// sources (Instagram, YouTube on a server IP). Passed per-job, never shown.

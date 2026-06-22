@@ -6,7 +6,6 @@ from .config import (
     get_glm_base_url,
     get_glm_max_tokens,
     get_glm_model,
-    get_mistral_api_key,
     is_glm_caption_eval_enabled,
 )
 from .runtime_config import is_economy_mode, is_quality_mode
@@ -998,14 +997,19 @@ def _priority_aware_trim(caption, max_chars, platform):
     return result
 
 
-def _call_mistral(api_key, prompt, max_retries=None, stats=None):
-    """Use actual Mistral API instead of OpenRouter."""
+# Captions are written by NVIDIA NIM (Llama) — same key the Shorts factory uses.
+NVIDIA_CAPTION_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+NVIDIA_CAPTION_MODEL = "meta/llama-3.3-70b-instruct"
+
+
+def _call_nvidia(api_key, prompt, url=None, model=None, max_retries=None, stats=None):
+    """Write captions via NVIDIA NIM's OpenAI-compatible chat endpoint."""
     return _call_chat_provider(
-        provider_name="mistral",
+        provider_name="nvidia",
         api_key=api_key,
         prompt=prompt,
-        url="https://api.mistral.ai/v1/chat/completions",
-        model="mistral-large-latest",
+        url=url or NVIDIA_CAPTION_URL,
+        model=model or NVIDIA_CAPTION_MODEL,
         max_retries=max_retries,
         stats=stats,
     )
@@ -1215,25 +1219,25 @@ def _call_glm(api_key, prompt, max_retries=None, stats=None):
 
 def _provider_label(provider_name):
     return {
-        "mistral": "Mistral Caption API",
+        "nvidia": "NVIDIA Caption API",
         "glm": "GLM Caption API",
     }.get(str(provider_name or "").lower(), str(provider_name or "caption provider"))
 
 
 def _provider_model(provider_name):
     provider_name = str(provider_name or "").lower()
-    if provider_name == "mistral":
-        return "mistral-large-latest"
+    if provider_name == "nvidia":
+        return NVIDIA_CAPTION_MODEL
     if provider_name == "glm":
         return get_glm_model()
     return ""
 
 
-def _call_caption_provider(provider_name, api_key, prompt, stats=None):
+def _call_caption_provider(provider_name, api_key, prompt, stats=None, url=None, model=None):
     provider_name = str(provider_name or "").lower()
     if provider_name == "glm":
         return _call_glm(api_key, prompt, stats=stats)
-    return _call_mistral(api_key, prompt, stats=stats)
+    return _call_nvidia(api_key, prompt, url=url, model=model, stats=stats)
 
 
 def _parse_raw(raw):
@@ -1379,7 +1383,7 @@ def _is_caption_corrupted(caption_text):
 
     # Only flag as fully corrupted when there is barely any body text left
     # AND there are hashtags (so it isn't just a short legit caption).
-    # This avoids destroying real Mistral captions that just happen to
+    # This avoids destroying real NVIDIA captions that just happen to
     # have a couple of weird short hashtags appended to a long body.
     if hashtags and len(non_hashtag_text) < 10:
         log(
@@ -1535,11 +1539,15 @@ def _run_caption_provider(
     prompt,
     target_platforms,
     target_language,
+    url=None,
+    model=None,
 ):
     stats = _build_provider_stats(provider_name)
     captions = {}
     log("CAPTION", f"Calling {_provider_label(provider_name)} ...")
-    raw = _call_caption_provider(provider_name, api_key, prompt, stats=stats)
+    raw = _call_caption_provider(
+        provider_name, api_key, prompt, stats=stats, url=url, model=model
+    )
     captions = _parse_raw(raw)
     captions = _normalize_provider_output(captions, target_platforms)
 
@@ -1889,13 +1897,15 @@ def generate_all_captions(
     return_meta=False,
     selected_platforms=None,
     source_metadata=None,
+    api_url=None,
+    model=None,
 ):
     os.makedirs(output_dir, exist_ok=True)
     meta = {
         "used_fallback": False,
         "reason": "",
-        "provider": "mistral_caption",
-        "live_provider": "mistral",
+        "provider": "nvidia_caption",
+        "live_provider": "nvidia",
         "provider_stats": {},
         "source_caption_strategy": "generated",
         "evaluation": {
@@ -1942,24 +1952,26 @@ def generate_all_captions(
     else:
         log("CAPTION", "No usable source description metadata — using generated captions.")
     captions = {}
-    mistral_key = get_mistral_api_key(api_key)
+    nvidia_key = api_key
     glm_key = get_glm_api_key()
     glm_eval_enabled = is_glm_caption_eval_enabled()
     mode_name = "Economy" if is_economy_mode() else "Quality"
     log("CAPTION", f"Mode: {mode_name}")
 
-    if mistral_key:
+    if nvidia_key:
         try:
-            mistral_stats = None
+            nvidia_stats = None
             live_prompt = prompt
             if source_prompt:
                 try:
-                    captions, mistral_stats = _run_caption_provider(
-                        "mistral",
-                        mistral_key,
+                    captions, nvidia_stats = _run_caption_provider(
+                        "nvidia",
+                        nvidia_key,
                         source_prompt,
                         target_platforms,
                         target_language,
+                        url=api_url,
+                        model=model,
                     )
                     meta["source_caption_strategy"] = "source_first"
                     live_prompt = source_prompt
@@ -1970,20 +1982,22 @@ def generate_all_captions(
                         f"Source-first adaptation failed: {source_error} — falling back to transcript-based generation.",
                     )
             if not captions:
-                captions, mistral_stats = _run_caption_provider(
-                    "mistral",
-                    mistral_key,
+                captions, nvidia_stats = _run_caption_provider(
+                    "nvidia",
+                    nvidia_key,
                     prompt,
                     target_platforms,
                     target_language,
+                    url=api_url,
+                    model=model,
                 )
-            meta["provider_stats"]["mistral"] = mistral_stats
+            meta["provider_stats"]["nvidia"] = nvidia_stats
         except Exception as e:
             log("CAPTION", f"Error: {e} — fallback.")
             meta["used_fallback"] = True
             meta["reason"] = str(e)
-            meta["provider_stats"]["mistral"] = {
-                **_build_provider_stats("mistral"),
+            meta["provider_stats"]["nvidia"] = {
+                **_build_provider_stats("nvidia"),
                 "status": "error",
                 "errors": [str(e)],
             }
@@ -1995,11 +2009,11 @@ def generate_all_captions(
     else:
         log("CAPTION", "No key — fallback.")
         meta["used_fallback"] = True
-        meta["reason"] = "No Mistral API key"
-        meta["provider_stats"]["mistral"] = {
-            **_build_provider_stats("mistral"),
+        meta["reason"] = "No NVIDIA API key"
+        meta["provider_stats"]["nvidia"] = {
+            **_build_provider_stats("nvidia"),
             "status": "missing_key",
-            "errors": ["No Mistral API key"],
+            "errors": ["No NVIDIA API key"],
         }
         captions = _fallback_captions(
             vision_data,
@@ -2048,7 +2062,7 @@ def generate_all_captions(
 
     _write_caption_files(output_dir, captions, target_platforms, basename="captions.json")
 
-    if glm_eval_enabled and mistral_key and not meta["used_fallback"]:
+    if glm_eval_enabled and nvidia_key and not meta["used_fallback"]:
         meta["evaluation"]["enabled"] = True
         if glm_key:
             try:
@@ -2061,22 +2075,22 @@ def generate_all_captions(
                 )
                 meta["provider_stats"]["glm"] = glm_stats
                 summary = _build_eval_summary(
-                    "mistral",
+                    "nvidia",
                     captions,
                     "glm",
                     glm_captions,
                     target_platforms,
                 )
-                mistral_file = os.path.join(output_dir, "captions_mistral_eval.json")
+                nvidia_file = os.path.join(output_dir, "captions_nvidia_eval.json")
                 glm_file = os.path.join(output_dir, "captions_glm_eval.json")
                 summary_file = os.path.join(output_dir, "captions_eval_summary.json")
                 meta_file = os.path.join(output_dir, "captions_provider_meta.json")
-                _save_json(mistral_file, captions)
+                _save_json(nvidia_file, captions)
                 _save_json(glm_file, glm_captions)
                 _save_json(summary_file, summary)
                 meta["evaluation"]["status"] = "ok"
                 meta["evaluation"]["files"] = [
-                    mistral_file,
+                    nvidia_file,
                     glm_file,
                     summary_file,
                     meta_file,
@@ -2111,7 +2125,7 @@ def generate_all_captions(
         meta["evaluation"]["enabled"] = True
         meta["evaluation"]["status"] = "skipped_live_provider_unavailable"
         meta["evaluation"]["reason"] = (
-            "Mistral live captions were unavailable, so GLM side-by-side evaluation was skipped."
+            "NVIDIA live captions were unavailable, so GLM side-by-side evaluation was skipped."
         )
         meta_file = os.path.join(output_dir, "captions_provider_meta.json")
         meta["evaluation"]["files"] = [meta_file]

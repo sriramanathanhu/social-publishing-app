@@ -70,7 +70,7 @@ class CreateJob(BaseModel):
     voice: str
     deepgram_key: str
     gemini_key: str = ""
-    mistral_key: str = ""
+    nvidia_key: str = ""              # caption generation (NVIDIA NIM)
     platforms: Optional[list[str]] = None
     source_lang: str = "auto"
     source_type: str = "url"          # "url" | "upload" (direct fetch, no extractor)
@@ -103,7 +103,7 @@ def _run_job(job: Job, body: CreateJob) -> None:
                 voice=body.voice,
                 deepgram_key=body.deepgram_key,
                 gemini_key=body.gemini_key,
-                mistral_key=body.mistral_key,
+                nvidia_key=body.nvidia_key,
                 platforms=body.platforms,
                 source_lang=body.source_lang,
                 source_type=body.source_type,

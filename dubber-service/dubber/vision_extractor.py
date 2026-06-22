@@ -3,7 +3,6 @@ from .utils import log, track_api_call, track_api_success
 from .runtime_config import is_economy_mode
 from .config import (
     get_active_gemini_api_key,
-    get_mistral_api_key,
     mark_gemini_key_exhausted,
 )
 
@@ -52,7 +51,7 @@ def _call_gemini(api_key, prompt, max_retries=6):
 
     # Track the currently-active key inside this call so we can rotate to
     # ``GEMINI_API_KEY_2/3/...`` on daily-quota exhaustion without bubbling
-    # all the way back up to the Mistral fallback path.
+    # all the way back up to the empty fallback path.
     current_key = api_key
     client = genai.Client(api_key=current_key)
     retries = min(max_retries, 2) if is_economy_mode() else max_retries
@@ -84,7 +83,7 @@ def _call_gemini(api_key, prompt, max_retries=6):
                 ):
                     # Burn the current key in the shared rotation state and
                     # try the next one if any are configured. Only hand off
-                    # to the Mistral fallback when every key is spent.
+                    # to the empty fallback when every key is spent.
                     mark_gemini_key_exhausted(current_key)
                     next_key = get_active_gemini_api_key()
                     if next_key and next_key != current_key:
@@ -192,101 +191,14 @@ def extract_vision(
         data = _fallback_extract(
             segments, transcript=transcript, target_language=target_language
         )
-        # If Mistral returned a real topic, mark the provider and persist the
-        # json so downstream consumers treat it as valid vision output.
-        if data.get("main_topic"):
-            meta["provider"] = "mistral_vision_fallback"
-            try:
-                with open(
-                    os.path.join(output_dir, "vision.json"), "w", encoding="utf-8"
-                ) as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-            except Exception:
-                pass
+        meta["provider"] = "empty_fallback"
         return (data, meta) if return_meta else data
 
 
-def _call_mistral_for_vision(transcript, target_language):
-    """Use Mistral to extract the same topic/conflict/angle structure from the
-    transcript when Gemini is unavailable (quota or error).
-
-    Gemini Vision only gets the transcript text as input in this codebase
-    (no actual image frames are passed), so Mistral produces equivalent
-    quality anchoring data for downstream caption generation. Without this
-    fallback, empty vision metadata leaves Mistral captioning unanchored and
-    triggers multi-round regenerations.
-    """
-    import httpx
-
-    api_key = get_mistral_api_key()
-    if not api_key:
-        return None
-
-    prompt = _build_vision_prompt(target_language, transcript) + (
-        "\n\nRespond with ONLY the JSON object. No code fences, no commentary."
-    )
-    url = "https://api.mistral.ai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json; charset=utf-8",
-    }
-    payload = {
-        "model": "mistral-large-latest",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-        "top_p": 0.8,
-        "max_tokens": 1024,
-        "response_format": {"type": "json_object"},
-    }
-    timeout = 45 if is_economy_mode() else 75
-    try:
-        track_api_call("mistral")
-        r = httpx.post(url, headers=headers, json=payload, timeout=timeout)
-        r.raise_for_status()
-        raw = r.json()
-        content = ""
-        choices = raw.get("choices") or []
-        if choices:
-            message = choices[0].get("message", {}) or {}
-            content = str(message.get("content") or "").strip()
-        if not content:
-            return None
-        # Strip fences defensively even though we asked for raw JSON.
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-        data = json.loads(content.strip())
-        track_api_success("mistral")
-        return data
-    except Exception as e:
-        log("VISION", f"  Mistral fallback failed: {e}")
-        return None
-
-
 def _fallback_extract(segments, transcript=None, target_language=None):
-    """Fallback when Gemini fails.
-
-    Tries Mistral with the transcript first (much better captioning input
-    than empty strings), then falls back to an empty-but-valid structure.
-    """
-    if transcript and target_language:
-        data = _call_mistral_for_vision(transcript, target_language)
-        if data:
-            valid_themes = {
-                "victory",
-                "celebration",
-                "devotional",
-                "teaching",
-                "announcement",
-            }
-            if data.get("theme") not in valid_themes:
-                data["theme"] = "teaching"
-            log(
-                "VISION",
-                f"  Mistral fallback succeeded — topic: {str(data.get('main_topic', '?'))[:60]}",
-            )
-            return data
+    """Fallback when Gemini vision is unavailable — return an empty-but-valid
+    structure so caption generation still runs (captions then lean on the
+    transcript prompt instead of extracted anchors)."""
     return {
         "main_topic": "",
         "core_conflict": "",

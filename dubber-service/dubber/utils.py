@@ -15,7 +15,7 @@ FPS_FALLBACK = "30"
 _LOG_SUBSCRIBERS = []
 _FILE_LOGGER = None
 _LOG_DIR = None
-_API_CALL_COUNTS = {"gemini": 0, "mistral": 0, "glm": 0, "total": 0}
+_API_CALL_COUNTS = {"gemini": 0, "nvidia": 0, "glm": 0, "total": 0}
 
 
 def get_log_dir():
@@ -51,7 +51,7 @@ def _init_file_logger():
         handler.setFormatter(formatter)
         _FILE_LOGGER.addHandler(handler)
 
-    _API_CALL_COUNTS = {"gemini": 0, "mistral": 0, "glm": 0, "total": 0}
+    _API_CALL_COUNTS = {"gemini": 0, "nvidia": 0, "glm": 0, "total": 0}
     _clean_old_logs(log_dir, keep_days=7)
 
     return log_file
@@ -99,7 +99,7 @@ def get_api_call_counts():
 def reset_api_call_counts():
     """Reset API call counts (typically called at start of new pipeline run)."""
     global _API_CALL_COUNTS
-    _API_CALL_COUNTS = {"gemini": 0, "mistral": 0, "glm": 0, "total": 0}
+    _API_CALL_COUNTS = {"gemini": 0, "nvidia": 0, "glm": 0, "total": 0}
 
 
 def add_log_subscriber(callback):
@@ -158,9 +158,9 @@ def count_api_calls_from_logs(log_file=None):
         log_file = os.path.join(log_dir, f"dubber_{today}.log")
 
     if not os.path.exists(log_file):
-        return {"gemini": 0, "mistral": 0, "glm": 0, "total": 0}
+        return {"gemini": 0, "nvidia": 0, "glm": 0, "total": 0}
 
-    counts = {"gemini": 0, "mistral": 0, "glm": 0, "total": 0}
+    counts = {"gemini": 0, "nvidia": 0, "glm": 0, "total": 0}
 
     try:
         with open(log_file, "r", encoding="utf-8", errors="replace") as f:
@@ -176,8 +176,8 @@ def count_api_calls_from_logs(log_file=None):
                     if "api call" in line_lower or "gemini" in line_lower:
                         counts["gemini"] += 1
                         counts["total"] += 1
-                elif "mistral" in line_lower:
-                    counts["mistral"] += 1
+                elif "nvidia" in line_lower:
+                    counts["nvidia"] += 1
                     counts["total"] += 1
                 elif "glm" in line_lower or "bigmodel" in line_lower:
                     counts["glm"] += 1

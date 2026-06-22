@@ -30,47 +30,6 @@ def _validate_gemini(api_key):
         return {"status": "error", "message": f"Connection failed: {err[:80]}"}
 
 
-def _validate_mistral(api_key):
-    """Ping Mistral with a minimal HTTP request (matches caption_generator.py approach)."""
-    if not api_key or not api_key.strip():
-        return {"status": "missing", "message": "No Mistral API key configured"}
-    try:
-        import requests
-
-        resp = requests.post(
-            "https://api.mistral.ai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key.strip()}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "mistral-small-latest",
-                "messages": [{"role": "user", "content": "OK"}],
-                "max_tokens": 5,
-            },
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            if data.get("choices"):
-                return {"status": "ok", "message": "Connected successfully"}
-            return {"status": "error", "message": "Empty response from Mistral"}
-        elif resp.status_code == 401:
-            return {"status": "error", "message": "Invalid API key"}
-        elif resp.status_code == 429:
-            return {"status": "error", "message": "Rate limited"}
-        else:
-            return {
-                "status": "error",
-                "message": f"HTTP {resp.status_code}: {resp.text[:80]}",
-            }
-    except Exception as e:
-        err = str(e)
-        if "401" in err or "unauthorized" in err.lower():
-            return {"status": "error", "message": "Invalid API key"}
-        return {"status": "error", "message": f"Connection failed: {err[:80]}"}
-
-
 def _validate_zernio(api_key):
     """Check Zernio SDK initialization."""
     if not api_key or not api_key.strip():
@@ -89,32 +48,27 @@ def _validate_zernio(api_key):
 
 _VALIDATORS = {
     "gemini": _validate_gemini,
-    "mistral": _validate_mistral,
     "zernio": _validate_zernio,
 }
 
 
 def validate_all_keys(
     gemini_key=None,
-    mistral_key=None,
     zernio_key=None,
     need_captions=False,
     need_publish=False,
 ):
     """
     Validate all configured APIs in parallel.
-    Returns dict: {"gemini": {...}, "mistral": {...}, "zernio": {...}}
+    Returns dict: {"gemini": {...}, "zernio": {...}}
     """
     key_map = {
         "gemini": gemini_key,
-        "mistral": mistral_key,
         "zernio": zernio_key,
     }
 
     # Determine which APIs to validate based on pipeline mode
     required = {"gemini"}  # Always needed (translation)
-    if need_captions:
-        required.add("mistral")
     if need_publish:
         required.add("zernio")
 

@@ -6,7 +6,6 @@ import { useState } from "react";
 type Presence = {
 	deepgram: boolean;
 	gemini: boolean;
-	mistral: boolean;
 	nvidia: boolean;
 };
 
@@ -29,15 +28,9 @@ const FIELDS: {
 		required: true,
 	},
 	{
-		name: "mistral",
-		label: "Mistral API key",
-		help: "AI caption generation (Dub). Optional — improves caption quality.",
-		required: false,
-	},
-	{
 		name: "nvidia",
 		label: "NVIDIA API key",
-		help: "Clip-finding + titles for Shorts (NVIDIA NIM). Required for Shorts.",
+		help: "Shorts clip-finding + titles, and Dub AI captions (NVIDIA NIM). Required for Shorts.",
 		required: false,
 	},
 ];

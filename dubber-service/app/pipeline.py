@@ -50,7 +50,8 @@ class DubRequest:
     voice: str                # Edge-TTS voice, e.g. "gu-IN-NiranjanNeural"
     deepgram_key: str
     gemini_key: str = ""      # translation + vision/content extraction
-    mistral_key: str = ""     # caption generation (optional; falls back if empty)
+    nvidia_key: str = ""      # caption generation (NVIDIA NIM; falls back if empty)
+    nvidia_url: str = "https://integrate.api.nvidia.com/v1/chat/completions"
     platforms: Optional[list] = None  # caption target platforms (None = all)
     source_lang: str = "auto"
     workspace: str = "workspace"
@@ -182,7 +183,7 @@ def run_dub(req: DubRequest, on_progress: Optional[ProgressCb] = None) -> "DubRe
 
 
 def _generate_captions(req: DubRequest, segments, emit) -> dict:
-    """Vision/content extraction (Gemini) → per-platform captions (Mistral).
+    """Vision/content extraction (Gemini) → per-platform captions (NVIDIA NIM).
 
     Both steps reuse the autodubber modules and run on the translated
     transcript (no video frames needed). Any failure degrades to no captions.
@@ -199,7 +200,8 @@ def _generate_captions(req: DubRequest, segments, emit) -> dict:
         )
         captions = generate_all_captions(
             vision,
-            api_key=req.mistral_key or None,
+            api_key=req.nvidia_key or None,
+            api_url=req.nvidia_url or None,
             output_dir=req.workspace,
             segments=segments,
             target_language=req.target_lang,

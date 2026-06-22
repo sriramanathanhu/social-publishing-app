@@ -741,71 +741,6 @@ Text to translate:
     return _restore_protected_phrases(result.replace("[[", "").replace("]]", ""))
 
 
-def _mistral_translate_with_coverage_retry(
-    text, source_hint="auto", target_language="en", missing_terms=None
-):
-    """Mistral-based coverage retry — used when Gemini's daily quota is exhausted.
-
-    Without this fallback, every segment's coverage retry is silently dropped
-    for the rest of the day after the 20-req Gemini free tier cap is hit,
-    which can silently drop concrete details (proper nouns, vivid verbs) from
-    the translation. Mistral handles the same prompt shape well enough to
-    recover most omitted terms.
-    """
-    from .config import get_mistral_api_key
-    import httpx
-
-    api_key = get_mistral_api_key()
-    if not api_key:
-        raise RuntimeError("No Mistral API key available for coverage retry.")
-
-    lang_names = {**LANGUAGE_NAMES, "auto": "the detected language"}
-    source_lang = lang_names.get(source_hint, source_hint)
-    target_lang = lang_names.get(target_language, target_language)
-    missing_terms = [term for term in (missing_terms or []) if term]
-    coverage_note = ", ".join(missing_terms) if missing_terms else "all concrete details"
-
-    prompt = f"""Translate the following text from {source_lang} to {target_lang}.
-
-Context: This is a spiritual/Vedantic teaching by a Hindu monk about Hindu deities, traditions, and sacred places.
-
-RULES:
-1. Do not omit any concrete source meaning. Preserve every image, action, and metaphor.
-2. If the source contains a vivid word or phrase, keep that meaning explicit in the translation instead of smoothing it away.
-3. Pay special attention to these source terms: {coverage_note}
-4. PROPER NOUNS: If a name seems clearly misheard, correct it. Otherwise, transliterate names as-is.
-5. SANSKRIT SHLOKAS: Keep verses, mantras, and shlokas in their original form.
-6. REVERENCE: Maintain a respectful, devotional tone.
-7. TTS OPTIMIZED: Use clear punctuation for natural pauses. Avoid symbols like *, _, (), or brackets.
-8. NATURAL SPEECH: Write for the ear, not the eye.
-
-Return ONLY the translation. No explanations.
-
-Text to translate:
-{_protect_text_for_translation(text)}"""
-
-    url = "https://api.mistral.ai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json; charset=utf-8",
-    }
-    payload = {
-        "model": "mistral-large-latest",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2,
-        "max_tokens": 1024,
-    }
-
-    track_api_call("mistral")
-    r = httpx.post(url, headers=headers, json=payload, timeout=60)
-    r.raise_for_status()
-    result = (r.json()["choices"][0]["message"]["content"] or "").strip()
-    if not result:
-        raise RuntimeError("Mistral coverage retry returned empty output.")
-    track_api_success("mistral")
-    return _restore_protected_phrases(result.replace("[[", "").replace("]]", ""))
-
-
 def _retry_translation_for_coverage(text, target_language, source_hint, missing_terms):
     gemini_err = None
     if not _gemini_quota_exhausted:
@@ -825,23 +760,8 @@ def _retry_translation_for_coverage(text, target_language, source_hint, missing_
             if not _gemini_quota_exhausted:
                 log("TRANSLATE", f"  Coverage retry failed: {e}")
 
-    # Gemini disabled (either from the start of this call or after a 429
-    # mid-call). Fall through to Mistral so we don't silently drop missing
-    # source terms for the rest of the run.
-    if _gemini_quota_exhausted:
-        try:
-            retried = _mistral_translate_with_coverage_retry(
-                text,
-                source_hint=source_hint,
-                target_language=target_language,
-                missing_terms=missing_terms,
-            )
-            if _is_translation_acceptable(retried, target_language):
-                log("TRANSLATE", "  Coverage retry via Mistral succeeded")
-                return retried
-        except Exception as e:
-            log("TRANSLATE", f"  Coverage retry via Mistral failed: {e}")
-
+    # Gemini disabled (quota) — no other coverage-retry provider, so keep the
+    # original translation rather than risk dropping terms.
     return None
 
 
@@ -919,120 +839,6 @@ Texts to translate:
     raise RuntimeError(
         f"Gemini batch translation failed after {max_attempts} attempts."
     )
-
-
-def _mistral_translate(text, source_hint="auto", target_language="en"):
-    """Translate using Mistral API as fallback when Gemini fails."""
-    from .config import get_mistral_api_key
-    import httpx
-
-    api_key = get_mistral_api_key()
-    if not api_key:
-        raise RuntimeError("No Mistral API key available for fallback translation.")
-
-    lang_names = {**LANGUAGE_NAMES, "auto": "English"}
-
-    target_lang = lang_names.get(target_language, target_language)
-    source_lang = lang_names.get(source_hint, "English")
-
-    prompt = f"""Translate the following text from {source_lang} to {target_lang}.
-
-Context: This is a spiritual/Vedantic teaching by a Hindu monk about Hindu deities, traditions, and sacred places.
-
-RULES:
-1. PROPER NOUNS: Transliterate names as-is.
-2. SANSKRIT SHLOKAS: Keep Sanskrit verses in original form.
-3. REVERENCE: Maintain devotional tone.
-4. TTS OPTIMIZED: Use clear punctuation for natural pauses.
-5. NATURAL SPEECH: Write for the ear, not the eye.
-
-Return ONLY the translation. No explanations.
-
-Text to translate:
-{text}"""
-
-    url = "https://api.mistral.ai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json; charset=utf-8",
-    }
-    payload = {
-        "model": "mistral-small-latest",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-        "max_tokens": 1024,
-    }
-
-    try:
-        track_api_call("mistral")
-        r = httpx.post(url, headers=headers, json=payload, timeout=60)
-        r.raise_for_status()
-        result = r.json()["choices"][0]["message"]["content"].strip()
-        track_api_success("mistral")
-        log("TRANSLATE", f"  Mistral translation successful")
-        return result
-    except Exception as e:
-        log("TRANSLATE", f"  Mistral translation failed: {e}")
-        raise RuntimeError(f"Mistral translation failed: {e}")
-
-
-def _mistral_translate_batch(texts, source_hint, target_language):
-    """Translate multiple texts using Mistral API."""
-    from .config import get_mistral_api_key
-    import httpx
-
-    api_key = get_mistral_api_key()
-    if not api_key:
-        raise RuntimeError("No Mistral API key available for fallback translation.")
-
-    lang_names = {**LANGUAGE_NAMES, "auto": "English"}
-
-    target_name = lang_names.get(target_language, target_language)
-    source_name = lang_names.get(source_hint, "English")
-
-    numbered_texts = "\n".join([f"{i + 1}. {text}" for i, text in enumerate(texts)])
-
-    prompt = f"""Translate the following numbered list of texts from {source_name} to {target_name}.
-
-RULES:
-1. PROPER NOUNS: Transliterate names as-is.
-2. SANSKRIT SHLOKAS: Keep Sanskrit verses in original form.
-3. REVERENCE: Maintain devotional tone.
-4. TTS OPTIMIZED: Use clear punctuation for natural pauses.
-5. NATURAL SPEECH: Write for the ear, not the eye.
-
-Return ONLY a numbered list of translations. Format: "number. translation"
-
-Texts to translate:
-{numbered_texts}"""
-
-    url = "https://api.mistral.ai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json; charset=utf-8",
-    }
-    payload = {
-        "model": "mistral-small-latest",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-        "max_tokens": 4096,
-    }
-
-    try:
-        track_api_call("mistral")
-        r = httpx.post(url, headers=headers, json=payload, timeout=120)
-        r.raise_for_status()
-        result = r.json()["choices"][0]["message"]["content"].strip()
-        track_api_success("mistral")
-
-        translations = _parse_batch_response(result, len(texts))
-        if translations is not None:
-            track_api_success("mistral")
-            return translations
-        return None
-    except Exception as e:
-        log("TRANSLATE", f"  Mistral batch translation failed: {e}")
-        return None
 
 
 def _translate_segments_per_segment(texts, source_hint, target_language):
@@ -1160,23 +966,6 @@ def _translate_with_policy(text, target_language, source_hint="auto"):
                 f"  Gemini failed for {target_language}: {e} — falling back to Google Translate ...",
             )
 
-    if not is_economy_mode():
-        try:
-            result = _mistral_translate(text, source_hint, target_language)
-            if _is_translation_acceptable(result, target_language):
-                final = _restore_protected_phrases(result)
-                _set_cached(text, final, target_language)
-                return final
-            log(
-                "TRANSLATE",
-                f"  Mistral output not clean {language_name} — falling back to Google Translate ...",
-            )
-        except Exception as e:
-            log(
-                "TRANSLATE",
-                f"  Mistral failed for {target_language}: {e} — falling back to Google Translate ...",
-            )
-
     try:
         result = _google_translate_text(
             text, target_language, source_hint=source_hint, use_pivot=False
@@ -1261,20 +1050,6 @@ def _translate_batch_with_policy(texts, target_language, source_hint="auto"):
                     if translation is None
                 ]
                 if missing_pairs:
-                    try:
-                        mistral_results = _mistral_translate_batch(
-                            [text for _, text in missing_pairs],
-                            source_hint,
-                            target_language,
-                        )
-                        if mistral_results:
-                            for (idx, _), result in zip(missing_pairs, mistral_results):
-                                local_index = uncached_indices.index(idx)
-                                if _is_translation_acceptable(result, target_language):
-                                    validated_translations[local_index] = result
-                    except Exception as e:
-                        log("TRANSLATE", f"  Mistral fallback failed: {e}")
-
                     for idx, text in missing_pairs:
                         local_index = uncached_indices.index(idx)
                         if validated_translations[local_index] is None:
@@ -1291,27 +1066,10 @@ def _translate_batch_with_policy(texts, target_language, source_hint="auto"):
             return results
 
         if _gemini_quota_exhausted:
-            log("TRANSLATE", "  Gemini quota exhausted — trying Mistral fallback...")
-            try:
-                mistral_results = _mistral_translate_batch(
-                    uncached_texts, source_hint, target_language
-                )
-                if mistral_results:
-                    results = list(cached_results)
-                    for idx, translation, text in zip(
-                        uncached_indices, mistral_results, uncached_texts
-                    ):
-                        results[idx] = translation
-                        _set_cached(text, translation, target_language)
-                    return results
-            except Exception as e:
-                log(
-                    "TRANSLATE",
-                    f"  Mistral fallback failed: {e} — using per-segment translation",
-                )
-                return _translate_segments_per_segment(
-                    texts, source_hint, target_language
-                )
+            log(
+                "TRANSLATE",
+                "  Gemini quota exhausted — using per-segment translation (Google).",
+            )
 
         return _translate_segments_per_segment(texts, source_hint, target_language)
 

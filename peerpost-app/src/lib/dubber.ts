@@ -27,7 +27,7 @@ export type DubberCreateInput = {
 	voice: string;
 	deepgram_key: string;
 	gemini_key?: string;
-	mistral_key?: string;
+	nvidia_key?: string;
 	platforms?: string[];
 	source_lang?: string;
 	source_type?: "url" | "upload";

@@ -9,15 +9,14 @@ import { decryptSecret, encryptSecret } from "@/lib/crypto";
  * masked presence info, never the values.
  */
 
-export type DubKeyName = "deepgram" | "gemini" | "mistral" | "nvidia";
+export type DubKeyName = "deepgram" | "gemini" | "nvidia";
 
 const COLUMN: Record<
 	DubKeyName,
-	"deepgramKeyEnc" | "geminiKeyEnc" | "mistralKeyEnc" | "nvidiaKeyEnc"
+	"deepgramKeyEnc" | "geminiKeyEnc" | "nvidiaKeyEnc"
 > = {
 	deepgram: "deepgramKeyEnc",
 	gemini: "geminiKeyEnc",
-	mistral: "mistralKeyEnc",
 	nvidia: "nvidiaKeyEnc",
 };
 
@@ -51,7 +50,6 @@ export async function getUserKeyPresence(
 	return {
 		deepgram: !!keys.deepgram,
 		gemini: !!keys.gemini,
-		mistral: !!keys.mistral,
 		nvidia: !!keys.nvidia,
 	};
 }

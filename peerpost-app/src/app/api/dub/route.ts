@@ -88,8 +88,9 @@ export const POST = route(async (request: NextRequest) => {
 			cookies,
 			deepgram_key: keys.deepgram,
 			gemini_key: keys.gemini,
-			// Optional — improves caption quality; the pipeline falls back without it.
-			mistral_key: keys.mistral,
+			// Writes the AI captions (NVIDIA NIM); pipeline degrades to a template
+			// caption without it.
+			nvidia_key: keys.nvidia,
 		});
 
 		const [updated] = await db

@@ -186,13 +186,6 @@ def gemini_key_rotation_stats() -> dict:
     }
 
 
-def get_mistral_api_key(explicit=None) -> str:
-    explicit_value = _clean(explicit)
-    if explicit_value:
-        return explicit_value
-    return first_env("MISTRAL_API_KEY", "OPENROUTER_API_KEY")
-
-
 def get_glm_api_key(explicit=None) -> str:
     explicit_value = _clean(explicit)
     if explicit_value:
