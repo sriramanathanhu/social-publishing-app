@@ -502,11 +502,13 @@ type RecentPost = {
 };
 
 export type UserDailyActivity = {
+	name: string; // display name (falls back to email)
 	email: string;
 	day: string; // YYYY-MM-DD (local) — stable sort key
 	dayLabel: string;
 	posts: number; // total published posts that day by that user
 	platforms: string[];
+	ecosystems: string[]; // ecosystems the posts were published to that day
 	dubbed: number; // posts sourced from a dubbed video
 	shorts: number; // posts sourced from a shorts clip
 	total: number; // dubbed + shorts
@@ -524,11 +526,14 @@ export async function getUserDailyActivity(
 	const accessible = await getAccessibleProfiles(user);
 	if (accessible.length === 0) return [];
 	const ids = accessible.map((p) => p.id);
+	const ecoNameById = new Map(accessible.map((p) => [p.id, p.name]));
 	const since = new Date(Date.now() - days * 86_400_000);
 
 	const rows = await db
 		.select({
+			name: users.name,
 			email: users.email,
+			profileId: postsLog.profileId,
 			platforms: postsLog.platforms,
 			source: postsLog.source,
 			createdAt: postsLog.createdAt,
@@ -543,7 +548,10 @@ export async function getUserDailyActivity(
 			),
 		);
 
-	type Group = UserDailyActivity & { _platforms: Set<string> };
+	type Group = UserDailyActivity & {
+		_platforms: Set<string>;
+		_ecosystems: Set<string>;
+	};
 	const groups = new Map<string, Group>();
 	for (const r of rows) {
 		const email = r.email ?? "(unknown)";
@@ -553,6 +561,7 @@ export async function getUserDailyActivity(
 		let g = groups.get(key);
 		if (!g) {
 			g = {
+				name: r.name?.trim() || email,
 				email,
 				day,
 				dayLabel: d.toLocaleDateString(undefined, {
@@ -562,23 +571,27 @@ export async function getUserDailyActivity(
 				}),
 				posts: 0,
 				platforms: [],
+				ecosystems: [],
 				dubbed: 0,
 				shorts: 0,
 				total: 0,
 				_platforms: new Set<string>(),
+				_ecosystems: new Set<string>(),
 			};
 			groups.set(key, g);
 		}
 		g.posts++;
 		for (const pt of r.platforms ?? []) g._platforms.add(pt.platform);
+		g._ecosystems.add(ecoNameById.get(r.profileId) ?? "—");
 		if (r.source === "dub") g.dubbed++;
 		else if (r.source === "short") g.shorts++;
 	}
 
 	return [...groups.values()]
-		.map(({ _platforms, ...g }) => ({
+		.map(({ _platforms, _ecosystems, ...g }) => ({
 			...g,
-			platforms: [..._platforms].sort(),
+			platforms: [..._platforms].sort((a, b) => a.localeCompare(b)),
+			ecosystems: [..._ecosystems].sort((a, b) => a.localeCompare(b)),
 			total: g.dubbed + g.shorts,
 		}))
 		.sort((a, b) => b.day.localeCompare(a.day) || b.posts - a.posts);

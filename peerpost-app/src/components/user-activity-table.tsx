@@ -4,10 +4,10 @@ import { useMemo, useState } from "react";
 import { PLATFORM_SHORT } from "@/lib/platform-fields";
 import type { UserDailyActivity } from "@/lib/queries";
 
-type SortKey = "email" | "day" | "posts" | "dubbed" | "shorts" | "total";
+type SortKey = "name" | "day" | "posts" | "dubbed" | "shorts" | "total";
 
 const COLUMNS: { key: SortKey; label: string; numeric: boolean }[] = [
-	{ key: "email", label: "User", numeric: false },
+	{ key: "name", label: "User", numeric: false },
 	{ key: "day", label: "Day", numeric: false },
 	{ key: "posts", label: "Posts", numeric: true },
 	{ key: "dubbed", label: "Dubbed", numeric: true },
@@ -31,7 +31,7 @@ export function UserActivityTable({
 		const copy = [...rows];
 		copy.sort((a, b) => {
 			let cmp: number;
-			if (sortKey === "email") cmp = a.email.localeCompare(b.email);
+			if (sortKey === "name") cmp = a.name.localeCompare(b.name);
 			else if (sortKey === "day") cmp = a.day.localeCompare(b.day);
 			else cmp = a[sortKey] - b[sortKey];
 			if (cmp === 0) cmp = b.posts - a.posts;
@@ -92,13 +92,16 @@ export function UserActivityTable({
 								</button>
 							</th>
 						))}
+						<th className="px-2 py-2 font-medium">Ecosystem</th>
 						<th className="px-2 py-2 font-medium">Platforms</th>
 					</tr>
 				</thead>
 				<tbody>
 					{sorted.map((r) => (
 						<tr key={`${r.email}-${r.day}`} className="border-t border-black/5">
-							<td className="px-2 py-2">{r.email}</td>
+							<td className="px-2 py-2" title={r.email}>
+								{r.name}
+							</td>
 							<td className="px-2 py-2 whitespace-nowrap opacity-70">
 								{r.dayLabel}
 							</td>
@@ -111,6 +114,18 @@ export function UserActivityTable({
 							</td>
 							<td className="px-2 py-2 font-medium tabular-nums">
 								{r.total || <span className="opacity-30">0</span>}
+							</td>
+							<td className="px-2 py-2">
+								<span className="flex flex-wrap gap-1">
+									{r.ecosystems.map((e) => (
+										<span
+											key={e}
+											className="rounded bg-black/5 px-1.5 py-0.5 text-[11px]"
+										>
+											{e}
+										</span>
+									))}
+								</span>
 							</td>
 							<td className="px-2 py-2">
 								<span className="flex flex-wrap gap-1">
@@ -137,6 +152,7 @@ export function UserActivityTable({
 						<td className="px-2 py-2 tabular-nums">{totals.dubbed}</td>
 						<td className="px-2 py-2 tabular-nums">{totals.shorts}</td>
 						<td className="px-2 py-2 tabular-nums">{totals.total}</td>
+						<td className="px-2 py-2" />
 						<td className="px-2 py-2" />
 					</tr>
 				</tfoot>

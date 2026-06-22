@@ -80,6 +80,9 @@ export const users = pgTable(
 		nandiSub: text("nandi_sub").notNull(),
 		email: text("email"),
 		name: text("name"),
+		// Avatar URL + KAILASA eCitizen id, pulled from Nandi SSO when available.
+		image: text("image"),
+		ecitizenId: text("ecitizen_id"),
 		// Platform-level role. Admins manage teams, ecosystems, members.
 		role: text("role").notNull().default("user"),
 		// Anyone can sign in, but a user can only connect platforms / publish once

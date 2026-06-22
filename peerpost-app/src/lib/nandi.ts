@@ -67,6 +67,33 @@ export type NandiUser = {
 	image?: string;
 };
 
+/**
+ * Nandi's /auth/me shape isn't stable (the public examples are outdated), so we
+ * coalesce the common field spellings into our NandiUser rather than assume one.
+ * This is why names were coming back empty — they arrive under a different key.
+ */
+function normalizeNandiUser(raw: Record<string, unknown>): NandiUser {
+	const s = (v: unknown) =>
+		typeof v === "string" && v.trim() ? v.trim() : undefined;
+	const first = s(raw.first_name) ?? s(raw.firstName);
+	const last = s(raw.last_name) ?? s(raw.lastName);
+	const name =
+		s(raw.name) ??
+		s(raw.full_name) ??
+		s(raw.fullName) ??
+		s(raw.display_name) ??
+		s(raw.displayName) ??
+		([first, last].filter(Boolean).join(" ") || s(raw.username) || undefined);
+	return {
+		id: (raw.id ?? raw.user_id) as number | string,
+		name,
+		email: s(raw.email),
+		role: s(raw.role),
+		ecitizen_id: s(raw.ecitizen_id) ?? s(raw.ecitizenId),
+		image: s(raw.image) ?? s(raw.avatar) ?? s(raw.picture) ?? s(raw.photo),
+	};
+}
+
 /** Step 4: validate the session token; returns the stable user_id or null. */
 export async function validateSession(
 	sessionToken: string,
@@ -101,5 +128,9 @@ export async function fetchUser(
 		cache: "no-store",
 	});
 	if (!res.ok) return null;
-	return (await res.json().catch(() => null)) as NandiUser | null;
+	const raw = (await res.json().catch(() => null)) as Record<
+		string,
+		unknown
+	> | null;
+	return raw ? normalizeNandiUser(raw) : null;
 }

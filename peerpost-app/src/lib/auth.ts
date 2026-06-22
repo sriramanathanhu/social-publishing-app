@@ -27,25 +27,24 @@ export async function getCurrentUser(): Promise<AppUser | null> {
 	const profile = await fetchUser(token);
 	const email = profile?.email ?? null;
 	const name = profile?.name ?? null;
+	const image = profile?.image ?? null;
+	const ecitizenId = profile?.ecitizen_id ?? null;
 
 	const existing = await db.query.users.findFirst({
 		where: eq(users.nandiSub, userId),
 	});
 
 	if (existing) {
-		await db
-			.update(users)
-			.set({
-				lastLoginAt: new Date(),
-				email: email ?? existing.email,
-				name: name ?? existing.name,
-			})
-			.where(eq(users.id, existing.id));
-		return {
-			...existing,
+		// Refresh whatever SSO returned this login (keep prior value if absent).
+		const patch = {
+			lastLoginAt: new Date(),
 			email: email ?? existing.email,
 			name: name ?? existing.name,
+			image: image ?? existing.image,
+			ecitizenId: ecitizenId ?? existing.ecitizenId,
 		};
+		await db.update(users).set(patch).where(eq(users.id, existing.id));
+		return { ...existing, ...patch };
 	}
 
 	// Link an admin-pre-registered user (created by email, nandiSub still
@@ -60,6 +59,8 @@ export async function getCurrentUser(): Promise<AppUser | null> {
 				.set({
 					nandiSub: userId,
 					name: name ?? preRegistered.name,
+					image: image ?? preRegistered.image,
+					ecitizenId: ecitizenId ?? preRegistered.ecitizenId,
 					lastLoginAt: new Date(),
 				})
 				.where(eq(users.id, preRegistered.id))
@@ -74,6 +75,8 @@ export async function getCurrentUser(): Promise<AppUser | null> {
 			nandiSub: userId,
 			email,
 			name,
+			image,
+			ecitizenId,
 			role: profile?.role === "admin" ? "admin" : "user",
 			lastLoginAt: new Date(),
 		})
