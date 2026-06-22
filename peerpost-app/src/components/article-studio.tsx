@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { RichEditor } from "@/components/rich-editor";
 
 const LENGTHS = [
 	{ value: "short", label: "Short (~700w)" },
@@ -160,6 +161,16 @@ export function ArticleStudio({
 		await fetch(`/api/articles/${id}`, { method: "DELETE" }).catch(() => {});
 	}
 
+	// Strip inline citation markers ([1], [1, 6]) and tidy the leftover spacing,
+	// so copied text reads cleanly without the source numbers.
+	function stripCitations(md: string): string {
+		return md
+			.replace(/\s*\[\d+(?:\s*,\s*\d+)*\]/g, "")
+			.replace(/[ \t]{2,}/g, " ")
+			.replace(/ +([.,;:!?])/g, "$1")
+			.trim();
+	}
+
 	function download(a: Article) {
 		const blob = new Blob([a.content], { type: "text/markdown" });
 		const url = URL.createObjectURL(blob);
@@ -284,7 +295,9 @@ export function ArticleStudio({
 								<button
 									type="button"
 									onClick={() =>
-										navigator.clipboard.writeText(selected.content)
+										navigator.clipboard.writeText(
+											stripCitations(selected.content),
+										)
 									}
 									className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50"
 								>
@@ -308,12 +321,10 @@ export function ArticleStudio({
 						</div>
 
 						{editing ? (
-							<textarea
-								value={selected.content}
-								onChange={(e) =>
-									update(selected.id, { content: e.target.value })
-								}
-								className="h-[60vh] w-full resize-none rounded-lg border border-slate-300 p-3 font-mono text-sm focus:border-slate-500 focus:outline-none"
+							<RichEditor
+								key={selected.id}
+								markdown={selected.content}
+								onChange={(md) => update(selected.id, { content: md })}
 							/>
 						) : (
 							<article className="max-w-none">
