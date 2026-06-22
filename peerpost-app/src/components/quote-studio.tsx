@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { Ecosystem } from "@/components/publish-row";
+import { QuoteBatchPanel } from "@/components/quote-batch-panel";
 import { type QuoteBackground, QuoteRow } from "@/components/quote-row";
 
 type Quote = { id: number; text: string; hashtags: string[] };
@@ -36,6 +37,7 @@ export function QuoteStudio({
 	const [error, setError] = useState<string | null>(null);
 	const [provider, setProvider] = useState<string | null>(null);
 	const [quotes, setQuotes] = useState<Quote[]>([]);
+	const [view, setView] = useState<"single" | "batch">("single");
 	const idRef = useRef(0);
 
 	const nextId = () => {
@@ -183,26 +185,50 @@ export function QuoteStudio({
 
 			{quotes.length > 0 && (
 				<div className="space-y-3">
-					<h2 className="flex items-center gap-2 text-sm font-semibold opacity-70">
-						{quotes.length} quotes
-						{provider && (
-							<span className="rounded bg-black/5 px-1.5 py-0.5 text-[11px] font-normal uppercase opacity-60">
-								{provider}
-							</span>
-						)}
-					</h2>
-					{quotes.map((q) => (
-						<QuoteRow
-							key={q.id}
-							initialText={q.text}
-							hashtags={q.hashtags}
-							ecosystems={ecosystems}
+					<div className="flex items-center justify-between gap-2">
+						<h2 className="flex items-center gap-2 text-sm font-semibold opacity-70">
+							{quotes.length} quotes
+							{provider && (
+								<span className="rounded bg-black/5 px-1.5 py-0.5 text-[11px] font-normal uppercase opacity-60">
+									{provider}
+								</span>
+							)}
+						</h2>
+						<div className="inline-flex rounded-md border border-black/15 p-0.5 text-xs">
+							{(["single", "batch"] as const).map((v) => (
+								<button
+									type="button"
+									key={v}
+									onClick={() => setView(v)}
+									className={`rounded px-2.5 py-1 capitalize ${view === v ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
+								>
+									{v === "batch" ? "⚡ Batch & schedule" : "Single"}
+								</button>
+							))}
+						</div>
+					</div>
+
+					{view === "batch" && (
+						<QuoteBatchPanel
+							quotes={quotes}
 							backgrounds={backgrounds}
-							tone={tone || undefined}
-							regenerating={regenId === q.id}
-							onRegenerate={() => regenerate(q.id)}
+							ecosystems={ecosystems}
 						/>
-					))}
+					)}
+
+					{view === "single" &&
+						quotes.map((q) => (
+							<QuoteRow
+								key={q.id}
+								initialText={q.text}
+								hashtags={q.hashtags}
+								ecosystems={ecosystems}
+								backgrounds={backgrounds}
+								tone={tone || undefined}
+								regenerating={regenId === q.id}
+								onRegenerate={() => regenerate(q.id)}
+							/>
+						))}
 					<button
 						type="button"
 						onClick={moreLikeThis}
