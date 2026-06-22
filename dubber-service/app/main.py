@@ -26,11 +26,12 @@ from queue import Queue
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from app.pipeline import DubRequest, StageEvent, run_dub
 from app.shorts_pipeline import ShortsRequest, run_shorts
+from dubber.quote_card import render_quote_card
 
 app = FastAPI(title="Dubber Service", version="0.1.0")
 
@@ -360,3 +361,55 @@ async def shorts_events(job_id: str) -> StreamingResponse:
             )
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+class QuoteCard(BaseModel):
+    photo_url: str
+    quote: str
+    pan_y: float = 0.4
+    zoom: float = 1.0
+    box: Optional[list[int]] = None       # [left, top, right, bottom]
+    color: Optional[list[int]] = None     # [r, g, b]
+    align: str = "left"
+    finalize: bool = False                # True → upload to R2, return {publicUrl}
+
+
+@app.post("/quote-card", dependencies=[Depends(require_token)])
+def quote_card(body: QuoteCard):
+    """Render a 1080×1350 quote card. Preview → PNG bytes; finalize → upload to
+    R2 and return {publicUrl} for publishing."""
+    kwargs = {"pan_y": body.pan_y, "zoom": body.zoom, "align": body.align}
+    if body.box and len(body.box) == 4:
+        kwargs["box"] = tuple(body.box)
+    if body.color and len(body.color) == 3:
+        kwargs["color"] = tuple(body.color)
+    try:
+        png = render_quote_card(body.photo_url, body.quote, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Card render failed: {exc}")
+
+    if not body.finalize:
+        return Response(content=png, media_type="image/png")
+
+    from dubber.r2_upload import upload_clip
+
+    key = f"quote-cards/{uuid.uuid4().hex}.png"
+    fd, tmp = tempfile.mkstemp(suffix=".png")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(png)
+        # upload_clip hard-codes video/mp4; write our own put for the PNG.
+        from dubber.r2_upload import _r2, public_url
+
+        r = _r2()
+        if not r:
+            raise HTTPException(status_code=500, detail="R2 not configured")
+        r["client"].upload_file(
+            tmp, r["bucket"], key, ExtraArgs={"ContentType": "image/png"}
+        )
+        return {"publicUrl": public_url(key), "key": key}
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass

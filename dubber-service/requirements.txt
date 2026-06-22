@@ -20,3 +20,4 @@ python-dotenv
 # System requirement (not pip): FFmpeg + FFprobe must be on PATH.
 boto3
 opencv-python-headless
+Pillow

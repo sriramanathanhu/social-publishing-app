@@ -80,6 +80,7 @@ export function Sidebar({ user }: { user: NavUser }) {
 						<NavLink href="/admin/ecosystems" label="Ecosystems" />
 						<NavLink href="/admin/members" label="Members" />
 						<NavLink href="/admin/diagnostics" label="Diagnostics" />
+						<NavLink href="/admin/quote-backgrounds" label="Quote backgrounds" />
 					</div>
 				)}
 			</nav>

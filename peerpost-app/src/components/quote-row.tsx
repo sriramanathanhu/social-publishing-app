@@ -1,19 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	type Ecosystem,
 	type Provider,
 	readJson,
 } from "@/components/publish-row";
 
-/** Platforms that accept a text-only post (no media). Quotes target these. */
+export type QuoteBackground = { id: string; url: string; label: string | null };
+
+/** Platforms that accept a text-only post. */
 const TEXT_PLATFORMS = new Set([
 	"twitter",
 	"linkedin",
 	"facebook",
 	"bluesky",
 	"threads",
+	"reddit",
+	"telegram",
+	"discord",
+	"whatsapp",
+	"googlebusiness",
+]);
+/** Platforms that accept an image post (card mode) — i.e. not video-only. */
+const CARD_PLATFORMS = new Set([
+	"twitter",
+	"linkedin",
+	"facebook",
+	"bluesky",
+	"threads",
+	"instagram",
+	"pinterest",
 	"reddit",
 	"telegram",
 	"discord",
@@ -34,16 +51,18 @@ type RowResult = {
 };
 
 /**
- * One generated quote: editable text + suggested hashtags, with an inline
- * publish/schedule composer scoped to the viewer's ecosystems and to
- * TEXT-capable accounts. Supports per-platform tailoring (rewrite the quote for
- * each selected platform's norms) and one-click regenerate. Mirrors PublishRow's
- * background publish + status polling, minus media.
+ * One generated quote with an inline publish/schedule composer. Two modes:
+ * - Text: post the quote as text to text-capable accounts (with per-platform
+ *   tailoring).
+ * - Image card: composite the quote onto a branded 1080×1350 card (pick a
+ *   background, pan/zoom, live preview) and post it as an image to image-capable
+ *   accounts. Mirrors PublishRow's background publish + status polling.
  */
 export function QuoteRow({
 	initialText,
 	hashtags,
 	ecosystems,
+	backgrounds,
 	tone,
 	regenerating,
 	onRegenerate,
@@ -51,6 +70,7 @@ export function QuoteRow({
 	readonly initialText: string;
 	readonly hashtags: string[];
 	readonly ecosystems: Ecosystem[];
+	readonly backgrounds: QuoteBackground[];
 	readonly tone?: string;
 	readonly regenerating?: boolean;
 	readonly onRegenerate?: () => void;
@@ -64,19 +84,29 @@ export function QuoteRow({
 	const [busy, setBusy] = useState(false);
 	const [msg, setMsg] = useState<string | null>(null);
 	const [results, setResults] = useState<RowResult[]>([]);
-	// Per-platform tailored variants (platform → text).
 	const [tailored, setTailored] = useState<Record<string, string>>({});
 	const [tailoring, setTailoring] = useState(false);
 
+	// Image-card mode.
+	const [cardMode, setCardMode] = useState(false);
+	const [bgUrl, setBgUrl] = useState<string | null>(null);
+	const [panY, setPanY] = useState(0.4);
+	const [zoom, setZoom] = useState(1);
+	const [preview, setPreview] = useState<string | null>(null);
+	const [rendering, setRendering] = useState(false);
+	const [uploadBusy, setUploadBusy] = useState(false);
+	const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
 	const eco = ecosystems.find((e) => e.id === ecoId);
-	const textAccounts = (eco?.accounts ?? []).filter((a) =>
-		TEXT_PLATFORMS.has(a.platform),
+	const platformSet = cardMode ? CARD_PLATFORMS : TEXT_PLATFORMS;
+	const eligible = (eco?.accounts ?? []).filter((a) =>
+		platformSet.has(a.platform),
 	);
 	const providers = Array.from(
-		new Set(textAccounts.map((a) => a.provider ?? "postpeer")),
+		new Set(eligible.map((a) => a.provider ?? "postpeer")),
 	) as Provider[];
 	const showProviderToggle = providers.length > 1;
-	const visibleAccounts = textAccounts.filter((a) =>
+	const visibleAccounts = eligible.filter((a) =>
 		showProviderToggle ? (a.provider ?? "postpeer") === provider : true,
 	);
 	const selectedPlatforms = [
@@ -91,6 +121,40 @@ export function QuoteRow({
 	const body = includeTags && tagLine ? `${text}\n\n${tagLine}` : text;
 	const chars = body.length;
 
+	// Live card preview (debounced) when in card mode with a background chosen.
+	useEffect(() => {
+		if (!cardMode || !bgUrl || !text.trim()) {
+			setPreview(null);
+			return;
+		}
+		setRendering(true);
+		clearTimeout(debounce.current);
+		debounce.current = setTimeout(async () => {
+			try {
+				const res = await fetch("/api/quotes/card", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ photoUrl: bgUrl, quote: text, panY, zoom }),
+				});
+				if (!res.ok) {
+					const d = await res.json().catch(() => ({}));
+					throw new Error(d.error ?? "Render failed");
+				}
+				const url = URL.createObjectURL(await res.blob());
+				setPreview((prev) => {
+					if (prev) URL.revokeObjectURL(prev);
+					return url;
+				});
+				setMsg(null);
+			} catch (e) {
+				setMsg(e instanceof Error ? e.message : "Render failed");
+			} finally {
+				setRendering(false);
+			}
+		}, 500);
+		return () => clearTimeout(debounce.current);
+	}, [cardMode, bgUrl, text, panY, zoom]);
+
 	function pickEco(id: string) {
 		setEcoId(id);
 		setSelected(new Set());
@@ -101,7 +165,7 @@ export function QuoteRow({
 		const provs = Array.from(
 			new Set(
 				(e?.accounts ?? [])
-					.filter((a) => TEXT_PLATFORMS.has(a.platform))
+					.filter((a) => platformSet.has(a.platform))
 					.map((a) => a.provider ?? "postpeer"),
 			),
 		) as Provider[];
@@ -117,6 +181,26 @@ export function QuoteRow({
 			else next.add(accountId);
 			return next;
 		});
+	}
+
+	async function uploadBackground(file: File) {
+		setUploadBusy(true);
+		setMsg(null);
+		try {
+			const fd = new FormData();
+			fd.append("file", file);
+			const res = await fetch("/api/quotes/card-bg", {
+				method: "POST",
+				body: fd,
+			});
+			const d = await readJson(res);
+			if (!res.ok) throw new Error(d.error ?? "Upload failed");
+			setBgUrl((d as { url?: string }).url ?? null);
+		} catch (err) {
+			setMsg(err instanceof Error ? err.message : "Upload failed");
+		} finally {
+			setUploadBusy(false);
+		}
 	}
 
 	async function tailor() {
@@ -147,15 +231,8 @@ export function QuoteRow({
 	}
 
 	async function publish() {
-		const targets = visibleAccounts
-			.filter((a) => selected.has(a.accountId))
-			.map((a) => ({
-				platform: a.platform,
-				accountId: a.accountId,
-				// Per-platform tailored text when available; else the base body.
-				content: tailored[a.platform] || undefined,
-			}));
-		if (targets.length === 0) {
+		const accounts = visibleAccounts.filter((a) => selected.has(a.accountId));
+		if (accounts.length === 0) {
 			setMsg("Select at least one account.");
 			return;
 		}
@@ -166,6 +243,43 @@ export function QuoteRow({
 		setBusy(true);
 		setMsg(null);
 		setResults([]);
+
+		// Card mode: finalize the card to a public URL to attach as media.
+		let mediaUrl: string | undefined;
+		if (cardMode) {
+			if (!bgUrl) {
+				setMsg("Pick or upload a background first.");
+				setBusy(false);
+				return;
+			}
+			try {
+				const res = await fetch("/api/quotes/card", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						photoUrl: bgUrl,
+						quote: text,
+						panY,
+						zoom,
+						finalize: true,
+					}),
+				});
+				const d = await readJson(res);
+				if (!res.ok) throw new Error(d.error ?? "Card render failed");
+				mediaUrl = (d as { publicUrl?: string }).publicUrl;
+				if (!mediaUrl) throw new Error("Card render returned no URL");
+			} catch (err) {
+				setMsg(err instanceof Error ? err.message : "Card render failed");
+				setBusy(false);
+				return;
+			}
+		}
+
+		const targets = accounts.map((a) => ({
+			platform: a.platform,
+			accountId: a.accountId,
+			content: tailored[a.platform] || undefined,
+		}));
 		let jobs: { id: string; platform: string }[] = [];
 		try {
 			const res = await fetch(`/api/profiles/${ecoId}/posts`, {
@@ -174,6 +288,7 @@ export function QuoteRow({
 				body: JSON.stringify({
 					content: body,
 					platforms: targets,
+					mediaItems: mediaUrl ? [{ type: "image", url: mediaUrl }] : undefined,
 					publishNow: scheduledFor ? undefined : true,
 					scheduledFor: scheduledFor
 						? new Date(scheduledFor).toISOString()
@@ -275,6 +390,7 @@ export function QuoteRow({
 					</button>
 				)}
 			</div>
+
 			<div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
 				{hashtags.length > 0 && (
 					<label className="flex items-center gap-1 opacity-70">
@@ -286,12 +402,116 @@ export function QuoteRow({
 						{tagLine}
 					</label>
 				)}
+				<label className="flex items-center gap-1 opacity-70">
+					<input
+						type="checkbox"
+						checked={cardMode}
+						onChange={(e) => {
+							setCardMode(e.target.checked);
+							setSelected(new Set());
+							setResults([]);
+						}}
+					/>
+					🎨 Image card
+				</label>
 				<span
 					className={`ml-auto tabular-nums ${chars > 280 ? "text-amber-600" : "opacity-40"}`}
 				>
 					{chars} chars
 				</span>
 			</div>
+
+			{/* Card designer */}
+			{cardMode && (
+				<div className="mt-2 grid gap-3 rounded-lg bg-black/[0.02] p-2 sm:grid-cols-[200px_1fr]">
+					<div>
+						{preview ? (
+							// biome-ignore lint/performance/noImgElement: client-side blob preview
+							<img
+								src={preview}
+								alt="card preview"
+								className="w-full rounded-md border border-black/10"
+							/>
+						) : (
+							<div className="flex aspect-[4/5] w-full items-center justify-center rounded-md border border-dashed border-black/15 text-xs opacity-40">
+								{rendering ? "Rendering…" : bgUrl ? "…" : "Pick a background →"}
+							</div>
+						)}
+					</div>
+					<div className="space-y-2">
+						<div className="text-[11px] font-medium uppercase tracking-wide opacity-40">
+							Background
+						</div>
+						<div className="flex flex-wrap gap-1.5">
+							{backgrounds.map((b) => (
+								<button
+									type="button"
+									key={b.id}
+									onClick={() => setBgUrl(b.url)}
+									title={b.label ?? ""}
+									className={`h-12 w-12 overflow-hidden rounded border-2 ${bgUrl === b.url ? "border-primary" : "border-transparent"}`}
+								>
+									{/* biome-ignore lint/performance/noImgElement: small remote thumb */}
+									<img
+										src={b.url}
+										alt={b.label ?? "bg"}
+										className="h-full w-full object-cover"
+									/>
+								</button>
+							))}
+							<label className="flex h-12 w-12 cursor-pointer items-center justify-center rounded border border-dashed border-black/20 text-lg opacity-50 hover:opacity-100">
+								{uploadBusy ? "…" : "+"}
+								<input
+									type="file"
+									accept="image/jpeg,image/png,image/webp"
+									className="hidden"
+									onChange={(e) => {
+										const f = e.target.files?.[0];
+										if (f) uploadBackground(f);
+									}}
+								/>
+							</label>
+						</div>
+						{bgUrl && (
+							<div className="space-y-1.5 pt-1">
+								<label className="block text-[11px] opacity-60">
+									Vertical position
+									<input
+										type="range"
+										min={0}
+										max={1}
+										step={0.02}
+										value={panY}
+										onChange={(e) => setPanY(Number(e.target.value))}
+										className="w-full"
+									/>
+								</label>
+								<label className="block text-[11px] opacity-60">
+									Zoom
+									<input
+										type="range"
+										min={1}
+										max={2.5}
+										step={0.05}
+										value={zoom}
+										onChange={(e) => setZoom(Number(e.target.value))}
+										className="w-full"
+									/>
+								</label>
+								{preview && (
+									<a
+										href={preview}
+										download="quote-card.png"
+										className="inline-block text-[11px] text-primary hover:underline"
+									>
+										Download PNG ↓
+									</a>
+								)}
+							</div>
+						)}
+					</div>
+				</div>
+			)}
 
 			<div className="mt-2 border-t border-black/5 pt-2">
 				<select
@@ -331,8 +551,9 @@ export function QuoteRow({
 
 						{visibleAccounts.length === 0 ? (
 							<p className="text-xs opacity-50">
-								No text-capable accounts here (quotes post to X, LinkedIn,
-								Facebook, Bluesky, Threads, …).
+								{cardMode
+									? "No image-capable accounts in this ecosystem."
+									: "No text-capable accounts here (X, LinkedIn, Facebook, Bluesky, Threads, …)."}
 							</p>
 						) : (
 							<div className="flex flex-wrap items-center gap-2">
@@ -351,20 +572,21 @@ export function QuoteRow({
 										{a.handle ? ` · ${a.handle}` : ""}
 									</button>
 								))}
-								<button
-									type="button"
-									onClick={tailor}
-									disabled={tailoring || selectedPlatforms.length === 0}
-									title="Rewrite this quote to fit each selected platform"
-									className="rounded-full border border-primary/40 px-3 py-1 text-xs text-primary hover:bg-primary/5 disabled:opacity-40"
-								>
-									{tailoring ? "Tailoring…" : "✨ Tailor per platform"}
-								</button>
+								{!cardMode && (
+									<button
+										type="button"
+										onClick={tailor}
+										disabled={tailoring || selectedPlatforms.length === 0}
+										title="Rewrite this quote to fit each selected platform"
+										className="rounded-full border border-primary/40 px-3 py-1 text-xs text-primary hover:bg-primary/5 disabled:opacity-40"
+									>
+										{tailoring ? "Tailoring…" : "✨ Tailor per platform"}
+									</button>
+								)}
 							</div>
 						)}
 
-						{/* Per-platform tailored variants — editable before publishing. */}
-						{tailoredPlatforms.length > 0 && (
+						{!cardMode && tailoredPlatforms.length > 0 && (
 							<div className="space-y-1.5 rounded-lg bg-black/[0.02] p-2">
 								<div className="text-[11px] font-medium uppercase tracking-wide opacity-40">
 									Tailored versions
@@ -406,7 +628,7 @@ export function QuoteRow({
 							<button
 								type="button"
 								onClick={publish}
-								disabled={busy}
+								disabled={busy || (cardMode && !bgUrl)}
 								className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-white disabled:opacity-50"
 							>
 								{busy

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { Ecosystem } from "@/components/publish-row";
-import { QuoteRow } from "@/components/quote-row";
+import { type QuoteBackground, QuoteRow } from "@/components/quote-row";
 
 type Quote = { id: number; text: string; hashtags: string[] };
 
@@ -20,7 +20,13 @@ const TONES = [
  * (Gemini, NVIDIA fallback). Each quote publishes/schedules inline below, can be
  * regenerated individually, and more can be appended ("more like this").
  */
-export function QuoteStudio({ ecosystems }: { ecosystems: Ecosystem[] }) {
+export function QuoteStudio({
+	ecosystems,
+	backgrounds,
+}: {
+	ecosystems: Ecosystem[];
+	backgrounds: QuoteBackground[];
+}) {
 	const [content, setContent] = useState("");
 	const [count, setCount] = useState(6);
 	const [tone, setTone] = useState("");
@@ -191,6 +197,7 @@ export function QuoteStudio({ ecosystems }: { ecosystems: Ecosystem[] }) {
 							initialText={q.text}
 							hashtags={q.hashtags}
 							ecosystems={ecosystems}
+							backgrounds={backgrounds}
 							tone={tone || undefined}
 							regenerating={regenId === q.id}
 							onRegenerate={() => regenerate(q.id)}

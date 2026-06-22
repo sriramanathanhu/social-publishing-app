@@ -513,3 +513,20 @@ export const userAssets = pgTable("user_assets", {
 		.defaultNow()
 		.notNull(),
 });
+
+/**
+ * Curated background photos for Quote image cards. Admins upload; anyone making
+ * a card can pick one (or upload their own per-card). Stored in R2.
+ */
+export const quoteBackgrounds = pgTable("quote_backgrounds", {
+	id: uuid("id").defaultRandom().primaryKey(),
+	label: text("label"),
+	r2Key: text("r2_key").notNull(),
+	url: text("url").notNull(),
+	createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+		onDelete: "set null",
+	}),
+	createdAt: timestamp("created_at", { withTimezone: true })
+		.defaultNow()
+		.notNull(),
+});

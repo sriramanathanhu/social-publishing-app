@@ -52,6 +52,30 @@ export function r2PublicUrl(key: string | null | undefined): string | null {
 }
 
 /**
+ * Upload arbitrary public bytes (e.g. a quote-card background) to R2 and return
+ * its public URL. Throws if R2 isn't configured.
+ */
+export async function uploadPublicObject(
+	key: string,
+	bytes: ArrayBuffer | Uint8Array,
+	contentType: string,
+): Promise<string> {
+	const r = r2();
+	if (!r) throw new Error("R2 is not configured");
+	await r.client.send(
+		new PutObjectCommand({
+			Bucket: r.bucket,
+			Key: key,
+			Body: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes),
+			ContentType: contentType,
+		}),
+	);
+	const url = r2PublicUrl(key);
+	if (!url) throw new Error("R2_PUBLIC_BASE_URL is not configured");
+	return url;
+}
+
+/**
  * Best-effort delete of an R2 object by key. No-op if R2 isn't configured or the
  * key is empty. Used when a user/admin deletes a generated dub or short clip so
  * we don't leave orphaned media in the bucket.
