@@ -11,6 +11,8 @@ const schema = z.object({
 	content: z.string().min(40).max(50_000),
 	count: z.number().int().min(1).max(15).default(6),
 	tone: z.string().max(40).optional(),
+	// Existing quote texts to NOT repeat (regenerate / "more like this").
+	avoid: z.array(z.string()).max(40).optional(),
 });
 
 /**
@@ -27,6 +29,7 @@ export const POST = route(async (req: NextRequest) => {
 		nvidiaKey: keys.nvidia,
 		count: input.count,
 		tone: input.tone,
+		avoid: input.avoid,
 	});
 	return Response.json(result);
 });

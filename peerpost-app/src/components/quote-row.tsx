@@ -36,17 +36,24 @@ type RowResult = {
 /**
  * One generated quote: editable text + suggested hashtags, with an inline
  * publish/schedule composer scoped to the viewer's ecosystems and to
- * TEXT-capable accounts (a quote has no media). Mirrors PublishRow's background
- * publish + status polling, minus the media handling.
+ * TEXT-capable accounts. Supports per-platform tailoring (rewrite the quote for
+ * each selected platform's norms) and one-click regenerate. Mirrors PublishRow's
+ * background publish + status polling, minus media.
  */
 export function QuoteRow({
 	initialText,
 	hashtags,
 	ecosystems,
+	tone,
+	regenerating,
+	onRegenerate,
 }: {
 	readonly initialText: string;
 	readonly hashtags: string[];
 	readonly ecosystems: Ecosystem[];
+	readonly tone?: string;
+	readonly regenerating?: boolean;
+	readonly onRegenerate?: () => void;
 }) {
 	const [text, setText] = useState(initialText);
 	const [includeTags, setIncludeTags] = useState(hashtags.length > 0);
@@ -57,6 +64,9 @@ export function QuoteRow({
 	const [busy, setBusy] = useState(false);
 	const [msg, setMsg] = useState<string | null>(null);
 	const [results, setResults] = useState<RowResult[]>([]);
+	// Per-platform tailored variants (platform → text).
+	const [tailored, setTailored] = useState<Record<string, string>>({});
+	const [tailoring, setTailoring] = useState(false);
 
 	const eco = ecosystems.find((e) => e.id === ecoId);
 	const textAccounts = (eco?.accounts ?? []).filter((a) =>
@@ -69,6 +79,13 @@ export function QuoteRow({
 	const visibleAccounts = textAccounts.filter((a) =>
 		showProviderToggle ? (a.provider ?? "postpeer") === provider : true,
 	);
+	const selectedPlatforms = [
+		...new Set(
+			visibleAccounts
+				.filter((a) => selected.has(a.accountId))
+				.map((a) => a.platform),
+		),
+	];
 
 	const tagLine = hashtags.map((h) => `#${h}`).join(" ");
 	const body = includeTags && tagLine ? `${text}\n\n${tagLine}` : text;
@@ -79,6 +96,7 @@ export function QuoteRow({
 		setSelected(new Set());
 		setResults([]);
 		setMsg(null);
+		setTailored({});
 		const e = ecosystems.find((x) => x.id === id);
 		const provs = Array.from(
 			new Set(
@@ -101,10 +119,42 @@ export function QuoteRow({
 		});
 	}
 
+	async function tailor() {
+		if (selectedPlatforms.length === 0) {
+			setMsg("Select accounts first, then tailor.");
+			return;
+		}
+		setTailoring(true);
+		setMsg(null);
+		try {
+			const res = await fetch("/api/quotes/tailor", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					quote: body,
+					platforms: selectedPlatforms,
+					tone,
+				}),
+			});
+			const d = await readJson(res);
+			if (!res.ok) throw new Error(d.error ?? "Tailoring failed");
+			setTailored((d as { variants?: Record<string, string> }).variants ?? {});
+		} catch (err) {
+			setMsg(err instanceof Error ? err.message : "Error");
+		} finally {
+			setTailoring(false);
+		}
+	}
+
 	async function publish() {
 		const targets = visibleAccounts
 			.filter((a) => selected.has(a.accountId))
-			.map((a) => ({ platform: a.platform, accountId: a.accountId }));
+			.map((a) => ({
+				platform: a.platform,
+				accountId: a.accountId,
+				// Per-platform tailored text when available; else the base body.
+				content: tailored[a.platform] || undefined,
+			}));
 		if (targets.length === 0) {
 			setMsg("Select at least one account.");
 			return;
@@ -201,14 +251,30 @@ export function QuoteRow({
 		setTimeout(tick, 2000);
 	}
 
+	const tailoredPlatforms = Object.keys(tailored);
+
 	return (
 		<div className="rounded-xl border border-black/10 bg-white p-3 shadow-sm">
-			<textarea
-				value={text}
-				onChange={(e) => setText(e.target.value)}
-				rows={3}
-				className="w-full resize-y rounded-md border border-black/15 px-3 py-2 text-sm"
-			/>
+			<div className="flex items-start gap-2">
+				<textarea
+					value={text}
+					onChange={(e) => setText(e.target.value)}
+					rows={3}
+					disabled={regenerating}
+					className="w-full resize-y rounded-md border border-black/15 px-3 py-2 text-sm disabled:opacity-50"
+				/>
+				{onRegenerate && (
+					<button
+						type="button"
+						onClick={onRegenerate}
+						disabled={regenerating}
+						title="Replace with a different quote"
+						className="shrink-0 rounded-md border border-black/15 px-2 py-1 text-xs hover:bg-black/5 disabled:opacity-50"
+					>
+						{regenerating ? "…" : "↻"}
+					</button>
+				)}
+			</div>
 			<div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
 				{hashtags.length > 0 && (
 					<label className="flex items-center gap-1 opacity-70">
@@ -217,7 +283,7 @@ export function QuoteRow({
 							checked={includeTags}
 							onChange={(e) => setIncludeTags(e.target.checked)}
 						/>
-						{hashtags.map((h) => `#${h}`).join(" ")}
+						{tagLine}
 					</label>
 				)}
 				<span
@@ -253,6 +319,7 @@ export function QuoteRow({
 										onClick={() => {
 											setProvider(p);
 											setSelected(new Set());
+											setTailored({});
 										}}
 										className={`rounded px-2 py-0.5 ${provider === p ? "bg-primary text-white" : "border border-black/15 hover:bg-black/5"}`}
 									>
@@ -268,7 +335,7 @@ export function QuoteRow({
 								Facebook, Bluesky, Threads, …).
 							</p>
 						) : (
-							<div className="flex flex-wrap gap-2">
+							<div className="flex flex-wrap items-center gap-2">
 								{visibleAccounts.map((a) => (
 									<button
 										type="button"
@@ -283,6 +350,45 @@ export function QuoteRow({
 										{a.platform}
 										{a.handle ? ` · ${a.handle}` : ""}
 									</button>
+								))}
+								<button
+									type="button"
+									onClick={tailor}
+									disabled={tailoring || selectedPlatforms.length === 0}
+									title="Rewrite this quote to fit each selected platform"
+									className="rounded-full border border-primary/40 px-3 py-1 text-xs text-primary hover:bg-primary/5 disabled:opacity-40"
+								>
+									{tailoring ? "Tailoring…" : "✨ Tailor per platform"}
+								</button>
+							</div>
+						)}
+
+						{/* Per-platform tailored variants — editable before publishing. */}
+						{tailoredPlatforms.length > 0 && (
+							<div className="space-y-1.5 rounded-lg bg-black/[0.02] p-2">
+								<div className="text-[11px] font-medium uppercase tracking-wide opacity-40">
+									Tailored versions
+								</div>
+								{tailoredPlatforms.map((p) => (
+									<div key={p}>
+										<div className="flex items-center justify-between text-[11px] opacity-60">
+											<span className="font-medium">{p}</span>
+											<span className="tabular-nums">
+												{tailored[p].length} chars
+											</span>
+										</div>
+										<textarea
+											value={tailored[p]}
+											onChange={(e) =>
+												setTailored((prev) => ({
+													...prev,
+													[p]: e.target.value,
+												}))
+											}
+											rows={2}
+											className="w-full resize-y rounded-md border border-black/15 px-2 py-1 text-xs"
+										/>
+									</div>
 								))}
 							</div>
 						)}

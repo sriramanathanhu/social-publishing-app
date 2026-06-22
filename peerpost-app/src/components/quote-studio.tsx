@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Ecosystem } from "@/components/publish-row";
 import { QuoteRow } from "@/components/quote-row";
 
-type Quote = { text: string; hashtags: string[] };
+type Quote = { id: number; text: string; hashtags: string[] };
 
 const TONES = [
 	"",
@@ -17,16 +17,42 @@ const TONES = [
 
 /**
  * Paste long-form content → AI distills several powerful, postable quotes
- * (Gemini, NVIDIA fallback). Each quote publishes/schedules inline below.
+ * (Gemini, NVIDIA fallback). Each quote publishes/schedules inline below, can be
+ * regenerated individually, and more can be appended ("more like this").
  */
 export function QuoteStudio({ ecosystems }: { ecosystems: Ecosystem[] }) {
 	const [content, setContent] = useState("");
 	const [count, setCount] = useState(6);
 	const [tone, setTone] = useState("");
 	const [busy, setBusy] = useState(false);
+	const [moreBusy, setMoreBusy] = useState(false);
+	const [regenId, setRegenId] = useState<number | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [provider, setProvider] = useState<string | null>(null);
 	const [quotes, setQuotes] = useState<Quote[]>([]);
+	const idRef = useRef(0);
+
+	const nextId = () => {
+		idRef.current += 1;
+		return idRef.current;
+	};
+
+	async function fetchQuotes(n: number, avoid: string[]) {
+		const res = await fetch("/api/quotes", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				content,
+				count: n,
+				tone: tone || undefined,
+				avoid: avoid.length ? avoid : undefined,
+			}),
+		});
+		const d = await res.json().catch(() => ({}));
+		if (!res.ok) throw new Error(d.error ?? "Generation failed");
+		setProvider(d.provider ?? null);
+		return (d.quotes ?? []) as { text: string; hashtags: string[] }[];
+	}
 
 	async function generate() {
 		if (content.trim().length < 40) {
@@ -38,21 +64,52 @@ export function QuoteStudio({ ecosystems }: { ecosystems: Ecosystem[] }) {
 		setQuotes([]);
 		setProvider(null);
 		try {
-			const res = await fetch("/api/quotes", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ content, count, tone: tone || undefined }),
-			});
-			const d = await res.json().catch(() => ({}));
-			if (!res.ok) throw new Error(d.error ?? "Generation failed");
-			setQuotes(d.quotes ?? []);
-			setProvider(d.provider ?? null);
-			if ((d.quotes ?? []).length === 0)
+			const fresh = await fetchQuotes(count, []);
+			setQuotes(fresh.map((q) => ({ id: nextId(), ...q })));
+			if (fresh.length === 0)
 				setError("No quotes were generated — try more content.");
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Error");
 		} finally {
 			setBusy(false);
+		}
+	}
+
+	async function moreLikeThis() {
+		setMoreBusy(true);
+		setError(null);
+		try {
+			const more = await fetchQuotes(
+				3,
+				quotes.map((q) => q.text),
+			);
+			setQuotes((prev) => [
+				...prev,
+				...more.map((q) => ({ id: nextId(), ...q })),
+			]);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Error");
+		} finally {
+			setMoreBusy(false);
+		}
+	}
+
+	async function regenerate(id: number) {
+		setRegenId(id);
+		setError(null);
+		try {
+			const [fresh] = await fetchQuotes(
+				1,
+				quotes.map((q) => q.text),
+			);
+			if (fresh)
+				setQuotes((prev) =>
+					prev.map((q) => (q.id === id ? { id: nextId(), ...fresh } : q)),
+				);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Error");
+		} finally {
+			setRegenId(null);
 		}
 	}
 
@@ -128,14 +185,25 @@ export function QuoteStudio({ ecosystems }: { ecosystems: Ecosystem[] }) {
 							</span>
 						)}
 					</h2>
-					{quotes.map((q, i) => (
+					{quotes.map((q) => (
 						<QuoteRow
-							key={`${i}-${q.text.slice(0, 24)}`}
+							key={q.id}
 							initialText={q.text}
 							hashtags={q.hashtags}
 							ecosystems={ecosystems}
+							tone={tone || undefined}
+							regenerating={regenId === q.id}
+							onRegenerate={() => regenerate(q.id)}
 						/>
 					))}
+					<button
+						type="button"
+						onClick={moreLikeThis}
+						disabled={moreBusy}
+						className="rounded-md border border-black/15 px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
+					>
+						{moreBusy ? "Generating…" : "+ More like this"}
+					</button>
 				</div>
 			)}
 		</div>
