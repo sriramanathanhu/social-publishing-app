@@ -277,6 +277,230 @@ export async function getAnalytics(user: AppUser, profileId?: string) {
 	};
 }
 
+export type PublishingInsights = Awaited<
+	ReturnType<typeof getPublishingInsights>
+>;
+
+/**
+ * Aggregated insights for the Publishing → Overview dashboard: volume, success
+ * rate, week-over-week trend, per-platform / per-ecosystem / per-provider
+ * breakdowns, a 14-day activity sparkline, engagement over the analytics-tracked
+ * subset, upcoming scheduled posts, and the most recent published posts.
+ *
+ * Built mostly from posts_log (rich) with engagement layered from the sparse
+ * analytics snapshots. One pass over the rows in memory — the volume here
+ * (hundreds of rows) is well within a single query.
+ */
+export async function getPublishingInsights(user: AppUser) {
+	const accessible = await getAccessibleProfiles(user);
+	const empty = {
+		hasAccess: accessible.length > 0,
+		totals: { published: 0, failed: 0, scheduled: 0, publishing: 0 },
+		successRate: null as number | null,
+		week: { current: 0, previous: 0 },
+		byPlatform: [] as { platform: string; count: number }[],
+		byEcosystem: [] as { name: string; count: number }[],
+		byProvider: { postpeer: 0, zernio: 0 },
+		activity: [] as { label: string; count: number }[],
+		engagement: {
+			tracked: 0,
+			views: 0,
+			likes: 0,
+			top: [] as { title: string; views: number; url: string | null }[],
+		},
+		upcoming: [] as {
+			id: string;
+			content: string | null;
+			profileName: string;
+			when: Date;
+			platforms: { platform: string }[];
+		}[],
+		recent: [] as RecentPost[],
+	};
+	if (accessible.length === 0) return empty;
+
+	const ids = accessible.map((p) => p.id);
+	const nameById = new Map(accessible.map((p) => [p.id, p.name]));
+
+	const [rows, snaps] = await Promise.all([
+		db
+			.select({
+				id: postsLog.id,
+				status: postsLog.status,
+				platforms: postsLog.platforms,
+				provider: postsLog.provider,
+				profileId: postsLog.profileId,
+				content: postsLog.content,
+				publishedUrl: postsLog.publishedUrl,
+				postpeerPostId: postsLog.postpeerPostId,
+				createdAt: postsLog.createdAt,
+				scheduledFor: postsLog.scheduledFor,
+			})
+			.from(postsLog)
+			.where(inArray(postsLog.profileId, ids))
+			.orderBy(desc(postsLog.createdAt)),
+		db
+			.select()
+			.from(analyticsSnapshots)
+			.where(inArray(analyticsSnapshots.profileId, ids)),
+	]);
+
+	const DAY = 86_400_000;
+	const now = Date.now();
+	const published = rows.filter((r) => r.status === "published");
+	const failed = rows.filter((r) => r.status === "failed");
+	const scheduled = rows.filter((r) => r.status === "scheduled");
+	const publishing = rows.filter((r) => r.status === "publishing");
+
+	const totals = {
+		published: published.length,
+		failed: failed.length,
+		scheduled: scheduled.length,
+		publishing: publishing.length,
+	};
+	const attempted = totals.published + totals.failed;
+	const successRate = attempted ? totals.published / attempted : null;
+
+	const inWindow = (
+		r: (typeof published)[number],
+		from: number,
+		to: number,
+	) => {
+		const age = now - r.createdAt.getTime();
+		return age >= from && age < to;
+	};
+	const week = {
+		current: published.filter((r) => inWindow(r, 0, 7 * DAY)).length,
+		previous: published.filter((r) => inWindow(r, 7 * DAY, 14 * DAY)).length,
+	};
+
+	const bump = (m: Map<string, number>, k: string, n = 1) =>
+		m.set(k, (m.get(k) ?? 0) + n);
+	const platformCounts = new Map<string, number>();
+	const ecoCounts = new Map<string, number>();
+	const byProvider = { postpeer: 0, zernio: 0 };
+	for (const r of published) {
+		for (const pt of r.platforms ?? []) bump(platformCounts, pt.platform);
+		bump(ecoCounts, r.profileId);
+		if (r.provider === "zernio") byProvider.zernio++;
+		else byProvider.postpeer++;
+	}
+	const byPlatform = [...platformCounts.entries()]
+		.map(([platform, count]) => ({ platform, count }))
+		.sort((a, b) => b.count - a.count);
+	const byEcosystem = [...ecoCounts.entries()]
+		.map(([id, count]) => ({ name: nameById.get(id) ?? "—", count }))
+		.sort((a, b) => b.count - a.count)
+		.slice(0, 6);
+
+	// 14-day daily activity (published).
+	const activity: { label: string; count: number }[] = [];
+	for (let i = 13; i >= 0; i--) {
+		const dayStart = new Date(now - i * DAY);
+		dayStart.setHours(0, 0, 0, 0);
+		const start = dayStart.getTime();
+		const count = published.filter(
+			(r) =>
+				r.createdAt.getTime() >= start && r.createdAt.getTime() < start + DAY,
+		).length;
+		activity.push({
+			label: dayStart.toLocaleDateString(undefined, {
+				month: "short",
+				day: "numeric",
+			}),
+			count,
+		});
+	}
+
+	// Engagement over the analytics-tracked subset.
+	const contentById = new Map(
+		published.map((r) => [r.postpeerPostId, r.content]),
+	);
+	let views = 0;
+	let likes = 0;
+	const engRows = snaps.map((s) => {
+		const v = s.aggregated?.views ?? 0;
+		const l = s.aggregated?.likes ?? 0;
+		views += v;
+		likes += l;
+		const title = (contentById.get(s.postpeerPostId) ?? "").slice(0, 60);
+		const url =
+			s.platforms?.find((p) => p.platformPostUrl)?.platformPostUrl ?? null;
+		return { title: title || "(untitled)", views: v, url };
+	});
+	const engagement = {
+		tracked: snaps.length,
+		views,
+		likes,
+		top: engRows.sort((a, b) => b.views - a.views).slice(0, 3),
+	};
+
+	const upcoming = scheduled
+		.filter((r) => r.scheduledFor)
+		.sort((a, b) => a.scheduledFor!.getTime() - b.scheduledFor!.getTime())
+		.slice(0, 5)
+		.map((r) => ({
+			id: r.id,
+			content: r.content,
+			profileName: nameById.get(r.profileId) ?? "—",
+			when: r.scheduledFor as Date,
+			platforms: (r.platforms ?? []).map((p) => ({ platform: p.platform })),
+		}));
+
+	const recent: RecentPost[] = published.slice(0, 12).map((r) => ({
+		id: r.id,
+		content: r.content,
+		platforms: r.platforms,
+		profileName: nameById.get(r.profileId) ?? "—",
+		createdAt: r.createdAt,
+		status: r.status,
+		publishedUrl: r.publishedUrl,
+		metrics: null,
+	}));
+	// Attach engagement metrics to recent posts where tracked.
+	const metricsById = new Map(
+		snaps.map((s) => [
+			s.postpeerPostId,
+			{
+				likes: s.aggregated?.likes ?? null,
+				views: s.aggregated?.views ?? null,
+			},
+		]),
+	);
+	for (const p of published.slice(0, 12)) {
+		const m = p.postpeerPostId ? metricsById.get(p.postpeerPostId) : null;
+		if (m) {
+			const target = recent.find((x) => x.id === p.id);
+			if (target) target.metrics = m;
+		}
+	}
+
+	return {
+		hasAccess: true,
+		totals,
+		successRate,
+		week,
+		byPlatform,
+		byEcosystem,
+		byProvider,
+		activity,
+		engagement,
+		upcoming,
+		recent,
+	};
+}
+
+type RecentPost = {
+	id: string;
+	content: string | null;
+	platforms: (typeof postsLog.$inferSelect)["platforms"];
+	profileName: string;
+	createdAt: Date;
+	status: string;
+	publishedUrl: string | null;
+	metrics: { likes: number | null; views: number | null } | null;
+};
+
 /** Admin: simple list of all ecosystems (for assignment pickers). */
 export async function getEcosystemOptions() {
 	const rows = await db
