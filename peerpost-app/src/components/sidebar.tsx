@@ -41,47 +41,41 @@ export function Sidebar({ user }: { user: NavUser }) {
 
 			<nav className="flex-1 space-y-4 overflow-y-auto">
 				<div>
-					<NavLink href="/accounts" label="Connected Accounts" />
+					<NavLink href="/publishing/overview" label="Overview" />
 				</div>
 
 				<div>
 					<div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide opacity-40">
 						Content
 					</div>
-					<NavLink href="/dub" label="Dub Video" />
-					<NavLink href="/transcribe" label="Transcribe" />
 					<NavLink href="/shorts" label="Shorts" />
-					<NavLink href="/quotes" label="Quotes" />
+					<NavLink href="/dub" label="Dub Video" />
+					<NavLink href="/quotes" label="Quotes/Image Cards" />
 					<NavLink href="/articles" label="Articles" />
-					<NavLink href="/archive" label="Archive" />
-				</div>
-
-				<div>
-					<div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide opacity-40">
-						Library
+					<NavLink href="/transcribe" label="Transcribe" />
+					<NavLink href="/library" label="Library" />
+					<div className="ml-3 border-black/10 border-l pl-1">
+						<NavLink href="/library/photo" label="Photo" />
+						<NavLink href="/library/video" label="Video" />
+						<NavLink href="/library/quotes" label="Quotes" />
+						<NavLink href="/library/articles" label="Articles" />
+						<NavLink href="/library/transcript" label="Transcript" />
 					</div>
-					<NavLink href="/library/photo" label="Photo" />
-					<NavLink href="/library/video" label="Video" />
-					<NavLink href="/library/quotes" label="Quotes" />
-					<NavLink href="/library/articles" label="Articles" />
-					<NavLink href="/library/transcript" label="Transcript" />
 				</div>
 
 				<div>
 					<div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide opacity-40">
 						Publishing
 					</div>
-					<NavLink href="/publishing/overview" label="Overview" />
 					<NavLink href="/publishing/create" label="Create Post" />
 					<NavLink href="/publishing/scheduled" label="Scheduled" />
-					<NavLink href="/publishing/analytics" label="Analytics" />
 				</div>
 
 				<div>
 					<div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide opacity-40">
 						Settings
 					</div>
-					<NavLink href="/settings" label="Service keys (Dub)" />
+					<NavLink href="/settings" label="Service keys" />
 				</div>
 
 				{user.isAdmin && (
@@ -89,6 +83,7 @@ export function Sidebar({ user }: { user: NavUser }) {
 						<div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide opacity-40">
 							Admin
 						</div>
+						<NavLink href="/accounts" label="Connected Account" />
 						<NavLink href="/admin/teams" label="Teams" />
 						<NavLink href="/admin/ecosystems" label="Ecosystems" />
 						<NavLink href="/admin/members" label="Members" />
