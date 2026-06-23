@@ -60,9 +60,10 @@ export default async function QuotesPage() {
 					transcript: transcriptJobs.transcript,
 				})
 				.from(transcriptJobs)
+				// Transcripts are shared: anyone can generate quotes from any
+				// finished transcript, not just the one who created it.
 				.where(
 					and(
-						eq(transcriptJobs.userId, user.id),
 						eq(transcriptJobs.status, "done"),
 						isNotNull(transcriptJobs.transcript),
 					),

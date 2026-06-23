@@ -1,13 +1,14 @@
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { desc, eq, isNotNull } from "drizzle-orm";
 import Link from "next/link";
 import { TranscriptLibrary } from "@/components/transcript-library";
 import { db } from "@/db";
-import { transcriptJobs } from "@/db/schema";
+import { transcriptJobs, users } from "@/db/schema";
 import { loadTags } from "@/lib/library-tags";
 import { requirePageUser } from "@/lib/page-auth";
 
-/** Library › Transcript: final transcripts pushed to the GCS corpus. They live
- * in GCP (searchable for article generation) and are reflected here for reuse. */
+/** Library › Transcript: final transcripts pushed to the GCS corpus, shared
+ * across all users (they live in GCP and are searchable for article
+ * generation). Reflected here for reuse by anyone. */
 export default async function TranscriptLibraryPage() {
 	const user = await requirePageUser();
 	const rows = await db
@@ -18,14 +19,12 @@ export default async function TranscriptLibraryPage() {
 			corpusKey: transcriptJobs.corpusKey,
 			pushedAt: transcriptJobs.pushedAt,
 			transcript: transcriptJobs.transcript,
+			authorName: users.name,
+			authorEmail: users.email,
 		})
 		.from(transcriptJobs)
-		.where(
-			and(
-				eq(transcriptJobs.userId, user.id),
-				isNotNull(transcriptJobs.pushedAt),
-			),
-		)
+		.innerJoin(users, eq(transcriptJobs.userId, users.id))
+		.where(isNotNull(transcriptJobs.pushedAt))
 		.orderBy(desc(transcriptJobs.pushedAt))
 		.limit(300);
 
@@ -57,6 +56,7 @@ export default async function TranscriptLibraryPage() {
 				corpusKey: t.corpusKey,
 				pushedAt: t.pushedAt ? String(t.pushedAt) : null,
 				transcript: t.transcript ?? "",
+				author: t.authorName || t.authorEmail || "",
 				tags: tags[t.id] ?? [],
 			}))}
 		/>

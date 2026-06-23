@@ -10,6 +10,7 @@ type Item = {
 	corpusKey: string | null;
 	pushedAt: string | null;
 	transcript: string;
+	author?: string;
 	tags: string[];
 };
 
@@ -78,6 +79,7 @@ export function TranscriptLibrary({ items }: { items: Item[] }) {
 								{t.title}
 								<span className="ml-2 font-normal text-slate-400 text-xs">
 									{t.lang} · in corpus
+									{t.author ? ` · by ${t.author}` : ""}
 									{t.pushedAt
 										? ` · ${new Date(t.pushedAt).toLocaleString()}`
 										: ""}
