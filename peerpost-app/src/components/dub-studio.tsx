@@ -8,10 +8,15 @@ type Progress = { pct: number; stage: string; message: string };
 
 /** Compose a dub job and stream its progress over SSE. Publishing happens from
  * the DubTable below, which re-renders when this calls router.refresh(). */
-export function DubStudio() {
+export function DubStudio({
+	libraryVideos = [],
+}: {
+	libraryVideos?: { id: string; title: string; url: string }[];
+}) {
 	const router = useRouter();
-	const [tab, setTab] = useState<"url" | "upload">("url");
+	const [tab, setTab] = useState<"url" | "upload" | "library">("url");
 	const [url, setUrl] = useState("");
+	const [libraryUrl, setLibraryUrl] = useState(libraryVideos[0]?.url ?? "");
 	const [file, setFile] = useState<File | null>(null);
 	const [uploading, setUploading] = useState(false);
 	const [langCode, setLangCode] = useState(DUB_LANGUAGES[0].code);
@@ -84,6 +89,13 @@ export function DubStudio() {
 			let sourceType: "url" | "upload" = "url";
 			let sourceInput = url;
 
+			// Library tab: a video we already host (R2 public URL) — fetch directly.
+			if (tab === "library") {
+				if (!libraryUrl) throw new Error("Pick a video from your library.");
+				sourceType = "upload";
+				sourceInput = libraryUrl;
+			}
+
 			// Upload tab: push the local file to our media store first, then dub the
 			// resulting public URL. Avoids cookies entirely (we host the file).
 			if (tab === "upload") {
@@ -150,9 +162,43 @@ export function DubStudio() {
 						>
 							Upload from local system
 						</button>
+						<button
+							type="button"
+							onClick={() => setTab("library")}
+							className={`rounded px-3 py-1 ${tab === "library" ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
+						>
+							From Library
+						</button>
 					</div>
 
-					{tab === "url" ? (
+					{tab === "library" ? (
+						<>
+							<label className="mb-1 block text-xs font-medium opacity-60">
+								Video from your Library
+							</label>
+							{libraryVideos.length === 0 ? (
+								<p className="text-xs opacity-50">
+									No videos in your Library yet — upload one under Library →
+									Video, or generate shorts.
+								</p>
+							) : (
+								<select
+									value={libraryUrl}
+									onChange={(e) => setLibraryUrl(e.target.value)}
+									className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+								>
+									{libraryVideos.map((v) => (
+										<option key={v.id} value={v.url}>
+											{v.title}
+										</option>
+									))}
+								</select>
+							)}
+							<p className="mt-1 text-xs opacity-50">
+								Uploaded videos and generated shorts from your Library.
+							</p>
+						</>
+					) : tab === "url" ? (
 						<>
 							<label className="mb-1 block text-xs font-medium opacity-60">
 								Video URL (YouTube / Instagram / Google Drive link)

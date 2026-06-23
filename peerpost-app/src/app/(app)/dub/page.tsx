@@ -3,7 +3,7 @@ import Link from "next/link";
 import { DubStudio } from "@/components/dub-studio";
 import { DubTable } from "@/components/dub-table";
 import { db } from "@/db";
-import { dubJobs } from "@/db/schema";
+import { dubJobs, shortsClips, shortsJobs, userVideos } from "@/db/schema";
 import { getUserKeyPresence } from "@/lib/api-keys";
 import { reconcileRunningJobs } from "@/lib/dub-jobs";
 import { dubPrefill } from "@/lib/dub-prefill";
@@ -52,6 +52,41 @@ export default async function DubPage() {
 		})),
 	);
 
+	// Library videos (uploads + generated shorts) the user can dub directly.
+	const [uploads, clips] = await Promise.all([
+		db
+			.select({
+				id: userVideos.id,
+				title: userVideos.title,
+				url: userVideos.url,
+			})
+			.from(userVideos)
+			.where(eq(userVideos.userId, user.id))
+			.orderBy(desc(userVideos.createdAt))
+			.limit(100),
+		db
+			.select({
+				id: shortsClips.id,
+				title: shortsClips.title,
+				url: shortsClips.publicUrl,
+			})
+			.from(shortsClips)
+			.innerJoin(shortsJobs, eq(shortsClips.jobId, shortsJobs.id))
+			.where(eq(shortsJobs.userId, user.id))
+			.orderBy(desc(shortsJobs.createdAt))
+			.limit(100),
+	]);
+	const libraryVideos = [
+		...uploads.map((v) => ({ id: v.id, title: v.title, url: v.url })),
+		...clips
+			.filter((c) => c.url)
+			.map((c) => ({
+				id: c.id,
+				title: c.title ? `Short — ${c.title}` : "Short clip",
+				url: c.url as string,
+			})),
+	];
+
 	return (
 		<div className="space-y-5">
 			<div>
@@ -76,7 +111,7 @@ export default async function DubPage() {
 				</p>
 			) : (
 				<>
-					<DubStudio />
+					<DubStudio libraryVideos={libraryVideos} />
 					<DubTable rows={rows} ecosystems={ecosystems} />
 				</>
 			)}
