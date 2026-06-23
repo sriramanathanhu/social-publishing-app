@@ -105,8 +105,8 @@ export async function searchCorpus(
 			contentSearchSpec: {
 				snippetSpec: { returnSnippet: true },
 				extractiveContentSpec: {
-					maxExtractiveAnswerCount: 2,
-					maxExtractiveSegmentCount: 2,
+					maxExtractiveAnswerCount: 3,
+					maxExtractiveSegmentCount: 3,
 				},
 			},
 		}),

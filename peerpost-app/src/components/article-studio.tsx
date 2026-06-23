@@ -40,15 +40,17 @@ function Markdown({ text }: { text: string }) {
 		}
 	};
 	const inline = (s: string): React.ReactNode =>
-		s
-			.split(/(\*\*[^*]+\*\*)/g)
-			.map((part, i) =>
-				part.startsWith("**") && part.endsWith("**") ? (
-					<strong key={i}>{part.slice(2, -2)}</strong>
-				) : (
-					<span key={i}>{part}</span>
-				),
-			);
+		s.split(/(\*\*[^*]+\*\*|\[\d+(?:\s*,\s*\d+)*\])/g).map((part, i) => {
+			if (part.startsWith("**") && part.endsWith("**"))
+				return <strong key={i}>{part.slice(2, -2)}</strong>;
+			if (/^\[\d+(?:\s*,\s*\d+)*\]$/.test(part))
+				return (
+					<sup key={i} className="text-[0.65em] text-slate-400">
+						{part}
+					</sup>
+				);
+			return <span key={i}>{part}</span>;
+		});
 	lines.forEach((raw, idx) => {
 		const line = raw.trimEnd();
 		if (/^#\s+/.test(line)) {
@@ -103,6 +105,7 @@ export function ArticleStudio({
 	const [topic, setTopic] = useState("");
 	const [length, setLength] = useState<"short" | "medium" | "long">("medium");
 	const [tone, setTone] = useState("");
+	const [quality, setQuality] = useState<"standard" | "high">("standard");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [editing, setEditing] = useState(false);
@@ -122,6 +125,7 @@ export function ArticleStudio({
 					topic: topic.trim(),
 					length,
 					tone: tone || undefined,
+					quality,
 				}),
 			});
 			const data = await res.json();
@@ -230,6 +234,15 @@ export function ArticleStudio({
 							</option>
 						))}
 					</select>
+					<select
+						value={quality}
+						onChange={(e) => setQuality(e.target.value as "standard" | "high")}
+						className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+						title="High quality uses Gemini 2.5 Pro — deeper, but slower and slightly costlier"
+					>
+						<option value="standard">Standard (fast)</option>
+						<option value="high">High quality (Pro)</option>
+					</select>
 					<button
 						type="button"
 						onClick={generate}
@@ -238,6 +251,11 @@ export function ArticleStudio({
 					>
 						{busy ? "Writing…" : "Generate article"}
 					</button>
+					{busy && (
+						<span className="text-slate-400 text-sm">
+							Researching the corpus and writing — up to a minute…
+						</span>
+					)}
 					{error && <span className="text-red-600 text-sm">{error}</span>}
 				</div>
 			</div>

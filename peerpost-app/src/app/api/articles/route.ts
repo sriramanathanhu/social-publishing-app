@@ -14,6 +14,7 @@ const schema = z.object({
 	topic: z.string().min(3).max(500),
 	tone: z.string().max(60).optional(),
 	length: z.enum(["short", "medium", "long"]).optional(),
+	quality: z.enum(["standard", "high"]).optional(),
 });
 
 /** GET /api/articles — the caller's saved articles (recent first). */
@@ -41,6 +42,7 @@ export const POST = route(async (req: NextRequest) => {
 		nvidiaKey: keys.nvidia,
 		tone: input.tone,
 		length: input.length,
+		quality: input.quality,
 	});
 	const [row] = await db
 		.insert(articles)
