@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import glob
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -21,11 +22,36 @@ from google import genai
 Progress = Callable[[int, str, str], None]
 
 
+def _drive_id(link: str) -> str | None:
+    """Extract a Drive file id from common share-link shapes (or a bare id)."""
+    link = link.strip()
+    m = re.search(r"/file/d/([a-zA-Z0-9_-]+)", link)
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&]id=([a-zA-Z0-9_-]+)", link)
+    if m:
+        return m.group(1)
+    if re.fullmatch(r"[a-zA-Z0-9_-]{20,}", link):
+        return link
+    return None
+
+
 def _drive_download(link: str, dest: str) -> str:
-    """Download a (publicly shared) Google Drive file via gdown."""
+    """Download a (publicly shared) Google Drive file via gdown.
+
+    gdown 6.x removed the `fuzzy` arg, so we parse the file id ourselves and
+    download by id (the canonical uc?id=… form, with large-file confirm
+    handling done by gdown).
+    """
     import gdown
 
-    out = gdown.download(url=link, output=dest, quiet=True, fuzzy=True)
+    file_id = _drive_id(link)
+    if not file_id:
+        raise RuntimeError(
+            "Could not read a Google Drive file id from that link. Use a link "
+            "like https://drive.google.com/file/d/FILE_ID/view."
+        )
+    out = gdown.download(id=file_id, output=dest, quiet=True)
     if not out or not os.path.exists(out):
         raise RuntimeError(
             "Could not download the Google Drive file. Make sure it is shared "
