@@ -17,11 +17,15 @@ function buildPrompt(
 	count: number,
 	tone?: string,
 	avoid?: string[],
+	outputLang?: string,
 ): string {
 	const avoidBlock =
 		avoid && avoid.length
 			? `\nDo NOT repeat or closely paraphrase any of these existing quotes — give genuinely different ones:\n${avoid.map((a) => `- ${a}`).join("\n")}\n`
 			: "";
+	const langBlock = outputLang
+		? `\nWrite EVERY quote AND its hashtags in ${outputLang}. The source content may be in another language — translate the meaning and produce natural, idiomatic ${outputLang}. Do not mix languages or transliterate into Latin script.\n`
+		: "";
 	return `You are a world-class social-media editor and copywriter.
 From the SOURCE CONTENT below, craft ${count} powerful, standalone quotes ready to post on social media.
 
@@ -34,7 +38,7 @@ Each quote MUST:
 
 Vary the angle across the set (hook, teaching, reframe, call-to-reflection) so the quotes don't repeat each other.
 Give 2-3 relevant lowercase hashtags (without the # symbol) per quote.
-${avoidBlock}
+${langBlock}${avoidBlock}
 Return ONLY JSON — no markdown fences, no commentary — exactly:
 {"quotes":[{"text":"the quote","hashtags":["tag","tag"]}]}
 
@@ -177,13 +181,18 @@ async function withFallback(
 
 export async function generateQuotes(
 	text: string,
-	opts: Keys & { count?: number; tone?: string; avoid?: string[] },
+	opts: Keys & {
+		count?: number;
+		tone?: string;
+		avoid?: string[];
+		outputLang?: string;
+	},
 ): Promise<{ quotes: GeneratedQuote[]; provider: "gemini" | "nvidia" }> {
-	const { count = 6, tone, avoid } = opts;
+	const { count = 6, tone, avoid, outputLang } = opts;
 	try {
 		const { out, provider } = await withFallback(
 			opts,
-			buildPrompt(text, count, tone, avoid),
+			buildPrompt(text, count, tone, avoid, outputLang),
 		);
 		const quotes = parseQuotes(out, count);
 		if (!quotes.length) throw new Error("the model returned no quotes");

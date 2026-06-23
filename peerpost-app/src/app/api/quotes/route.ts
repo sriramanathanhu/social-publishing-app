@@ -15,6 +15,8 @@ const schema = z.object({
 	tone: z.string().max(40).optional(),
 	// Existing quote texts to NOT repeat (regenerate / "more like this").
 	avoid: z.array(z.string()).max(40).optional(),
+	// Language to write the quotes in (empty/omitted = same as the content).
+	outputLang: z.string().max(40).optional(),
 });
 
 /**
@@ -32,6 +34,7 @@ export const POST = route(async (req: NextRequest) => {
 		count: input.count,
 		tone: input.tone,
 		avoid: input.avoid,
+		outputLang: input.outputLang,
 	});
 	const saved = result.quotes.length
 		? await db

@@ -19,6 +19,24 @@ const TONES = [
 	"scholarly",
 ];
 
+// Output languages (the card renderer has fonts for all of these scripts).
+const LANGUAGES = [
+	"",
+	"English",
+	"Hindi",
+	"Tamil",
+	"Telugu",
+	"Kannada",
+	"Malayalam",
+	"Bengali",
+	"Gujarati",
+	"Marathi",
+	"Punjabi",
+	"Russian",
+	"Spanish",
+	"French",
+];
+
 /**
  * Paste long-form content → AI distills several powerful quotes (Gemini → NVIDIA
  * fallback). Quotes are SAVED, so the set + any rendered cards survive a refresh.
@@ -44,6 +62,7 @@ export function QuoteStudio({
 	const [showTranscripts, setShowTranscripts] = useState(false);
 	const [count, setCount] = useState(6);
 	const [tone, setTone] = useState("");
+	const [outputLang, setOutputLang] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [moreBusy, setMoreBusy] = useState(false);
 	const [regenId, setRegenId] = useState<string | null>(null);
@@ -61,6 +80,7 @@ export function QuoteStudio({
 				count: n,
 				tone: tone || undefined,
 				avoid: avoid.length ? avoid : undefined,
+				outputLang: outputLang || undefined,
 			}),
 		});
 		const d = await res.json().catch(() => ({}));
@@ -244,6 +264,20 @@ export function QuoteStudio({
 							{TONES.map((t) => (
 								<option key={t || "auto"} value={t}>
 									{t || "Auto"}
+								</option>
+							))}
+						</select>
+					</label>
+					<label className="block text-xs font-medium opacity-60">
+						Output language
+						<select
+							value={outputLang}
+							onChange={(e) => setOutputLang(e.target.value)}
+							className="mt-1 rounded-md border border-black/15 px-2.5 py-1.5 text-sm"
+						>
+							{LANGUAGES.map((l) => (
+								<option key={l || "same"} value={l}>
+									{l || "Same as content"}
 								</option>
 							))}
 						</select>
