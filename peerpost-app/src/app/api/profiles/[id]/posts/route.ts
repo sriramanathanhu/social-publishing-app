@@ -53,7 +53,9 @@ const publishSchema = z
 		scheduledFor: z.string().datetime().optional(),
 		timezone: z.string().optional(),
 		// Where the post was composed (for activity reporting).
-		source: z.enum(["dub", "short", "composer", "quote"]).optional(),
+		source: z
+			.enum(["dub", "short", "composer", "quote", "article"])
+			.optional(),
 	})
 	.refine((d) => d.publishNow || d.scheduledFor, {
 		message: "Provide publishNow:true or scheduledFor",

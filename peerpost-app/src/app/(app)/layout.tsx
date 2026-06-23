@@ -1,3 +1,4 @@
+import { ContentWidth } from "@/components/content-width";
 import { Sidebar } from "@/components/sidebar";
 import { requirePageUser } from "@/lib/page-auth";
 import { isAdmin } from "@/lib/rbac";
@@ -18,7 +19,7 @@ export default async function AppLayout({
 				user={{ name: user.name, email: user.email, isAdmin: isAdmin(user) }}
 			/>
 			<main className="flex-1 overflow-y-auto">
-				<div className="mx-auto max-w-4xl p-8">{children}</div>
+				<ContentWidth>{children}</ContentWidth>
 			</main>
 		</div>
 	);

@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { ArticlePublish } from "@/components/article-publish";
+import type { Ecosystem } from "@/components/publish-row";
 import { RichEditor } from "@/components/rich-editor";
 
 const LENGTHS = [
@@ -93,9 +95,11 @@ function Markdown({ text }: { text: string }) {
 
 export function ArticleStudio({
 	initialArticles,
+	ecosystems,
 	corpusReady,
 }: {
 	initialArticles: Article[];
+	ecosystems: Ecosystem[];
 	corpusReady: boolean;
 }) {
 	const [articles, setArticles] = useState<Article[]>(initialArticles);
@@ -110,6 +114,9 @@ export function ArticleStudio({
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [editing, setEditing] = useState(false);
+	const [showGenerate, setShowGenerate] = useState(
+		initialArticles.length === 0,
+	);
 	const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const selected = articles.find((a) => a.id === selectedId) ?? null;
@@ -136,6 +143,7 @@ export function ArticleStudio({
 			setSelectedId(data.article.id);
 			setTopic("");
 			setEditing(false);
+			setShowGenerate(false);
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "Generation failed");
 		} finally {
@@ -188,91 +196,104 @@ export function ArticleStudio({
 	}
 
 	return (
-		<div className="mx-auto max-w-6xl p-6">
-			<header className="mb-4">
-				<h1 className="font-bold text-2xl text-slate-900">Articles</h1>
-				<p className="mt-1 text-slate-500 text-sm">
-					Enter a topic — it pulls the most relevant passages from your uploaded
-					corpus and writes a grounded, cited long-form article.
-				</p>
-			</header>
+		<div className="flex h-full flex-col">
+			{/* Header */}
+			<div className="flex items-center justify-between gap-4 border-slate-200 border-b px-6 py-3">
+				<div>
+					<h1 className="font-bold text-slate-900 text-xl">Articles</h1>
+					<p className="text-slate-500 text-xs">
+						Grounded long-form writing from your corpus — edit and publish to
+						LinkedIn, Facebook, Reddit, or X.
+					</p>
+				</div>
+				<button
+					type="button"
+					onClick={() => setShowGenerate((v) => !v)}
+					className="shrink-0 rounded-lg bg-slate-900 px-4 py-2 font-medium text-sm text-white"
+				>
+					{showGenerate ? "Close" : "+ New article"}
+				</button>
+			</div>
 
-			{!corpusReady && (
-				<div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-800 text-sm">
-					The corpus (Vertex AI Search) isn't configured yet, so generation is
-					disabled. Set the Google credentials in <code>.env</code> first.
+			{/* Generate panel (collapsible) */}
+			{showGenerate && (
+				<div className="border-slate-200 border-b bg-slate-50 px-6 py-4">
+					{!corpusReady && (
+						<div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-800 text-sm">
+							The corpus (Vertex AI Search) isn't configured yet, so generation
+							is disabled.
+						</div>
+					)}
+					<textarea
+						value={topic}
+						onChange={(e) => setTopic(e.target.value)}
+						placeholder="Topic or title — e.g. 'The words that shaped your identity'"
+						className="w-full resize-none rounded-lg border border-slate-300 p-3 text-sm focus:border-slate-500 focus:outline-none"
+						rows={2}
+					/>
+					<textarea
+						value={instructions}
+						onChange={(e) => setInstructions(e.target.value)}
+						placeholder="Optional instructions — e.g. 'Add a 200-character summary with a call-to-action at the top, and a guided meditation at the end.' Followed exactly."
+						className="mt-2 w-full resize-none rounded-lg border border-slate-300 p-3 text-sm focus:border-slate-500 focus:outline-none"
+						rows={2}
+					/>
+					<div className="mt-3 flex flex-wrap items-center gap-3">
+						<select
+							value={length}
+							onChange={(e) => setLength(e.target.value as typeof length)}
+							className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+						>
+							{LENGTHS.map((l) => (
+								<option key={l.value} value={l.value}>
+									{l.label}
+								</option>
+							))}
+						</select>
+						<select
+							value={tone}
+							onChange={(e) => setTone(e.target.value)}
+							className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+						>
+							{TONES.map((t) => (
+								<option key={t} value={t}>
+									{t ? `Tone: ${t}` : "Default tone"}
+								</option>
+							))}
+						</select>
+						<select
+							value={quality}
+							onChange={(e) =>
+								setQuality(e.target.value as "standard" | "high")
+							}
+							className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+							title="High quality uses Gemini 2.5 Pro — deeper, but slower"
+						>
+							<option value="standard">Standard (fast)</option>
+							<option value="high">High quality (Pro)</option>
+						</select>
+						<button
+							type="button"
+							onClick={generate}
+							disabled={busy || !corpusReady || topic.trim().length < 3}
+							className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-sm text-white disabled:opacity-40"
+						>
+							{busy ? "Writing…" : "Generate article"}
+						</button>
+						{busy && (
+							<span className="text-slate-400 text-sm">
+								Researching the corpus and writing — up to a minute…
+							</span>
+						)}
+						{error && <span className="text-red-600 text-sm">{error}</span>}
+					</div>
 				</div>
 			)}
 
-			{/* Generate bar */}
-			<div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-				<textarea
-					value={topic}
-					onChange={(e) => setTopic(e.target.value)}
-					placeholder="Topic or title — e.g. 'The words that shaped your identity'"
-					className="w-full resize-none rounded-lg border border-slate-300 p-3 text-sm focus:border-slate-500 focus:outline-none"
-					rows={2}
-				/>
-				<textarea
-					value={instructions}
-					onChange={(e) => setInstructions(e.target.value)}
-					placeholder="Optional instructions — e.g. 'Add a 200-character summary with a call-to-action at the top, and include a guided meditation at the end.' Followed exactly."
-					className="mt-2 w-full resize-none rounded-lg border border-slate-300 p-3 text-sm focus:border-slate-500 focus:outline-none"
-					rows={2}
-				/>
-				<div className="mt-3 flex flex-wrap items-center gap-3">
-					<select
-						value={length}
-						onChange={(e) => setLength(e.target.value as typeof length)}
-						className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-					>
-						{LENGTHS.map((l) => (
-							<option key={l.value} value={l.value}>
-								{l.label}
-							</option>
-						))}
-					</select>
-					<select
-						value={tone}
-						onChange={(e) => setTone(e.target.value)}
-						className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-					>
-						{TONES.map((t) => (
-							<option key={t} value={t}>
-								{t ? `Tone: ${t}` : "Default tone"}
-							</option>
-						))}
-					</select>
-					<select
-						value={quality}
-						onChange={(e) => setQuality(e.target.value as "standard" | "high")}
-						className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-						title="High quality uses Gemini 2.5 Pro — deeper, but slower and slightly costlier"
-					>
-						<option value="standard">Standard (fast)</option>
-						<option value="high">High quality (Pro)</option>
-					</select>
-					<button
-						type="button"
-						onClick={generate}
-						disabled={busy || !corpusReady || topic.trim().length < 3}
-						className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-sm text-white disabled:opacity-40"
-					>
-						{busy ? "Writing…" : "Generate article"}
-					</button>
-					{busy && (
-						<span className="text-slate-400 text-sm">
-							Researching the corpus and writing — up to a minute…
-						</span>
-					)}
-					{error && <span className="text-red-600 text-sm">{error}</span>}
-				</div>
-			</div>
-
-			<div className="grid grid-cols-1 gap-6 md:grid-cols-[260px_1fr]">
-				{/* Saved list */}
-				<aside className="space-y-1">
-					<div className="mb-2 font-medium text-slate-500 text-xs uppercase tracking-wide">
+			{/* Split: list rail + full-width detail */}
+			<div className="flex min-h-0 flex-1">
+				<aside className="w-60 shrink-0 overflow-y-auto border-slate-200 border-r">
+					<div className="px-3 py-2 font-medium text-slate-400 text-xs uppercase tracking-wide">
 						{articles.length} saved
 					</div>
 					{articles.map((a) => (
@@ -283,110 +304,122 @@ export function ArticleStudio({
 								setSelectedId(a.id);
 								setEditing(false);
 							}}
-							className={`block w-full truncate rounded-lg px-3 py-2 text-left text-sm ${
+							className={`block w-full truncate border-slate-100 border-b px-3 py-2.5 text-left text-sm ${
 								a.id === selectedId
-									? "bg-slate-900 text-white"
-									: "text-slate-700 hover:bg-slate-100"
+									? "bg-slate-100 font-medium text-slate-900"
+									: "text-slate-600 hover:bg-slate-50"
 							}`}
 						>
 							{a.title || a.topic}
 						</button>
 					))}
 					{articles.length === 0 && (
-						<p className="text-slate-400 text-sm">No articles yet.</p>
+						<p className="px-3 py-2 text-slate-400 text-sm">No articles yet.</p>
 					)}
 				</aside>
 
-				{/* Detail */}
-				{selected ? (
-					<section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-						<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-							<input
-								value={selected.title ?? ""}
-								onChange={(e) => update(selected.id, { title: e.target.value })}
-								className="min-w-0 flex-1 rounded-lg border border-transparent px-1 py-1 font-semibold text-lg hover:border-slate-200 focus:border-slate-300 focus:outline-none"
-							/>
-							<div className="flex items-center gap-2 text-xs">
-								{selected.provider && (
-									<span className="rounded bg-slate-100 px-2 py-1 text-slate-500">
-										{selected.provider}
-									</span>
-								)}
-								<button
-									type="button"
-									onClick={() => setEditing((v) => !v)}
-									className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50"
-								>
-									{editing ? "Preview" : "Edit"}
-								</button>
-								<button
-									type="button"
-									onClick={() =>
-										navigator.clipboard.writeText(
-											stripCitations(selected.content),
-										)
+				<main className="min-w-0 flex-1 overflow-y-auto">
+					{selected ? (
+						<div className="px-8 py-6">
+							{/* Title + actions */}
+							<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+								<input
+									value={selected.title ?? ""}
+									onChange={(e) =>
+										update(selected.id, { title: e.target.value })
 									}
-									className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50"
-								>
-									Copy
-								</button>
-								<button
-									type="button"
-									onClick={() => download(selected)}
-									className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50"
-								>
-									Download
-								</button>
-								<button
-									type="button"
-									onClick={() => remove(selected.id)}
-									className="rounded border border-red-200 px-2 py-1 text-red-600 hover:bg-red-50"
-								>
-									Delete
-								</button>
+									className="min-w-0 flex-1 rounded-lg border border-transparent px-1 py-1 font-bold text-slate-900 text-xl hover:border-slate-200 focus:border-slate-300 focus:outline-none"
+								/>
+								<div className="flex items-center gap-2 text-xs">
+									{selected.provider && (
+										<span className="rounded bg-slate-100 px-2 py-1 text-slate-500">
+											{selected.provider}
+										</span>
+									)}
+									<button
+										type="button"
+										onClick={() => setEditing((v) => !v)}
+										className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50"
+									>
+										{editing ? "Preview" : "Edit"}
+									</button>
+									<button
+										type="button"
+										onClick={() =>
+											navigator.clipboard.writeText(
+												stripCitations(selected.content),
+											)
+										}
+										className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50"
+									>
+										Copy
+									</button>
+									<button
+										type="button"
+										onClick={() => download(selected)}
+										className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50"
+									>
+										Download
+									</button>
+									<button
+										type="button"
+										onClick={() => remove(selected.id)}
+										className="rounded border border-red-200 px-2 py-1 text-red-600 hover:bg-red-50"
+									>
+										Delete
+									</button>
+								</div>
+							</div>
+
+							{selected.provider === "nvidia" && (
+								<div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-amber-800 text-xs">
+									Generated with the fallback model (NVIDIA) — your Gemini key
+									was unavailable or rate-limited. For deeper results, check
+									your Gemini key in Settings or regenerate with “High quality”.
+								</div>
+							)}
+
+							{editing ? (
+								<RichEditor
+									key={selected.id}
+									markdown={selected.content}
+									onChange={(md) => update(selected.id, { content: md })}
+								/>
+							) : (
+								<article className="max-w-none">
+									<Markdown text={selected.content} />
+								</article>
+							)}
+
+							{selected.citations && selected.citations.length > 0 && (
+								<div className="mt-6 border-slate-200 border-t pt-3">
+									<div className="mb-2 font-medium text-slate-400 text-xs uppercase tracking-wide">
+										Sources ({selected.citations.length})
+									</div>
+									<ul className="space-y-1 text-slate-500 text-xs">
+										{selected.citations.map((c) => (
+											<li key={c.n}>
+												<span className="text-slate-400">[{c.n}]</span> {c.file}
+											</li>
+										))}
+									</ul>
+								</div>
+							)}
+
+							<div className="mt-6">
+								<ArticlePublish
+									key={selected.id}
+									article={selected}
+									ecosystems={ecosystems}
+								/>
 							</div>
 						</div>
-
-						{selected.provider === "nvidia" && (
-							<div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-amber-800 text-xs">
-								Generated with the fallback model (NVIDIA) — your Gemini key was
-								unavailable or rate-limited. For deeper results, check your
-								Gemini key in Settings or regenerate with “High quality”.
-							</div>
-						)}
-
-						{editing ? (
-							<RichEditor
-								key={selected.id}
-								markdown={selected.content}
-								onChange={(md) => update(selected.id, { content: md })}
-							/>
-						) : (
-							<article className="max-w-none">
-								<Markdown text={selected.content} />
-							</article>
-						)}
-
-						{selected.citations && selected.citations.length > 0 && (
-							<div className="mt-6 border-slate-200 border-t pt-3">
-								<div className="mb-2 font-medium text-slate-500 text-xs uppercase tracking-wide">
-									Sources ({selected.citations.length})
-								</div>
-								<ul className="space-y-1 text-slate-600 text-xs">
-									{selected.citations.map((c) => (
-										<li key={c.n}>
-											<span className="text-slate-400">[{c.n}]</span> {c.file}
-										</li>
-									))}
-								</ul>
-							</div>
-						)}
-					</section>
-				) : (
-					<section className="rounded-xl border border-slate-200 border-dashed p-10 text-center text-slate-400 text-sm">
-						Generate an article or pick one from the list.
-					</section>
-				)}
+					) : (
+						<div className="flex h-full items-center justify-center p-10 text-center text-slate-400 text-sm">
+							Generate an article or pick one from the list.
+						</div>
+					)}
+				</main>
 			</div>
 		</div>
 	);
