@@ -9,7 +9,8 @@ import { usePathname } from "next/navigation";
  */
 export function ContentWidth({ children }: { children: React.ReactNode }) {
 	const path = usePathname();
-	const fullBleed = path?.startsWith("/articles");
+	const fullBleed =
+		path?.startsWith("/articles") || path?.startsWith("/transcribe");
 	return (
 		<div className={fullBleed ? "h-full" : "mx-auto max-w-4xl p-8"}>
 			{children}
