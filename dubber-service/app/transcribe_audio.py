@@ -136,6 +136,16 @@ def _chunk(path: str, n: int, work: str) -> list[str]:
     return chunks
 
 
+_SCRIPT = {
+    "tamil": "the Tamil script (தமிழ் எழுத்து)",
+    "english": "the Latin alphabet (English script)",
+}
+
+
+def _script(lang: str) -> str:
+    return _SCRIPT.get(lang.strip().lower(), f"the standard {lang} script")
+
+
 def _transcribe_chunk(
     client: "genai.Client",
     path: str,
@@ -154,24 +164,30 @@ def _transcribe_chunk(
         time.sleep(1)
 
     no_speech = (
-        " Transcribe ONLY the words actually spoken in THIS audio clip. The "
-        "moment the speaker stops talking, stop writing — do NOT add, continue, "
-        "summarise, or invent any sentence that is not actually spoken. Ignore "
-        "any silence. If the clip contains no intelligible speech at all, return "
-        "an empty response."
+        " Transcribe ONLY the words actually spoken in THIS clip. The moment the "
+        "speaker stops, stop writing — do NOT add, continue, summarise, or invent "
+        "anything not actually spoken. Ignore silence. If there is no intelligible "
+        "speech, return an empty response."
     )
     if translate and output_lang.lower() != source_lang.lower():
+        # The caller asserts the source language; do not auto-detect it.
         instruction = (
-            f"The spoken language is {source_lang}. Listen to the audio, then "
-            f"TRANSLATE the speech into {output_lang}. Output ONLY the "
-            f"{output_lang} text as clean, readable prose — natural paragraphs, "
-            f"no timestamps, no speaker labels, no commentary." + no_speech
+            f"This audio is spoken in {source_lang} (the entire recording — do "
+            f"NOT auto-detect or switch the language based on the first few "
+            f"seconds). Translate the speech into {output_lang}, written in "
+            f"{_script(output_lang)}. Output ONLY the {output_lang} translation "
+            f"as clean prose — no timestamps, no speaker labels, no commentary."
+            + no_speech
         )
     else:
         instruction = (
-            f"The spoken language is {source_lang}. Transcribe the speech "
-            f"verbatim in {source_lang}. Output ONLY the transcript as clean, "
-            f"readable prose — natural paragraphs, no timestamps, no speaker "
+            f"This audio is spoken ENTIRELY in {source_lang} — treat that as a "
+            f"fact; do NOT auto-detect the language or change it based on the "
+            f"opening seconds. Transcribe it faithfully and verbatim in "
+            f"{source_lang}, written in {_script(source_lang)}. Do NOT translate, "
+            f"romanise, transliterate, or switch to any other language at any "
+            f"point — keep every word in {source_lang}. Output ONLY the "
+            f"{source_lang} transcript as clean prose — no timestamps, no speaker "
             f"labels, no commentary." + no_speech
         )
 
@@ -179,9 +195,14 @@ def _transcribe_chunk(
         model="gemini-2.5-flash",
         contents=[f, instruction],
         config={
-            "temperature": 0.2,
+            "temperature": 0.1,
             "thinking_config": {"thinking_budget": 0},
             "max_output_tokens": 8192,
+            "system_instruction": (
+                "You are a precise audio transcriptionist. You always honour the "
+                "language explicitly specified by the user and never auto-detect "
+                "or change the transcription/output language."
+            ),
         },
     )
     try:
