@@ -106,6 +106,7 @@ export function ArticleStudio({
 	const [length, setLength] = useState<"short" | "medium" | "long">("medium");
 	const [tone, setTone] = useState("");
 	const [quality, setQuality] = useState<"standard" | "high">("standard");
+	const [instructions, setInstructions] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [editing, setEditing] = useState(false);
@@ -126,6 +127,7 @@ export function ArticleStudio({
 					length,
 					tone: tone || undefined,
 					quality,
+					instructions: instructions.trim() || undefined,
 				}),
 			});
 			const data = await res.json();
@@ -207,8 +209,15 @@ export function ArticleStudio({
 				<textarea
 					value={topic}
 					onChange={(e) => setTopic(e.target.value)}
-					placeholder="Topic or title — e.g. 'What is real meditation and how to begin'"
+					placeholder="Topic or title — e.g. 'The words that shaped your identity'"
 					className="w-full resize-none rounded-lg border border-slate-300 p-3 text-sm focus:border-slate-500 focus:outline-none"
+					rows={2}
+				/>
+				<textarea
+					value={instructions}
+					onChange={(e) => setInstructions(e.target.value)}
+					placeholder="Optional instructions — e.g. 'Add a 200-character summary with a call-to-action at the top, and include a guided meditation at the end.' Followed exactly."
+					className="mt-2 w-full resize-none rounded-lg border border-slate-300 p-3 text-sm focus:border-slate-500 focus:outline-none"
 					rows={2}
 				/>
 				<div className="mt-3 flex flex-wrap items-center gap-3">
@@ -337,6 +346,14 @@ export function ArticleStudio({
 								</button>
 							</div>
 						</div>
+
+						{selected.provider === "nvidia" && (
+							<div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-amber-800 text-xs">
+								Generated with the fallback model (NVIDIA) — your Gemini key was
+								unavailable or rate-limited. For deeper results, check your
+								Gemini key in Settings or regenerate with “High quality”.
+							</div>
+						)}
 
 						{editing ? (
 							<RichEditor

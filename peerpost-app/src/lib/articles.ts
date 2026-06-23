@@ -30,6 +30,8 @@ type Completion = {
 	provider: "gemini" | "nvidia";
 };
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function gemini(
 	model: string,
 	key: string,
@@ -37,30 +39,44 @@ async function gemini(
 	maxTokens: number,
 ) {
 	const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-	const res = await fetch(url, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			contents: [{ parts: [{ text: prompt }] }],
-			generationConfig: {
-				temperature: 0.7,
-				maxOutputTokens: maxTokens,
-				// Disable thinking so reasoning tokens don't eat the output budget
-				// and truncate the article.
-				thinkingConfig: { thinkingBudget: 0 },
-			},
-		}),
-		signal: AbortSignal.timeout(180_000),
-	});
-	if (!res.ok)
-		throw new Error(`${res.status} ${(await res.text()).slice(0, 160)}`);
-	const d = await res.json();
-	const cand = d?.candidates?.[0];
-	const text =
-		cand?.content?.parts
-			?.map((p: { text?: string }) => p.text ?? "")
-			.join("") ?? "";
-	return { text, finish: cand?.finishReason ?? "STOP" };
+	const generationConfig: Record<string, unknown> = {
+		temperature: 0.7,
+		maxOutputTokens: maxTokens,
+	};
+	// Flash: disable thinking so reasoning tokens don't eat the output budget and
+	// truncate the article. gemini-2.5-pro REQUIRES thinking mode (it rejects a
+	// budget of 0), so leave its thinking at the model default.
+	if (model === FLASH) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+
+	let lastErr = "transient error";
+	// Retry transient overload (503) / quota blips (429) before giving up — a
+	// momentary 503 should not silently drop us to the weaker fallback model.
+	for (let attempt = 0; attempt < 3; attempt++) {
+		const res = await fetch(url, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				contents: [{ parts: [{ text: prompt }] }],
+				generationConfig,
+			}),
+			signal: AbortSignal.timeout(180_000),
+		});
+		if (res.status === 503 || res.status === 429) {
+			lastErr = `${res.status} ${(await res.text()).slice(0, 120)}`;
+			if (attempt < 2) await sleep(1500 * (attempt + 1));
+			continue;
+		}
+		if (!res.ok)
+			throw new Error(`${res.status} ${(await res.text()).slice(0, 160)}`);
+		const d = await res.json();
+		const cand = d?.candidates?.[0];
+		const text =
+			cand?.content?.parts
+				?.map((p: { text?: string }) => p.text ?? "")
+				.join("") ?? "";
+		return { text, finish: cand?.finishReason ?? "STOP" };
+	}
+	throw new Error(`${model} unavailable: ${lastErr}`);
 }
 
 async function nvidia(key: string, prompt: string, maxTokens: number) {
@@ -87,7 +103,12 @@ async function nvidia(key: string, prompt: string, maxTokens: number) {
 	};
 }
 
-/** One completion, Gemini (chosen model) → NVIDIA fallback. */
+/**
+ * One completion. Gemini model chain → NVIDIA fallback. If the chosen model is
+ * Pro (which needs a higher quota tier and 429s on free keys), fall back to
+ * Flash — still strong — before resorting to NVIDIA, so a Pro quota error
+ * doesn't silently produce a weak article.
+ */
 async function complete(
 	keys: Keys,
 	model: string,
@@ -96,11 +117,14 @@ async function complete(
 ): Promise<Completion> {
 	const errors: string[] = [];
 	if (keys.geminiKey) {
-		try {
-			const r = await gemini(model, keys.geminiKey, prompt, maxTokens);
-			if (r.text.trim()) return { ...r, provider: "gemini" };
-		} catch (e) {
-			errors.push(`Gemini: ${e instanceof Error ? e.message : e}`);
+		const chain = model === FLASH ? [FLASH] : [model, FLASH];
+		for (const m of chain) {
+			try {
+				const r = await gemini(m, keys.geminiKey, prompt, maxTokens);
+				if (r.text.trim()) return { ...r, provider: "gemini" };
+			} catch (e) {
+				errors.push(`Gemini ${m}: ${e instanceof Error ? e.message : e}`);
+			}
 		}
 	}
 	if (keys.nvidiaKey) {
@@ -194,27 +218,27 @@ function buildPrompt(
 	sources: Citation[],
 	sourceText: string[],
 	words: number,
-	tone?: string,
+	opts: { tone?: string; instructions?: string },
 ): string {
 	const block = sources
 		.map((s, i) => `[${s.n}] (${s.file})\n${sourceText[i]}`)
 		.join("\n\n");
 	const plan = outline.length
-		? `\nSuggested structure (refine headings as needed):\n${outline.map((h, i) => `${i + 1}. ${h}`).join("\n")}\n`
+		? `\nSuggested default structure (use it ONLY where the author instructions don't specify otherwise):\n${outline.map((h, i) => `${i + 1}. ${h}`).join("\n")}\n`
 		: "";
-	return `You are an expert long-form writer and teacher. Write a comprehensive, deeply instructive article on the topic, grounded STRICTLY in the numbered SOURCE EXCERPTS below (a corpus of spiritual talks and transcripts).
+	const brief = opts.instructions?.trim()
+		? `\nAUTHOR INSTRUCTIONS — follow these EXACTLY; they take priority over the default structure (e.g. a requested summary, call-to-action, meditation, format, or length):\n${opts.instructions.trim()}\n`
+		: "";
+	return `You are an expert long-form writer and teacher. Write a comprehensive, deeply instructive article, grounded STRICTLY in the numbered SOURCE EXCERPTS below (a corpus of spiritual talks and transcripts).
 
 TOPIC: ${topic}
-${tone ? `TONE: ${tone}\n` : ""}TARGET LENGTH: about ${words} words.
-${plan}
+${opts.tone ? `TONE: ${opts.tone}\n` : ""}TARGET LENGTH: about ${words} words.
+${brief}${plan}
 Requirements:
-- Open with a short, substantive introduction — no clickbait, no "read on!".
-- DEFINE the key terms and concepts precisely, including any Sanskrit terms found in the sources, and explain what each one means.
-- Explain the MECHANISM: how and why things work, the cause-and-effect — not just assertions.
-- Include a clearly numbered set of practical, STEP-BY-STEP techniques the reader can actually follow.
-- End with a CONCLUSIVE synthesis that ties everything into a clear, memorable takeaway.
+- Open with a short, substantive introduction — no clickbait, no "read on!" filler.
+- Unless the author instructions say otherwise: DEFINE the key terms precisely (including any Sanskrit terms in the sources), explain the MECHANISM (cause and effect), give a clearly numbered set of STEP-BY-STEP techniques, and end with a CONCLUSIVE synthesis.
 - Use ONLY information supported by the excerpts; do NOT invent facts, names, or quotes. Where the excerpts are silent, leave it out rather than fabricating.
-- Cite sources inline as [n].
+- Citations: cite a source inline as [n] immediately after the clause it supports (e.g. "...a survival threat before the age of seven [4]."). NEVER reference sources in prose — do NOT write "according to", "as stated in", "the excerpts say", or "according to the source/text". Use [n] only, or state the idea directly.
 - Begin with a "# " title, then use "## " section headings. Return ONLY Markdown — no preamble, no sources list.
 
 SOURCE EXCERPTS:
@@ -227,6 +251,7 @@ export async function generateArticle(
 		tone?: string;
 		length?: "short" | "medium" | "long";
 		quality?: "standard" | "high";
+		instructions?: string;
 	},
 ): Promise<{
 	title: string;
@@ -273,14 +298,10 @@ export async function generateArticle(
 	// 3) write
 	const model = opts.quality === "high" ? PRO : FLASH;
 	const maxTokens = Math.min(8192, Math.round(words * 3));
-	const prompt = buildPrompt(
-		topic,
-		outline,
-		sources,
-		sourceText,
-		words,
-		opts.tone,
-	);
+	const prompt = buildPrompt(topic, outline, sources, sourceText, words, {
+		tone: opts.tone,
+		instructions: opts.instructions,
+	});
 	const { text, provider } = await completeLong(keys, model, prompt, maxTokens);
 
 	const content = text.trim().replace(/^```(?:markdown)?\s*|\s*```$/g, "");
