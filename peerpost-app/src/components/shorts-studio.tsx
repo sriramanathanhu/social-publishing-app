@@ -13,6 +13,7 @@ const LBL = "block text-xs font-medium opacity-60";
  * ShortsTable below, which re-renders when this calls router.refresh(). */
 export function ShortsStudio() {
 	const router = useRouter();
+	const [name, setName] = useState("");
 	const [url, setUrl] = useState("");
 	const [numClips, setNumClips] = useState(3);
 	const [minSeconds, setMinSeconds] = useState(90);
@@ -31,15 +32,57 @@ export function ShortsStudio() {
 	);
 	const [error, setError] = useState<string | null>(null);
 	const esRef = useRef<EventSource | null>(null);
+	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-	useEffect(() => () => esRef.current?.close(), []);
+	useEffect(
+		() => () => {
+			esRef.current?.close();
+			if (pollRef.current) clearInterval(pollRef.current);
+		},
+		[],
+	);
+
+	function stopWatching() {
+		esRef.current?.close();
+		if (pollRef.current) clearInterval(pollRef.current);
+	}
 
 	async function syncStatus(id: string) {
 		try {
 			await fetch(`/api/shorts/${id}`);
 		} catch {
-			/* refresh re-reads the row */
+			/* the refresh re-reads the row */
 		}
+	}
+
+	// Poll the status as a safety net: the SSE connection is often cut by the
+	// gateway on long jobs, so the "done" event never arrives and the row would
+	// otherwise stay "running" until a manual refresh. Polling the status route
+	// (which syncs from the sidecar) catches completion reliably.
+	function startPolling(id: string) {
+		if (pollRef.current) clearInterval(pollRef.current);
+		pollRef.current = setInterval(async () => {
+			try {
+				const r = await fetch(`/api/shorts/${id}`);
+				const d = await r.json();
+				const j = d?.job;
+				if (!j) return;
+				setProgress((p) => ({
+					pct: j.pct ?? p?.pct ?? 0,
+					stage: j.stage ?? p?.stage ?? "",
+					message: j.message ?? p?.message ?? "",
+				}));
+				if (j.status === "done" || j.status === "failed") {
+					stopWatching();
+					setPhase(j.status);
+					if (j.status === "failed") setError(j.error || "Shorts job failed");
+					else setProgress((p) => (p ? { ...p, pct: 100 } : null));
+					router.refresh();
+				}
+			} catch {
+				/* keep polling */
+			}
+		}, 5000);
 	}
 
 	function subscribe(id: string) {
@@ -55,20 +98,22 @@ export function ShortsStudio() {
 			}
 		});
 		es.addEventListener("done", async () => {
+			stopWatching();
 			setPhase("done");
 			setProgress((p) => (p ? { ...p, pct: 100 } : null));
-			es.close();
 			await syncStatus(id);
 			router.refresh();
 		});
 		es.addEventListener("failed", async (e) => {
+			stopWatching();
 			setPhase("failed");
 			setError((e as MessageEvent).data || "Shorts job failed");
-			es.close();
 			await syncStatus(id);
 			router.refresh();
 		});
+		// If the gateway cuts the SSE stream, the poll below still catches the end.
 		es.onerror = () => es.close();
+		startPolling(id);
 	}
 
 	async function submit(e: React.FormEvent) {
@@ -81,6 +126,7 @@ export function ShortsStudio() {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
+					name: name.trim() || undefined,
 					sourceType: "url",
 					sourceInput: url,
 					numClips,
@@ -110,6 +156,20 @@ export function ShortsStudio() {
 				onSubmit={submit}
 				className="space-y-4 rounded-xl border border-black/10 bg-white p-5 shadow-sm"
 			>
+				<div>
+					<label className={LBL} htmlFor="shorts-name">
+						Job name
+					</label>
+					<input
+						id="shorts-name"
+						value={name}
+						onChange={(e) => setName(e.target.value)}
+						type="text"
+						placeholder="e.g. Nithyananda Puranima — Russian (optional)"
+						className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+					/>
+				</div>
+
 				<div>
 					<label className={LBL} htmlFor="shorts-url">
 						Long video URL

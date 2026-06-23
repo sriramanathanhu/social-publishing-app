@@ -24,6 +24,7 @@ export const GET = route(async () => {
 });
 
 const createSchema = z.object({
+	name: z.string().max(120).optional(),
 	sourceType: z.enum(["url", "upload"]).default("url"),
 	sourceInput: z.string().url(),
 	numClips: z.number().int().min(1).max(30).default(3),
@@ -70,6 +71,7 @@ export const POST = route(async (request: NextRequest) => {
 		.insert(shortsJobs)
 		.values({
 			userId: user.id,
+			name: input.name?.trim() || null,
 			status: "queued",
 			sourceType: input.sourceType,
 			sourceInput: input.sourceInput,

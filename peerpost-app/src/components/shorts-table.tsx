@@ -35,12 +35,29 @@ function DeleteJobButton({ id }: { id: string }) {
 
 type ShortsJobRow = {
 	id: string;
+	name: string | null;
 	status: string;
 	sourceInput: string;
 	numClips: number;
 	error: string | null;
 	createdAt: string | Date;
+	completedAt: string | Date | null;
 };
+
+/** Human-readable elapsed time between two timestamps (e.g. "3m 12s"). */
+function timeTaken(
+	start: string | Date,
+	end: string | Date | null,
+): string | null {
+	if (!end) return null;
+	const ms = new Date(end).getTime() - new Date(start).getTime();
+	if (!Number.isFinite(ms) || ms < 0) return null;
+	const s = Math.round(ms / 1000);
+	if (s < 60) return `${s}s`;
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m ${s % 60}s`;
+	return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
 type ClipRow = {
 	id: string;
 	jobId: string;
@@ -91,10 +108,21 @@ export function ShortsTable({
 						{/* Job header */}
 						<div className="flex items-center justify-between gap-3 rounded-lg bg-black/[0.03] px-4 py-2 text-sm">
 							<div className="min-w-0">
-								<div className="truncate font-medium">{job.sourceInput}</div>
+								<a
+									href={job.sourceInput}
+									target="_blank"
+									rel="noreferrer"
+									className="block truncate font-medium text-primary hover:underline"
+									title={job.sourceInput}
+								>
+									{job.name || job.sourceInput}
+								</a>
 								<div className="text-xs opacity-50">
 									{jobClips.length}/{job.numClips} clips ·{" "}
 									{new Date(job.createdAt).toLocaleString()}
+									{timeTaken(job.createdAt, job.completedAt)
+										? ` · took ${timeTaken(job.createdAt, job.completedAt)}`
+										: ""}
 								</div>
 							</div>
 							<div className="flex shrink-0 items-center gap-2">

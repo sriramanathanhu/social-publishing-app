@@ -83,6 +83,7 @@ export async function reconcileRunningShorts(userId: string): Promise<number> {
 					stage: remote.stage,
 					message: remote.message,
 					error: remote.error,
+					completedAt: new Date(),
 					updatedAt: new Date(),
 				})
 				.where(eq(shortsJobs.id, job.id));

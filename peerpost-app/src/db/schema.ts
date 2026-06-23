@@ -453,6 +453,8 @@ export const shortsJobs = pgTable(
 			.references(() => users.id, { onDelete: "cascade" }),
 		// The job id returned by the dubber-service (POST /shorts).
 		shortsJobId: text("shorts_job_id"),
+		// User-supplied name for the job (shown + linked in the table).
+		name: text("name"),
 		status: dubJobStatusEnum("status").notNull().default("queued"),
 		sourceType: text("source_type").notNull(), // "url" | "upload"
 		sourceInput: text("source_input").notNull(),
@@ -463,6 +465,8 @@ export const shortsJobs = pgTable(
 		numClips: integer("num_clips").notNull().default(15),
 		settings: jsonb("settings").$type<Record<string, unknown>>(),
 		error: text("error"),
+		// Set when the job reaches a terminal state (for "time taken").
+		completedAt: timestamp("completed_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),

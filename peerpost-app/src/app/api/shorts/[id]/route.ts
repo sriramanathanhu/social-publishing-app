@@ -33,6 +33,7 @@ export const GET = route(async (_req: NextRequest, { params }: Ctx) => {
 						? "failed"
 						: "running";
 			if (status === "done") await persistClips(job.id, job.shortsJobId);
+			const terminal = status === "done" || status === "failed";
 			const [updated] = await db
 				.update(shortsJobs)
 				.set({
@@ -41,6 +42,7 @@ export const GET = route(async (_req: NextRequest, { params }: Ctx) => {
 					stage: remote.stage,
 					message: remote.message,
 					error: remote.error,
+					completedAt: terminal ? new Date() : undefined,
 					updatedAt: new Date(),
 				})
 				.where(eq(shortsJobs.id, job.id))

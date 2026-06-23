@@ -51,12 +51,18 @@ export default async function ShortsPage() {
 
 	const jobRows = jobs.map((j) => ({
 		id: j.id,
+		name: j.name,
 		status: j.status,
 		sourceInput: j.sourceInput,
 		numClips: j.numClips,
 		error: j.error,
 		createdAt:
 			j.createdAt instanceof Date ? j.createdAt.toISOString() : j.createdAt,
+		completedAt: j.completedAt
+			? j.completedAt instanceof Date
+				? j.completedAt.toISOString()
+				: j.completedAt
+			: null,
 	}));
 
 	return (
