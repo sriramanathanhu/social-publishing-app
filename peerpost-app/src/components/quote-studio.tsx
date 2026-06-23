@@ -25,18 +25,23 @@ const TONES = [
  * Each can be posted as text or a branded image card; regenerate one, append
  * more, or batch-schedule the whole set.
  */
+type TranscriptOption = { id: string; title: string; transcript: string };
+
 export function QuoteStudio({
 	ecosystems,
 	backgrounds,
 	overlays,
 	initialItems,
+	transcripts,
 }: {
 	ecosystems: Ecosystem[];
 	backgrounds: QuoteBackground[];
 	overlays: QuoteOverlay[];
 	initialItems: QuoteItem[];
+	transcripts: TranscriptOption[];
 }) {
 	const [content, setContent] = useState("");
+	const [showTranscripts, setShowTranscripts] = useState(false);
 	const [count, setCount] = useState(6);
 	const [tone, setTone] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -137,11 +142,74 @@ export function QuoteStudio({
 
 	return (
 		<div className="space-y-4">
+			{showTranscripts && (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+					onClick={() => setShowTranscripts(false)}
+					onKeyDown={(e) => e.key === "Escape" && setShowTranscripts(false)}
+					role="presentation"
+				>
+					<div
+						className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl bg-white p-4 shadow-xl"
+						onClick={(e) => e.stopPropagation()}
+						role="presentation"
+					>
+						<div className="mb-3 flex items-center justify-between">
+							<h3 className="font-semibold text-sm">Select a transcript</h3>
+							<button
+								type="button"
+								onClick={() => setShowTranscripts(false)}
+								className="rounded-md border border-black/15 px-2.5 py-1 text-xs hover:bg-black/5"
+							>
+								Close
+							</button>
+						</div>
+						{transcripts.length === 0 ? (
+							<p className="text-sm opacity-60">
+								No finished transcripts yet. Create one under Content →
+								Transcribe.
+							</p>
+						) : (
+							<div className="space-y-1 overflow-y-auto">
+								{transcripts.map((t) => (
+									<button
+										type="button"
+										key={t.id}
+										onClick={() => {
+											setContent(t.transcript);
+											setShowTranscripts(false);
+										}}
+										className="block w-full rounded-md border border-black/10 px-3 py-2 text-left text-sm hover:bg-black/5"
+									>
+										<div className="font-medium">{t.title}</div>
+										<div className="truncate text-xs opacity-50">
+											{t.transcript.length.toLocaleString()} chars ·{" "}
+											{t.transcript.slice(0, 80)}…
+										</div>
+									</button>
+								))}
+							</div>
+						)}
+					</div>
+				</div>
+			)}
 			<div className="space-y-3 rounded-xl border border-black/10 bg-white p-5 shadow-sm">
 				<div>
-					<label className="block text-xs font-medium opacity-60" htmlFor="src">
-						Long-form content
-					</label>
+					<div className="flex items-center justify-between">
+						<label
+							className="block text-xs font-medium opacity-60"
+							htmlFor="src"
+						>
+							Long-form content
+						</label>
+						<button
+							type="button"
+							onClick={() => setShowTranscripts(true)}
+							className="rounded-md border border-black/15 px-2.5 py-1 text-xs hover:bg-black/5"
+						>
+							Select transcript
+						</button>
+					</div>
 					<textarea
 						id="src"
 						value={content}

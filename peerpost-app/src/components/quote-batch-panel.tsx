@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { BackgroundPicker } from "@/components/background-picker";
 import type { Ecosystem } from "@/components/publish-row";
 import { readJson } from "@/components/publish-row";
 import { QuoteCardPreview } from "@/components/quote-card-preview";
@@ -72,6 +73,7 @@ export function QuoteBatchPanel({
 	const [rendering, setRendering] = useState(false);
 	const [renderingIds, setRenderingIds] = useState<Set<string>>(new Set());
 	const [lightbox, setLightbox] = useState<string | null>(null);
+	const [pickerFor, setPickerFor] = useState<string | null>(null);
 
 	const [ecoId, setEcoId] = useState("");
 	const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -121,13 +123,6 @@ export function QuoteBatchPanel({
 		});
 	}
 
-	function cycleBg(id: string) {
-		if (pool.length === 0) return;
-		const cur = items.find((q) => q.id === id)?.bgUrl ?? null;
-		const idx = cur ? pool.indexOf(cur) : -1;
-		setBg(id, pool[(idx + 1) % pool.length]);
-	}
-
 	async function uploadMany(files: FileList) {
 		setUploadBusy(true);
 		setMsg(null);
@@ -146,6 +141,33 @@ export function QuoteBatchPanel({
 			}
 			setPool((p) => [...urls, ...p]);
 			assignInOrder(urls);
+		} catch (err) {
+			setMsg(err instanceof Error ? err.message : "Upload failed");
+		} finally {
+			setUploadBusy(false);
+		}
+	}
+
+	// Upload one image for a single card (from the gallery picker's "upload").
+	async function uploadOne(file: File, cardId: string) {
+		setUploadBusy(true);
+		setMsg(null);
+		try {
+			const fd = new FormData();
+			fd.append("file", file);
+			const res = await fetch("/api/quotes/card-bg", {
+				method: "POST",
+				body: fd,
+			});
+			const d = await readJson(res);
+			if (!res.ok)
+				throw new Error((d as { error?: string }).error ?? "Upload failed");
+			const url = (d as { url?: string }).url;
+			if (url) {
+				setPool((p) => [url, ...p]);
+				setBg(cardId, url);
+			}
+			setPickerFor(null);
 		} catch (err) {
 			setMsg(err instanceof Error ? err.message : "Upload failed");
 		} finally {
@@ -272,6 +294,15 @@ export function QuoteBatchPanel({
 			{lightbox && (
 				<QuoteCardPreview url={lightbox} onClose={() => setLightbox(null)} />
 			)}
+			{pickerFor && (
+				<BackgroundPicker
+					backgrounds={backgrounds}
+					onSelect={(url) => setBg(pickerFor, url)}
+					onClose={() => setPickerFor(null)}
+					onUploadFile={(file) => uploadOne(file, pickerFor)}
+					uploadBusy={uploadBusy}
+				/>
+			)}
 			<h3 className="text-sm font-semibold">⚡ Batch cards &amp; schedule</h3>
 
 			{/* 1. Cards: quote text + background per item */}
@@ -312,12 +343,12 @@ export function QuoteBatchPanel({
 							<button
 								type="button"
 								onClick={() =>
-									q.cardUrl ? setLightbox(q.cardUrl) : cycleBg(q.id)
+									q.cardUrl ? setLightbox(q.cardUrl) : setPickerFor(q.id)
 								}
 								title={
 									q.cardUrl
 										? "Click to enlarge"
-										: "Click to set / change background"
+										: "Click to choose a background from the gallery"
 								}
 								className="relative h-20 w-16 shrink-0 overflow-hidden rounded border border-black/10 bg-black/5"
 							>
@@ -350,15 +381,13 @@ export function QuoteBatchPanel({
 									className="w-full resize-y rounded-md border border-black/15 px-2 py-1 text-sm"
 								/>
 								<div className="mt-0.5 flex items-center gap-2 text-[11px] opacity-50">
-									{q.bgUrl && (
-										<button
-											type="button"
-											onClick={() => cycleBg(q.id)}
-											className="hover:underline"
-										>
-											change bg
-										</button>
-									)}
+									<button
+										type="button"
+										onClick={() => setPickerFor(q.id)}
+										className="hover:underline"
+									>
+										{q.bgUrl ? "change bg" : "choose bg"}
+									</button>
 									{q.cardUrl && (
 										<button
 											type="button"

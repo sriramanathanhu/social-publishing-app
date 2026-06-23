@@ -1,7 +1,12 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { QuoteStudio } from "@/components/quote-studio";
 import { db } from "@/db";
-import { quoteBackgrounds, quoteItems, quoteOverlays } from "@/db/schema";
+import {
+	quoteBackgrounds,
+	quoteItems,
+	quoteOverlays,
+	transcriptJobs,
+} from "@/db/schema";
 import { requirePageUser } from "@/lib/page-auth";
 import { getAccessibleProfiles, getConnectedAccounts } from "@/lib/queries";
 
@@ -15,39 +20,56 @@ export default async function QuotesPage() {
 	const user = await requirePageUser();
 
 	const profiles = await getAccessibleProfiles(user);
-	const [ecosystems, backgrounds, overlays, items] = await Promise.all([
-		Promise.all(
-			profiles.map(async (p) => ({
-				id: p.id,
-				name: p.name,
-				teamName: p.teamName,
-				accounts: await getConnectedAccounts(p.id),
-			})),
-		),
-		db
-			.select({
-				id: quoteBackgrounds.id,
-				url: quoteBackgrounds.url,
-				label: quoteBackgrounds.label,
-			})
-			.from(quoteBackgrounds)
-			.orderBy(desc(quoteBackgrounds.createdAt)),
-		db
-			.select({
-				id: quoteOverlays.id,
-				url: quoteOverlays.url,
-				label: quoteOverlays.label,
-				isDefault: quoteOverlays.isDefault,
-			})
-			.from(quoteOverlays)
-			.orderBy(desc(quoteOverlays.isDefault), desc(quoteOverlays.createdAt)),
-		db
-			.select()
-			.from(quoteItems)
-			.where(eq(quoteItems.userId, user.id))
-			.orderBy(desc(quoteItems.createdAt))
-			.limit(120),
-	]);
+	const [ecosystems, backgrounds, overlays, items, transcripts] =
+		await Promise.all([
+			Promise.all(
+				profiles.map(async (p) => ({
+					id: p.id,
+					name: p.name,
+					teamName: p.teamName,
+					accounts: await getConnectedAccounts(p.id),
+				})),
+			),
+			db
+				.select({
+					id: quoteBackgrounds.id,
+					url: quoteBackgrounds.url,
+					label: quoteBackgrounds.label,
+				})
+				.from(quoteBackgrounds)
+				.orderBy(desc(quoteBackgrounds.createdAt)),
+			db
+				.select({
+					id: quoteOverlays.id,
+					url: quoteOverlays.url,
+					label: quoteOverlays.label,
+					isDefault: quoteOverlays.isDefault,
+				})
+				.from(quoteOverlays)
+				.orderBy(desc(quoteOverlays.isDefault), desc(quoteOverlays.createdAt)),
+			db
+				.select()
+				.from(quoteItems)
+				.where(eq(quoteItems.userId, user.id))
+				.orderBy(desc(quoteItems.createdAt))
+				.limit(120),
+			db
+				.select({
+					id: transcriptJobs.id,
+					title: transcriptJobs.title,
+					transcript: transcriptJobs.transcript,
+				})
+				.from(transcriptJobs)
+				.where(
+					and(
+						eq(transcriptJobs.userId, user.id),
+						eq(transcriptJobs.status, "done"),
+						isNotNull(transcriptJobs.transcript),
+					),
+				)
+				.orderBy(desc(transcriptJobs.createdAt))
+				.limit(100),
+		]);
 
 	return (
 		<div className="space-y-5">
@@ -73,6 +95,13 @@ export default async function QuotesPage() {
 					panY: i.panY,
 					zoom: i.zoom,
 				}))}
+				transcripts={transcripts
+					.filter((t) => t.transcript)
+					.map((t) => ({
+						id: t.id,
+						title: t.title,
+						transcript: t.transcript as string,
+					}))}
 			/>
 		</div>
 	);
