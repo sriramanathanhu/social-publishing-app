@@ -138,7 +138,17 @@ export function ArticleStudio({
 				}),
 			});
 			const data = await res.json();
-			if (!res.ok) throw new Error(data.error || "Generation failed");
+			if (!res.ok) {
+				const fieldErrors = data?.details?.fieldErrors as
+					| Record<string, string[]>
+					| undefined;
+				const detail = fieldErrors
+					? Object.entries(fieldErrors)
+							.map(([k, v]) => `${k} ${v.join(", ")}`)
+							.join("; ")
+					: null;
+				throw new Error(detail || data.error || "Generation failed");
+			}
 			setArticles((prev) => [data.article, ...prev]);
 			setSelectedId(data.article.id);
 			setTopic("");

@@ -11,11 +11,11 @@ import { route } from "@/lib/http";
 export const runtime = "nodejs";
 
 const schema = z.object({
-	topic: z.string().min(3).max(500),
-	tone: z.string().max(60).optional(),
+	topic: z.string().trim().min(3).max(5000),
+	tone: z.string().max(120).optional(),
 	length: z.enum(["short", "medium", "long"]).optional(),
 	quality: z.enum(["standard", "high"]).optional(),
-	instructions: z.string().max(2000).optional(),
+	instructions: z.string().max(10000).optional(),
 });
 
 /** GET /api/articles — the caller's saved articles (recent first). */
