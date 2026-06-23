@@ -34,6 +34,43 @@ DEFAULT_BOX = (110, 975, 975, 1170)
 DEFAULT_COLOR = (245, 242, 235)  # warm cream
 _LINE_RATIO = 1.28
 
+# The brand font (EB Garamond) only covers Latin. For other scripts, fall back
+# to a Noto font that has the glyphs — otherwise the quote renders as tofu
+# boxes. (Greatest-coverage script in the text wins; Latin keeps the brand font.)
+_SCRIPT_FONTS = [
+    ("devanagari", (0x0900, 0x097F), "noto-devanagari.ttf"),
+    ("bengali", (0x0980, 0x09FF), "noto-bengali.ttf"),
+    ("gurmukhi", (0x0A00, 0x0A7F), "noto-gurmukhi.ttf"),
+    ("gujarati", (0x0A80, 0x0AFF), "noto-gujarati.ttf"),
+    ("tamil", (0x0B80, 0x0BFF), "noto-tamil.ttf"),
+    ("telugu", (0x0C00, 0x0C7F), "noto-telugu.ttf"),
+    ("kannada", (0x0C80, 0x0CFF), "noto-kannada.ttf"),
+    ("malayalam", (0x0D00, 0x0D7F), "noto-malayalam.ttf"),
+    ("cyrillic", (0x0400, 0x04FF), "noto-sans.ttf"),
+]
+# Indic scripts have stacked matras (vowel marks above/below), so they need a
+# bit more line height than Latin to avoid clipping.
+_LINE_RATIO_NONLATIN = 1.5
+
+
+def _pick_font(text: str) -> tuple[str, bool]:
+    """Return (font_path, is_nonlatin) based on the dominant script in ``text``."""
+    counts: dict[str, int] = {}
+    for ch in text:
+        cp = ord(ch)
+        for name, (lo, hi), _f in _SCRIPT_FONTS:
+            if lo <= cp <= hi:
+                counts[name] = counts.get(name, 0) + 1
+                break
+    if not counts:
+        return FONT_PATH, False
+    best = max(counts, key=counts.get)
+    for name, _r, fname in _SCRIPT_FONTS:
+        if name == best:
+            path = os.path.join(_ASSETS, fname)
+            return (path, True) if os.path.exists(path) else (FONT_PATH, False)
+    return FONT_PATH, False
+
 
 def _cover_fit(img: Image.Image, w: int, h: int, pan_y: float, zoom: float) -> Image.Image:
     """Scale to COVER w×h then crop; pan_y 0=top..1=bottom, zoom ≥1 zooms in."""
@@ -61,17 +98,17 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, ma
     return lines
 
 
-def _fit(draw, text, box, max_size, min_size):
+def _fit(draw, text, box, max_size, min_size, font_path, line_ratio):
     left, top, right, bottom = box
     max_w, max_h = right - left, bottom - top
     for size in range(max_size, min_size - 1, -2):
-        font = ImageFont.truetype(FONT_PATH, size)
+        font = ImageFont.truetype(font_path, size)
         lines = _wrap(draw, text, font, max_w)
-        line_h = int(size * _LINE_RATIO)
+        line_h = int(size * line_ratio)
         if line_h * len(lines) <= max_h:
             return font, lines, line_h
-    font = ImageFont.truetype(FONT_PATH, min_size)
-    return font, _wrap(draw, text, font, right - left), int(min_size * _LINE_RATIO)
+    font = ImageFont.truetype(font_path, min_size)
+    return font, _wrap(draw, text, font, right - left), int(min_size * line_ratio)
 
 
 def _load_photo(photo_url: str) -> Image.Image:
@@ -107,7 +144,11 @@ def render_quote_card(
     card.alpha_composite(overlay)
 
     draw = ImageDraw.Draw(card)
-    font, lines, line_h = _fit(draw, quote.strip(), box, max_size, min_size)
+    font_path, nonlatin = _pick_font(quote)
+    line_ratio = _LINE_RATIO_NONLATIN if nonlatin else _LINE_RATIO
+    font, lines, line_h = _fit(
+        draw, quote.strip(), box, max_size, min_size, font_path, line_ratio
+    )
     left, top, right, _bottom = box
     fill = (*tuple(color), 255)
     y = top
