@@ -638,3 +638,24 @@ export const transcriptJobs = pgTable(
 	},
 	(t) => [index("transcript_jobs_user_idx").on(t.userId)],
 );
+
+/** User-uploaded videos (e.g. manually-edited shorts) kept in R2 and surfaced
+ * in the Library alongside generated shorts clips. */
+export const userVideos = pgTable(
+	"user_videos",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		title: text("title").notNull().default("Untitled"),
+		r2Key: text("r2_key").notNull(),
+		url: text("url").notNull(),
+		contentType: text("content_type"),
+		sizeBytes: integer("size_bytes"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [index("user_videos_user_idx").on(t.userId)],
+);

@@ -58,6 +58,17 @@ export function Sidebar({ user }: { user: NavUser }) {
 
 				<div>
 					<div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide opacity-40">
+						Library
+					</div>
+					<NavLink href="/library/photo" label="Photo" />
+					<NavLink href="/library/video" label="Video" />
+					<NavLink href="/library/quotes" label="Quotes" />
+					<NavLink href="/library/articles" label="Articles" />
+					<NavLink href="/library/transcript" label="Transcript" />
+				</div>
+
+				<div>
+					<div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide opacity-40">
 						Publishing
 					</div>
 					<NavLink href="/publishing/overview" label="Overview" />
@@ -82,7 +93,6 @@ export function Sidebar({ user }: { user: NavUser }) {
 						<NavLink href="/admin/ecosystems" label="Ecosystems" />
 						<NavLink href="/admin/members" label="Members" />
 						<NavLink href="/admin/diagnostics" label="Diagnostics" />
-						<NavLink href="/admin/gallery" label="Gallery" />
 					</div>
 				)}
 			</nav>

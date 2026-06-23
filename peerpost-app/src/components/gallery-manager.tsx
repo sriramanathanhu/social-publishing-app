@@ -14,6 +14,7 @@ export function GalleryManager({
 	deleteBase,
 	accept,
 	checkered,
+	editable = true,
 }: {
 	readonly title: string;
 	readonly hint: string;
@@ -22,6 +23,7 @@ export function GalleryManager({
 	readonly deleteBase: string;
 	readonly accept: string;
 	readonly checkered?: boolean;
+	readonly editable?: boolean;
 }) {
 	const router = useRouter();
 	const [busy, setBusy] = useState(false);
@@ -58,27 +60,31 @@ export function GalleryManager({
 		<section className="space-y-3">
 			<div className="flex flex-wrap items-center gap-3">
 				<h2 className="text-sm font-semibold">{title}</h2>
-				<input
-					value={label}
-					onChange={(e) => setLabel(e.target.value)}
-					placeholder="Label (optional)"
-					className="rounded-md border border-black/15 px-2.5 py-1.5 text-sm"
-				/>
-				<label className="cursor-pointer rounded-md bg-primary px-4 py-2 text-sm font-medium text-white">
-					{busy ? "Uploading…" : "Upload"}
-					<input
-						type="file"
-						accept={accept}
-						className="hidden"
-						disabled={busy}
-						onChange={(e) => {
-							const f = e.target.files?.[0];
-							if (f) upload(f);
-						}}
-					/>
-				</label>
-				<span className="text-xs opacity-50">{hint}</span>
-				{error && <span className="text-sm text-red-600">{error}</span>}
+				{editable && (
+					<>
+						<input
+							value={label}
+							onChange={(e) => setLabel(e.target.value)}
+							placeholder="Label (optional)"
+							className="rounded-md border border-black/15 px-2.5 py-1.5 text-sm"
+						/>
+						<label className="cursor-pointer rounded-md bg-primary px-4 py-2 text-sm font-medium text-white">
+							{busy ? "Uploading…" : "Upload"}
+							<input
+								type="file"
+								accept={accept}
+								className="hidden"
+								disabled={busy}
+								onChange={(e) => {
+									const f = e.target.files?.[0];
+									if (f) upload(f);
+								}}
+							/>
+						</label>
+						<span className="text-xs opacity-50">{hint}</span>
+						{error && <span className="text-sm text-red-600">{error}</span>}
+					</>
+				)}
 			</div>
 
 			{items.length === 0 ? (
@@ -95,13 +101,15 @@ export function GalleryManager({
 								alt={it.label ?? title}
 								className={`aspect-[4/5] w-full rounded-lg border border-black/10 object-cover ${checkered ? "bg-[length:16px_16px] bg-[linear-gradient(45deg,#ddd_25%,transparent_25%),linear-gradient(-45deg,#ddd_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#ddd_75%),linear-gradient(-45deg,transparent_75%,#ddd_75%)] [background-position:0_0,0_8px,8px_-8px,-8px_0]" : ""}`}
 							/>
-							<button
-								type="button"
-								onClick={() => remove(it.id)}
-								className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white opacity-0 transition group-hover:opacity-100"
-							>
-								Delete
-							</button>
+							{editable && (
+								<button
+									type="button"
+									onClick={() => remove(it.id)}
+									className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white opacity-0 transition group-hover:opacity-100"
+								>
+									Delete
+								</button>
+							)}
 							{it.label && (
 								<div className="mt-1 truncate text-[11px] opacity-60">
 									{it.label}
