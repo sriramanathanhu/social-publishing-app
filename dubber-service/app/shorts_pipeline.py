@@ -38,8 +38,11 @@ from dubber.utils import log
 
 # Parallel render: a few workers, each ffmpeg capped to a couple of threads, so
 # we use the cores without oversubscribing an 8-core box.
-_MAX_WORKERS = max(2, min(4, (os.cpu_count() or 4) // 2))
-_FFMPEG_THREADS = 2
+# Parallel clip renders per shorts job. Default 2 (was up to 4): on a shared
+# box, 4 parallel x264 encodes saturate every core. Tunable via env.
+_MAX_WORKERS = max(1, int(os.getenv("SHORTS_MAX_WORKERS", "2")))
+# Threads per ffmpeg encode, so a single render can't grab all cores.
+_FFMPEG_THREADS = max(1, int(os.getenv("FFMPEG_THREADS", "2")))
 
 
 @dataclass

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import tempfile
 import threading
 import uuid
@@ -65,6 +66,19 @@ class Job:
 
 JOBS: dict[str, Job] = {}
 
+# ── Concurrency cap ──────────────────────────────────────────────────────────
+# Heavy jobs (dub / shorts / transcribe) are CPU-bound (ffmpeg). Without a cap,
+# several users running jobs at once saturate every core and the box thrashes.
+# A global semaphore lets at most N run concurrently; the rest wait (their job
+# stays "queued" and the client keeps polling). Tune via the env var.
+MAX_CONCURRENT_JOBS = max(1, int(os.getenv("DUBBER_MAX_CONCURRENT_JOBS", "2")))
+_job_slots = threading.BoundedSemaphore(MAX_CONCURRENT_JOBS)
+
+
+def _cleanup_workspace(job_id: str) -> None:
+    """Remove a job's scratch folder once it's finished (frees disk)."""
+    shutil.rmtree(os.path.join("workspace", job_id), ignore_errors=True)
+
 
 class CreateJob(BaseModel):
     video_input: str
@@ -80,6 +94,9 @@ class CreateJob(BaseModel):
 
 
 def _run_job(job: Job, body: CreateJob) -> None:
+    job.status = "queued"
+    job.message = "Queued — waiting for a free slot…"
+    _job_slots.acquire()
     job.status = "running"
     out_path = os.path.join(OUTPUT_DIR, f"{job.id}.mp4")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -127,6 +144,8 @@ def _run_job(job: Job, body: CreateJob) -> None:
                 os.remove(cookies_file)
             except OSError:
                 pass
+        _cleanup_workspace(job.id)
+        _job_slots.release()
         # Sentinel so an open SSE stream knows to close.
         job.events.put(None)  # type: ignore[arg-type]
 
@@ -232,6 +251,9 @@ class CreateTranscribe(BaseModel):
 
 
 def _run_transcribe(job: "TranscribeJobState", body: CreateTranscribe) -> None:
+    job.status = "queued"
+    job.message = "Queued — waiting for a free slot…"
+    _job_slots.acquire()
     job.status = "running"
 
     def on_progress(pct: int, stage: str, message: str) -> None:
@@ -252,6 +274,8 @@ def _run_transcribe(job: "TranscribeJobState", body: CreateTranscribe) -> None:
     except Exception as exc:
         job.status = "failed"
         job.error = str(exc)
+    finally:
+        _job_slots.release()
 
 
 @app.post("/transcribe", dependencies=[Depends(require_token)])
@@ -323,6 +347,9 @@ class CreateShorts(BaseModel):
 
 
 def _run_shorts(job: ShortsJob, body: CreateShorts) -> None:
+    job.status = "queued"
+    job.message = "Queued — waiting for a free slot…"
+    _job_slots.acquire()
     job.status = "running"
     cookies_file = None
     if body.cookies.strip():
@@ -382,6 +409,8 @@ def _run_shorts(job: ShortsJob, body: CreateShorts) -> None:
                 os.remove(cookies_file)
             except OSError:
                 pass
+        _cleanup_workspace(job.id)
+        _job_slots.release()
         job.events.put(None)  # type: ignore[arg-type]
 
 
