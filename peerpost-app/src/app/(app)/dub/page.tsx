@@ -76,14 +76,25 @@ export default async function DubPage() {
 			.orderBy(desc(shortsJobs.createdAt))
 			.limit(100),
 	]);
-	const libraryVideos = [
-		...uploads.map((v) => ({ id: v.id, title: v.title, url: v.url })),
+	const libraryVideos: {
+		id: string;
+		title: string;
+		url: string;
+		kind: "upload" | "short";
+	}[] = [
+		...uploads.map((v) => ({
+			id: v.id,
+			title: v.title,
+			url: v.url,
+			kind: "upload" as const,
+		})),
 		...clips
 			.filter((c) => c.url)
 			.map((c) => ({
 				id: c.id,
 				title: c.title ? `Short — ${c.title}` : "Short clip",
 				url: c.url as string,
+				kind: "short" as const,
 			})),
 	];
 

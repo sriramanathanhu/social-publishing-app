@@ -11,12 +11,17 @@ type Progress = { pct: number; stage: string; message: string };
 export function DubStudio({
 	libraryVideos = [],
 }: {
-	libraryVideos?: { id: string; title: string; url: string }[];
+	libraryVideos?: {
+		id: string;
+		title: string;
+		url: string;
+		kind: "upload" | "short";
+	}[];
 }) {
 	const router = useRouter();
 	const [tab, setTab] = useState<"url" | "upload" | "library">("url");
 	const [url, setUrl] = useState("");
-	const [libraryUrl, setLibraryUrl] = useState(libraryVideos[0]?.url ?? "");
+	const [libraryId, setLibraryId] = useState(libraryVideos[0]?.id ?? "");
 	const [file, setFile] = useState<File | null>(null);
 	const [uploading, setUploading] = useState(false);
 	const [langCode, setLangCode] = useState(DUB_LANGUAGES[0].code);
@@ -88,12 +93,17 @@ export function DubStudio({
 		try {
 			let sourceType: "url" | "upload" = "url";
 			let sourceInput = url;
+			let sourceLibraryId: string | undefined;
+			let sourceLibraryKind: "upload" | "short" | undefined;
 
 			// Library tab: a video we already host (R2 public URL) — fetch directly.
 			if (tab === "library") {
-				if (!libraryUrl) throw new Error("Pick a video from your library.");
+				const v = libraryVideos.find((x) => x.id === libraryId);
+				if (!v) throw new Error("Pick a video from your library.");
 				sourceType = "upload";
-				sourceInput = libraryUrl;
+				sourceInput = v.url;
+				sourceLibraryId = v.id;
+				sourceLibraryKind = v.kind;
 			}
 
 			// Upload tab: push the local file to our media store first, then dub the
@@ -124,6 +134,8 @@ export function DubStudio({
 					sourceLang,
 					targetLang: langCode,
 					voice,
+					sourceLibraryId,
+					sourceLibraryKind,
 				}),
 			});
 			const d = await res.json();
@@ -183,12 +195,12 @@ export function DubStudio({
 								</p>
 							) : (
 								<select
-									value={libraryUrl}
-									onChange={(e) => setLibraryUrl(e.target.value)}
+									value={libraryId}
+									onChange={(e) => setLibraryId(e.target.value)}
 									className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
 								>
 									{libraryVideos.map((v) => (
-										<option key={v.id} value={v.url}>
+										<option key={v.id} value={v.id}>
 											{v.title}
 										</option>
 									))}

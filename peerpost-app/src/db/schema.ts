@@ -423,6 +423,9 @@ export const dubJobs = pgTable(
 		// R2 object key of the durable archive copy (e.g. "dubs/<id>.mp4"), set
 		// once on completion. Backup only — publishing uses outputUrl/PostPeer.
 		archiveKey: text("archive_key"),
+		// When dubbed from a Library item: which one (so we can tag/link it).
+		sourceLibraryId: text("source_library_id"),
+		sourceLibraryKind: text("source_library_kind"), // "upload" | "short"
 		// AI-generated per-platform captions: { instagram: {caption, title?}, ... }.
 		captions: jsonb("captions").$type<Record<string, DubCaption>>(),
 		error: text("error"),
@@ -658,4 +661,27 @@ export const userVideos = pgTable(
 			.notNull(),
 	},
 	(t) => [index("user_videos_user_idx").on(t.userId)],
+);
+
+/** Free-form user tags on any Library item (keyed by kind + itemId, so no
+ * per-table columns). Used to group/filter content across the Library. */
+export const contentTags = pgTable(
+	"content_tags",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		// kind: background|overlay|video|short|dub|quote|article|transcript
+		kind: text("kind").notNull(),
+		itemId: text("item_id").notNull(),
+		tag: text("tag").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [
+		index("content_tags_item_idx").on(t.kind, t.itemId),
+		index("content_tags_user_idx").on(t.userId),
+	],
 );

@@ -1,17 +1,20 @@
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import Link from "next/link";
+import { TranscriptLibrary } from "@/components/transcript-library";
 import { db } from "@/db";
 import { transcriptJobs } from "@/db/schema";
+import { loadTags } from "@/lib/library-tags";
 import { requirePageUser } from "@/lib/page-auth";
 
 /** Library › Transcript: final transcripts pushed to the GCS corpus. They live
- * in GCP (searchable by article generation) and are reflected here for reuse. */
+ * in GCP (searchable for article generation) and are reflected here for reuse. */
 export default async function TranscriptLibraryPage() {
 	const user = await requirePageUser();
 	const rows = await db
 		.select({
 			id: transcriptJobs.id,
 			title: transcriptJobs.title,
+			outputLang: transcriptJobs.outputLang,
 			corpusKey: transcriptJobs.corpusKey,
 			pushedAt: transcriptJobs.pushedAt,
 			transcript: transcriptJobs.transcript,
@@ -39,26 +42,23 @@ export default async function TranscriptLibraryPage() {
 		);
 	}
 
+	const tags = await loadTags(
+		user.id,
+		"transcript",
+		rows.map((r) => r.id),
+	);
+
 	return (
-		<div className="space-y-3">
-			{rows.map((t) => (
-				<details
-					key={t.id}
-					className="rounded-lg border border-slate-200 bg-white p-4"
-				>
-					<summary className="cursor-pointer font-medium text-slate-900">
-						{t.title}
-						<span className="ml-2 font-normal text-slate-400 text-xs">
-							in corpus ·{" "}
-							{t.pushedAt ? new Date(t.pushedAt).toLocaleString() : ""} ·{" "}
-							{t.corpusKey}
-						</span>
-					</summary>
-					<div className="mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap text-slate-700 text-sm">
-						{t.transcript}
-					</div>
-				</details>
-			))}
-		</div>
+		<TranscriptLibrary
+			items={rows.map((t) => ({
+				id: t.id,
+				title: t.title,
+				lang: t.outputLang,
+				corpusKey: t.corpusKey,
+				pushedAt: t.pushedAt ? String(t.pushedAt) : null,
+				transcript: t.transcript ?? "",
+				tags: tags[t.id] ?? [],
+			}))}
+		/>
 	);
 }

@@ -32,6 +32,9 @@ const createSchema = z.object({
 	sourceLang: z.string().min(2).max(8).default("auto"),
 	targetLang: z.enum(DUB_LANGUAGE_CODES as [string, ...string[]]),
 	voice: z.enum(DUB_VOICE_IDS as [string, ...string[]]),
+	// When dubbing a Library item, link back to it (for the "Dubbed" tag).
+	sourceLibraryId: z.string().max(64).optional(),
+	sourceLibraryKind: z.enum(["upload", "short"]).optional(),
 });
 
 /**
@@ -68,6 +71,8 @@ export const POST = route(async (request: NextRequest) => {
 			sourceLang: input.sourceLang,
 			targetLang: input.targetLang,
 			voice: input.voice,
+			sourceLibraryId: input.sourceLibraryId ?? null,
+			sourceLibraryKind: input.sourceLibraryKind ?? null,
 		})
 		.returning();
 

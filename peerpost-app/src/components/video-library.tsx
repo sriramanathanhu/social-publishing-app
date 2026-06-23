@@ -1,72 +1,88 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import {
+	type BulkItem,
+	BulkPublishPanel,
+} from "@/components/bulk-publish-panel";
+import type { Ecosystem } from "@/components/publish-row";
+import { TagEditor } from "@/components/tag-editor";
 
-type Clip = {
+type Kind = "video" | "short" | "dub";
+type Item = {
 	id: string;
-	title: string | null;
-	url: string | null;
-	durationSec: number | null;
-	viralScore: number | null;
-};
-type Upload = {
-	id: string;
+	kind: Kind;
 	title: string;
 	url: string;
-	createdAt: string | Date;
+	tags: string[];
+	createdAt: string;
+	durationSec?: number | null;
+	viralScore?: number | null;
 };
 
-function VideoCard({
-	url,
-	title,
-	subtitle,
-	onDelete,
-}: {
-	url: string;
-	title: string;
-	subtitle?: string;
-	onDelete?: () => void;
-}) {
-	return (
-		<div className="group relative">
-			{/* biome-ignore lint/a11y/useMediaCaption: user media preview */}
-			<video
-				src={url}
-				controls
-				preload="metadata"
-				className="aspect-[9/16] w-full rounded-lg border border-slate-200 bg-black object-cover"
-			/>
-			<div className="mt-1 truncate text-slate-700 text-xs" title={title}>
-				{title}
-			</div>
-			{subtitle && <div className="text-[11px] text-slate-400">{subtitle}</div>}
-			{onDelete && (
-				<button
-					type="button"
-					onClick={onDelete}
-					className="absolute top-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white opacity-0 transition group-hover:opacity-100"
-				>
-					Delete
-				</button>
-			)}
-		</div>
-	);
-}
+const TYPE_LABEL: Record<string, string> = {
+	all: "All types",
+	video: "Uploaded",
+	short: "Generated short",
+	dub: "Dubbed output",
+};
 
 export function VideoLibrary({
-	clips,
-	initialUploads,
+	uploads: initialUploads,
+	shorts,
+	dubs,
+	dubBySource,
+	ecosystems,
 }: {
-	clips: Clip[];
-	initialUploads: Upload[];
+	uploads: Item[];
+	shorts: Item[];
+	dubs: Item[];
+	dubBySource: Record<string, { lang: string; url: string }[]>;
+	ecosystems: Ecosystem[];
 }) {
-	const [uploads, setUploads] = useState<Upload[]>(initialUploads);
-	const [busy, setBusy] = useState(false);
+	const [uploads, setUploads] = useState<Item[]>(initialUploads);
+	const [tagsById, setTagsById] = useState<Record<string, string[]>>(() =>
+		Object.fromEntries(
+			[...initialUploads, ...shorts, ...dubs].map((i) => [i.id, i.tags]),
+		),
+	);
+	const [search, setSearch] = useState("");
+	const [typeFilter, setTypeFilter] = useState("all");
+	const [sort, setSort] = useState("newest");
+	const [selected, setSelected] = useState<Set<string>>(new Set());
+	const [showPublish, setShowPublish] = useState(false);
+	const [uploadBusy, setUploadBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const fileRef = useRef<HTMLInputElement>(null);
 
+	const all = useMemo(
+		() => [...uploads, ...shorts, ...dubs],
+		[uploads, shorts, dubs],
+	);
+
+	const view = useMemo(() => {
+		const q = search.trim().toLowerCase();
+		let list = all.filter((i) => typeFilter === "all" || i.kind === typeFilter);
+		if (q)
+			list = list.filter(
+				(i) =>
+					i.title.toLowerCase().includes(q) ||
+					(tagsById[i.id] ?? []).some((t) => t.toLowerCase().includes(q)),
+			);
+		const s = [...list];
+		s.sort((a, b) => {
+			if (sort === "title") return a.title.localeCompare(b.title);
+			if (sort === "duration")
+				return (b.durationSec ?? 0) - (a.durationSec ?? 0);
+			if (sort === "viral") return (b.viralScore ?? 0) - (a.viralScore ?? 0);
+			if (sort === "oldest") return a.createdAt.localeCompare(b.createdAt);
+			return b.createdAt.localeCompare(a.createdAt); // newest
+		});
+		return s;
+	}, [all, typeFilter, search, sort, tagsById]);
+
 	async function upload(file: File) {
-		setBusy(true);
+		setUploadBusy(true);
 		setError(null);
 		try {
 			const fd = new FormData();
@@ -74,92 +90,200 @@ export function VideoLibrary({
 			const res = await fetch("/api/video", { method: "POST", body: fd });
 			const d = await res.json();
 			if (!res.ok) throw new Error(d.error ?? "Upload failed");
-			setUploads((prev) => [d.video, ...prev]);
+			const v: Item = {
+				id: d.video.id,
+				kind: "video",
+				title: d.video.title,
+				url: d.video.url,
+				tags: [],
+				createdAt: String(d.video.createdAt),
+			};
+			setUploads((p) => [v, ...p]);
+			setTagsById((t) => ({ ...t, [v.id]: [] }));
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "Upload failed");
 		} finally {
-			setBusy(false);
+			setUploadBusy(false);
 		}
 	}
 
-	async function remove(id: string) {
-		setUploads((prev) => prev.filter((v) => v.id !== id));
+	async function removeUpload(id: string) {
+		setUploads((p) => p.filter((v) => v.id !== id));
+		setSelected((s) => {
+			const n = new Set(s);
+			n.delete(id);
+			return n;
+		});
 		await fetch(`/api/video/${id}`, { method: "DELETE" }).catch(() => {});
 	}
 
+	function toggle(id: string) {
+		setSelected((s) => {
+			const n = new Set(s);
+			n.has(id) ? n.delete(id) : n.add(id);
+			return n;
+		});
+	}
+
+	const bulkItems: BulkItem[] = view
+		.filter((i) => selected.has(i.id))
+		.map((i) => ({
+			id: i.id,
+			mediaType: "video",
+			url: i.url,
+			caption: i.title,
+		}));
+
 	return (
-		<div className="space-y-8">
-			<section className="space-y-3">
-				<div className="flex flex-wrap items-center gap-3">
-					<h2 className="font-semibold text-slate-800 text-sm">
-						Uploaded videos
-					</h2>
+		<div className="space-y-4">
+			{showPublish && bulkItems.length > 0 && (
+				<BulkPublishPanel
+					items={bulkItems}
+					ecosystems={ecosystems}
+					onClose={() => setShowPublish(false)}
+				/>
+			)}
+
+			{/* Toolbar */}
+			<div className="flex flex-wrap items-center gap-2">
+				<input
+					value={search}
+					onChange={(e) => setSearch(e.target.value)}
+					placeholder="Search title or tag…"
+					className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+				/>
+				<select
+					value={typeFilter}
+					onChange={(e) => setTypeFilter(e.target.value)}
+					className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"
+				>
+					{Object.entries(TYPE_LABEL).map(([v, l]) => (
+						<option key={v} value={v}>
+							{l}
+						</option>
+					))}
+				</select>
+				<select
+					value={sort}
+					onChange={(e) => setSort(e.target.value)}
+					className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"
+				>
+					<option value="newest">Newest</option>
+					<option value="oldest">Oldest</option>
+					<option value="title">Title</option>
+					<option value="duration">Duration</option>
+					<option value="viral">Viral score</option>
+				</select>
+				<button
+					type="button"
+					onClick={() => fileRef.current?.click()}
+					disabled={uploadBusy}
+					className="rounded-lg bg-slate-900 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-50"
+				>
+					{uploadBusy ? "Uploading…" : "Upload video"}
+				</button>
+				<input
+					ref={fileRef}
+					type="file"
+					accept="video/*"
+					className="hidden"
+					onChange={(e) => {
+						const f = e.target.files?.[0];
+						if (f) upload(f);
+						e.target.value = "";
+					}}
+				/>
+				{selected.size > 0 && (
 					<button
 						type="button"
-						onClick={() => fileRef.current?.click()}
-						disabled={busy}
-						className="rounded-lg bg-slate-900 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-50"
+						onClick={() => setShowPublish(true)}
+						className="rounded-lg border border-slate-900 px-3 py-1.5 font-medium text-slate-900 text-sm"
 					>
-						{busy ? "Uploading…" : "Upload video"}
+						Publish {selected.size} selected
 					</button>
-					<span className="text-slate-400 text-xs">
-						MP4/MOV/WebM · for manually-edited shorts · max 500MB
-					</span>
-					{error && <span className="text-red-600 text-sm">{error}</span>}
-					<input
-						ref={fileRef}
-						type="file"
-						accept="video/*"
-						className="hidden"
-						onChange={(e) => {
-							const f = e.target.files?.[0];
-							if (f) upload(f);
-							e.target.value = "";
-						}}
-					/>
-				</div>
-				{uploads.length === 0 ? (
-					<p className="text-slate-400 text-sm">No uploaded videos yet.</p>
-				) : (
-					<div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-						{uploads.map((v) => (
-							<VideoCard
-								key={v.id}
-								url={v.url}
-								title={v.title}
-								onDelete={() => remove(v.id)}
-							/>
-						))}
-					</div>
 				)}
-			</section>
+				{error && <span className="text-red-600 text-sm">{error}</span>}
+			</div>
 
-			<section className="space-y-3">
-				<h2 className="font-semibold text-slate-800 text-sm">
-					Generated shorts
-				</h2>
-				{clips.length === 0 ? (
-					<p className="text-slate-400 text-sm">
-						No generated shorts yet — create some under Content › Shorts.
-					</p>
-				) : (
-					<div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-						{clips.map((c) => (
-							<VideoCard
-								key={c.id}
-								url={c.url ?? ""}
-								title={c.title ?? "Clip"}
-								subtitle={[
-									c.durationSec ? `${c.durationSec}s` : null,
-									c.viralScore ? `★ ${c.viralScore}` : null,
-								]
-									.filter(Boolean)
-									.join(" · ")}
-							/>
-						))}
-					</div>
-				)}
-			</section>
+			{view.length === 0 ? (
+				<p className="text-slate-400 text-sm">Nothing here.</p>
+			) : (
+				<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+					{view.map((i) => {
+						const dubbed = dubBySource[i.id];
+						return (
+							<div
+								key={i.id}
+								className={`rounded-lg border p-1.5 ${selected.has(i.id) ? "border-slate-900 ring-1 ring-slate-900" : "border-slate-200"}`}
+							>
+								<div className="relative">
+									<input
+										type="checkbox"
+										checked={selected.has(i.id)}
+										onChange={() => toggle(i.id)}
+										className="absolute top-1 left-1 z-10"
+									/>
+									{/* biome-ignore lint/a11y/useMediaCaption: preview */}
+									<video
+										src={i.url}
+										controls
+										preload="metadata"
+										className="aspect-[9/16] w-full rounded bg-black object-cover"
+									/>
+								</div>
+								<div
+									className="mt-1 truncate text-slate-700 text-xs"
+									title={i.title}
+								>
+									{i.title}
+								</div>
+								<div className="flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
+									<span className="rounded bg-slate-100 px-1">
+										{TYPE_LABEL[i.kind]}
+									</span>
+									{i.durationSec ? <span>{i.durationSec}s</span> : null}
+									{i.viralScore ? <span>★{i.viralScore}</span> : null}
+								</div>
+								{dubbed && dubbed.length > 0 && (
+									<div className="mt-0.5 flex flex-wrap gap-1 text-[10px]">
+										<span className="text-slate-400">dubbed:</span>
+										{dubbed.map((d) => (
+											<a
+												key={d.lang + d.url}
+												href={d.url}
+												target="_blank"
+												rel="noreferrer"
+												className="rounded bg-indigo-100 px-1 text-indigo-700 hover:underline"
+											>
+												{d.lang}
+											</a>
+										))}
+									</div>
+								)}
+								<div className="mt-1">
+									<TagEditor
+										kind={i.kind}
+										itemId={i.id}
+										initial={i.tags}
+										onChange={(tags) =>
+											setTagsById((t) => ({ ...t, [i.id]: tags }))
+										}
+									/>
+								</div>
+								{i.kind === "video" && (
+									<button
+										type="button"
+										onClick={() => removeUpload(i.id)}
+										className="mt-0.5 text-[10px] text-red-600 hover:underline"
+									>
+										Delete
+									</button>
+								)}
+							</div>
+						);
+					})}
+				</div>
+			)}
 		</div>
 	);
 }

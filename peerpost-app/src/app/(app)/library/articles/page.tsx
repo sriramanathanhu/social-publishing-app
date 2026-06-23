@@ -1,7 +1,9 @@
 import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
+import { ArticlesLibrary } from "@/components/articles-library";
 import { db } from "@/db";
 import { articles } from "@/db/schema";
+import { loadTags } from "@/lib/library-tags";
 import { requirePageUser } from "@/lib/page-auth";
 
 function snippet(md: string): string {
@@ -13,7 +15,7 @@ function snippet(md: string): string {
 		.slice(0, 220);
 }
 
-/** Library › Articles: all generated articles. */
+/** Library › Articles: all generated articles with tags + search/sort. */
 export default async function ArticlesLibraryPage() {
 	const user = await requirePageUser();
 	const rows = await db
@@ -22,6 +24,7 @@ export default async function ArticlesLibraryPage() {
 			title: articles.title,
 			topic: articles.topic,
 			content: articles.content,
+			provider: articles.provider,
 			createdAt: articles.createdAt,
 		})
 		.from(articles)
@@ -41,23 +44,22 @@ export default async function ArticlesLibraryPage() {
 		);
 	}
 
+	const tags = await loadTags(
+		user.id,
+		"article",
+		rows.map((r) => r.id),
+	);
+
 	return (
-		<div className="space-y-2">
-			{rows.map((a) => (
-				<Link
-					key={a.id}
-					href="/articles"
-					className="block rounded-lg border border-slate-200 bg-white p-4 hover:border-slate-300"
-				>
-					<div className="font-medium text-slate-900">{a.title || a.topic}</div>
-					<div className="mt-1 text-slate-500 text-sm">
-						{snippet(a.content)}…
-					</div>
-					<div className="mt-1 text-slate-400 text-xs">
-						{new Date(a.createdAt).toLocaleDateString()}
-					</div>
-				</Link>
-			))}
-		</div>
+		<ArticlesLibrary
+			items={rows.map((a) => ({
+				id: a.id,
+				title: a.title || a.topic,
+				snippet: snippet(a.content),
+				provider: a.provider,
+				tags: tags[a.id] ?? [],
+				createdAt: String(a.createdAt),
+			}))}
+		/>
 	);
 }
