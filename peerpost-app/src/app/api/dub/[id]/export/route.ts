@@ -7,6 +7,7 @@ import { getOwnedJob } from "@/lib/dub-jobs";
 import { dubber } from "@/lib/dubber";
 import { route } from "@/lib/http";
 import { uploadBufferToPostPeer } from "@/lib/media";
+import { r2PublicUrl } from "@/lib/r2";
 
 export const runtime = "nodejs";
 
@@ -32,16 +33,6 @@ export const POST = route(async (_req: NextRequest, { params }: Ctx) => {
 		throw new HttpError(409, "Dub is not finished yet");
 	}
 
-	const upstream = await dubber.result(job.dubberJobId);
-	if (!upstream.ok || !upstream.body) {
-		throw new HttpError(502, "Could not fetch the dubbed video");
-	}
-	const { publicUrl, type } = await uploadBufferToPostPeer(
-		await upstream.arrayBuffer(),
-		`dubbed-${id}.mp4`,
-		"video/mp4",
-	);
-
 	// Ensure AI captions are cached on the row so the composer can pre-fill them.
 	let captions = job.captions;
 	if (!captions) {
@@ -52,6 +43,29 @@ export const POST = route(async (_req: NextRequest, { params }: Ctx) => {
 		}
 	}
 
+	// Prefer the already-public R2 archive: providers fetch the video by URL, so
+	// there's no need to download the (large) file and re-host it through our
+	// server — that round-trip is what was timing out the gateway (502). The dub
+	// preview already plays from this URL, so it's provider-fetchable.
+	const r2Url = r2PublicUrl(job.archiveKey);
+	if (r2Url) {
+		await db
+			.update(dubJobs)
+			.set({ outputUrl: r2Url, captions, updatedAt: new Date() })
+			.where(eq(dubJobs.id, job.id));
+		return Response.json({ publicUrl: r2Url, type: "video" });
+	}
+
+	// Fallback (no R2 archive): re-host the mp4 from the dubber-service.
+	const upstream = await dubber.result(job.dubberJobId);
+	if (!upstream.ok || !upstream.body) {
+		throw new HttpError(502, "Could not fetch the dubbed video");
+	}
+	const { publicUrl, type } = await uploadBufferToPostPeer(
+		await upstream.arrayBuffer(),
+		`dubbed-${id}.mp4`,
+		"video/mp4",
+	);
 	await db
 		.update(dubJobs)
 		.set({ outputUrl: publicUrl, captions, updatedAt: new Date() })
