@@ -602,3 +602,39 @@ export const articles = pgTable(
 	},
 	(t) => [index("articles_user_idx").on(t.userId)],
 );
+
+/** Audio → chunked Gemini transcription jobs (optionally translated). The
+ * finished transcript can be pushed to the GCS corpus + re-ingested by Vertex. */
+export const transcriptJobs = pgTable(
+	"transcript_jobs",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		title: text("title").notNull().default("Untitled"),
+		sourceType: text("source_type").notNull(), // "upload" | "drive"
+		sourceInput: text("source_input").notNull(), // audio URL or Drive link
+		chunks: integer("chunks").notNull().default(4),
+		sourceLang: text("source_lang").notNull().default("English"),
+		outputLang: text("output_lang").notNull().default("English"),
+		translate: boolean("translate").notNull().default(false),
+		dubberJobId: text("dubber_job_id"),
+		status: dubJobStatusEnum("status").notNull().default("queued"),
+		pct: integer("pct").notNull().default(0),
+		stage: text("stage"),
+		message: text("message"),
+		transcript: text("transcript"),
+		error: text("error"),
+		// Corpus push: the GCS object key + when it was last ingested by Vertex.
+		corpusKey: text("corpus_key"),
+		pushedAt: timestamp("pushed_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [index("transcript_jobs_user_idx").on(t.userId)],
+);

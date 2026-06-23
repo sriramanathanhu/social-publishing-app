@@ -49,6 +49,7 @@ export function Sidebar({ user }: { user: NavUser }) {
 						Content
 					</div>
 					<NavLink href="/dub" label="Dub Video" />
+					<NavLink href="/transcribe" label="Transcribe" />
 					<NavLink href="/shorts" label="Shorts" />
 					<NavLink href="/quotes" label="Quotes" />
 					<NavLink href="/articles" label="Articles" />

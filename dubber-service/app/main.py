@@ -31,6 +31,7 @@ from pydantic import BaseModel
 
 from app.pipeline import DubRequest, StageEvent, run_dub
 from app.shorts_pipeline import ShortsRequest, run_shorts
+from app.transcribe_audio import run_transcribe
 from dubber.quote_card import render_quote_card
 
 app = FastAPI(title="Dubber Service", version="0.1.0")
@@ -203,6 +204,78 @@ def job_result(job_id: str) -> FileResponse:
 def _json_str(s: str) -> str:
     """Minimal JSON string escaping for SSE data payloads."""
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ") + '"'
+
+
+# ── Transcription (audio → chunked Gemini transcript) ────────────────────────
+@dataclass
+class TranscribeJobState:
+    id: str
+    status: str = "queued"            # queued|running|done|failed
+    pct: int = 0
+    stage: str = "queued"
+    message: str = "Queued"
+    error: Optional[str] = None
+    transcript: Optional[str] = None
+
+
+TRANSCRIBE_JOBS: dict[str, TranscribeJobState] = {}
+
+
+class CreateTranscribe(BaseModel):
+    source_type: str                  # "upload" (direct URL) | "drive"
+    source_input: str                 # audio URL or Google Drive share link
+    chunks: int = 4
+    source_lang: str = "English"      # "Tamil" | "English"
+    output_lang: str = "English"      # "Tamil" | "English"
+    translate: bool = False
+    gemini_key: str = ""
+
+
+def _run_transcribe(job: "TranscribeJobState", body: CreateTranscribe) -> None:
+    job.status = "running"
+
+    def on_progress(pct: int, stage: str, message: str) -> None:
+        job.pct, job.stage, job.message = pct, stage, message
+
+    try:
+        job.transcript = run_transcribe(
+            source_type=body.source_type,
+            source_input=body.source_input,
+            chunks=body.chunks,
+            source_lang=body.source_lang,
+            output_lang=body.output_lang,
+            translate=body.translate,
+            gemini_key=body.gemini_key,
+            on_progress=on_progress,
+        )
+        job.status = "done"
+    except Exception as exc:
+        job.status = "failed"
+        job.error = str(exc)
+
+
+@app.post("/transcribe", dependencies=[Depends(require_token)])
+def create_transcribe(body: CreateTranscribe) -> dict:
+    job = TranscribeJobState(id=uuid.uuid4().hex)
+    TRANSCRIBE_JOBS[job.id] = job
+    threading.Thread(target=_run_transcribe, args=(job, body), daemon=True).start()
+    return {"job_id": job.id, "status": job.status}
+
+
+@app.get("/transcribe/{job_id}", dependencies=[Depends(require_token)])
+def transcribe_status(job_id: str) -> dict:
+    job = TRANSCRIBE_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Unknown job")
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "pct": job.pct,
+        "stage": job.stage,
+        "message": job.message,
+        "error": job.error,
+        "transcript": job.transcript if job.status == "done" else None,
+    }
 
 
 # ── Shorts factory (long video → many clips) ─────────────────────────────────

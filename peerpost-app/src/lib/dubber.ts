@@ -100,4 +100,44 @@ export const dubber = {
 			headers: authHeaders(),
 			cache: "no-store",
 		}),
+
+	createTranscribe: async (
+		input: TranscribeCreateInput,
+	): Promise<{ job_id: string }> => {
+		const res = await fetch(`${BASE_URL}/transcribe`, {
+			method: "POST",
+			headers: { ...authHeaders(), "Content-Type": "application/json" },
+			body: JSON.stringify(input),
+			cache: "no-store",
+		});
+		return json<{ job_id: string; status: string }>(res);
+	},
+
+	getTranscribeStatus: async (jobId: string): Promise<TranscribeStatus> => {
+		const res = await fetch(`${BASE_URL}/transcribe/${jobId}`, {
+			headers: authHeaders(),
+			cache: "no-store",
+		});
+		return json<TranscribeStatus>(res);
+	},
+};
+
+export type TranscribeCreateInput = {
+	source_type: "upload" | "drive";
+	source_input: string;
+	chunks: number;
+	source_lang: string;
+	output_lang: string;
+	translate: boolean;
+	gemini_key: string;
+};
+
+export type TranscribeStatus = {
+	job_id: string;
+	status: "queued" | "running" | "done" | "failed";
+	pct: number;
+	stage: string;
+	message: string;
+	error: string | null;
+	transcript: string | null;
 };

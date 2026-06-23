@@ -21,3 +21,4 @@ python-dotenv
 boto3
 opencv-python-headless
 Pillow
+gdown
