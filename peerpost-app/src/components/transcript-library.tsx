@@ -15,16 +15,16 @@ type Item = {
 	lang: string;
 	corpusKey: string | null;
 	pushedAt: string | null;
+	createdAt: string;
 	transcript: string;
 	author?: string;
 	tags: string[];
 };
 
-// Transcripts filter by their pushed-to-corpus date, not a created date.
 const meta = (i: Item): FilterMeta => ({
 	lang: i.lang,
 	author: i.author ?? "",
-	createdAt: i.pushedAt ?? "",
+	createdAt: i.createdAt,
 });
 
 export function TranscriptLibrary({ items }: { items: Item[] }) {
@@ -55,7 +55,7 @@ export function TranscriptLibrary({ items }: { items: Item[] }) {
 		s.sort((a, b) =>
 			sort === "title"
 				? a.title.localeCompare(b.title)
-				: (b.pushedAt ?? "").localeCompare(a.pushedAt ?? ""),
+				: b.createdAt.localeCompare(a.createdAt),
 		);
 		return s;
 	}, [items, search, langFilter, userFilter, dateFilter, sort, tagsById]);
@@ -74,7 +74,7 @@ export function TranscriptLibrary({ items }: { items: Item[] }) {
 					onChange={(e) => setSort(e.target.value)}
 					className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"
 				>
-					<option value="pushed">Pushed date</option>
+					<option value="pushed">Recent</option>
 					<option value="title">Title</option>
 				</select>
 				<LibraryFilters
@@ -98,10 +98,13 @@ export function TranscriptLibrary({ items }: { items: Item[] }) {
 							<summary className="cursor-pointer font-medium text-slate-900">
 								{t.title}
 								<span className="ml-2 font-normal text-slate-400 text-xs">
-									{t.lang} · in corpus
-									{t.author ? ` · by ${t.author}` : ""}
+									{t.lang}
 									{t.pushedAt
-										? ` · ${new Date(t.pushedAt).toLocaleString()}`
+										? ` · in corpus · ${new Date(t.pushedAt).toLocaleDateString()}`
+										: " · not pushed"}
+									{t.author ? ` · by ${t.author}` : ""}
+									{!t.pushedAt
+										? ` · ${new Date(t.createdAt).toLocaleDateString()}`
 										: ""}
 								</span>
 							</summary>
