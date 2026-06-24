@@ -47,17 +47,20 @@ export function QuoteBatchPanel({
 			{batches.length === 0 ? (
 				<p className="text-sm opacity-50">No quotes yet.</p>
 			) : (
-				batches.map((b, bi) => (
-					<QuoteBatch
-						key={b.batchId}
-						items={b.items}
-						label={bi === 0 ? "Latest batch" : `Batch ${batches.length - bi}`}
-						backgrounds={backgrounds}
-						overlays={overlays}
-						ecosystems={ecosystems}
-						onChange={onChange}
-					/>
-				))
+				batches.map((b, bi) => {
+					const lang = b.items[0]?.outputLang;
+					return (
+						<QuoteBatch
+							key={b.batchId}
+							items={b.items}
+							label={`${lang || "Default language"}${bi === 0 ? " · latest" : ""}`}
+							backgrounds={backgrounds}
+							overlays={overlays}
+							ecosystems={ecosystems}
+							onChange={onChange}
+						/>
+					);
+				})
 			)}
 		</div>
 	);

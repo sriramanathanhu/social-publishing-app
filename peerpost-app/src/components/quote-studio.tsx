@@ -66,7 +66,10 @@ export function QuoteStudio({
 	const [showTranscripts, setShowTranscripts] = useState(false);
 	const [count, setCount] = useState(6);
 	const [tone, setTone] = useState("");
-	const [outputLang, setOutputLang] = useState("");
+	// Output languages: empty = "same as content"; one batch is generated per
+	// selected language (queued, one after another).
+	const [langs, setLangs] = useState<string[]>([]);
+	const [queueMsg, setQueueMsg] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [moreBusy, setMoreBusy] = useState(false);
 	const [regenId, setRegenId] = useState<string | null>(null);
@@ -79,6 +82,7 @@ export function QuoteStudio({
 		n: number,
 		avoid: string[],
 		batchId?: string | null,
+		lang?: string,
 	): Promise<QuoteItem[]> {
 		const res = await fetch("/api/quotes", {
 			method: "POST",
@@ -88,7 +92,7 @@ export function QuoteStudio({
 				count: n,
 				tone: tone || undefined,
 				avoid: avoid.length ? avoid : undefined,
-				outputLang: outputLang || undefined,
+				outputLang: (lang ?? "") || undefined,
 				batchId: batchId || undefined,
 			}),
 		});
@@ -111,6 +115,7 @@ export function QuoteStudio({
 			panY: q.panY ?? 0.4,
 			zoom: q.zoom ?? 1,
 			batchId: q.batchId ?? null,
+			outputLang: q.outputLang ?? (lang || null),
 		}));
 	}
 
@@ -123,17 +128,29 @@ export function QuoteStudio({
 			setError("Paste at least a paragraph of content to work from.");
 			return;
 		}
+		// One batch per selected language (queued); empty selection = one default.
+		const targets = langs.length ? langs : [""];
 		setBusy(true);
 		setError(null);
+		let total = 0;
 		try {
-			const fresh = await fetchQuotes(count, []);
-			setItems((prev) => [...fresh, ...prev]);
-			if (fresh.length === 0)
-				setError("No quotes were generated — try more content.");
+			for (let i = 0; i < targets.length; i++) {
+				const lang = targets[i];
+				if (targets.length > 1)
+					setQueueMsg(
+						`Generating ${lang || "default"} … (${i + 1}/${targets.length})`,
+					);
+				const fresh = await fetchQuotes(count, [], undefined, lang);
+				total += fresh.length;
+				setItems((prev) => [...fresh, ...prev]);
+			}
+			if (total === 0) setError("No quotes were generated — try more content.");
+			else if (targets.length > 1) setView("batch");
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Error");
 		} finally {
 			setBusy(false);
+			setQueueMsg(null);
 		}
 	}
 
@@ -144,6 +161,8 @@ export function QuoteStudio({
 			const more = await fetchQuotes(
 				3,
 				items.map((q) => q.text),
+				undefined,
+				langs[0] ?? "",
 			);
 			setItems((prev) => [...prev, ...more]);
 		} catch (err) {
@@ -157,12 +176,13 @@ export function QuoteStudio({
 		setRegenId(id);
 		setError(null);
 		try {
-			// Keep the replacement in the same batch as the quote it replaces.
-			const origBatch = items.find((q) => q.id === id)?.batchId ?? null;
+			// Keep the replacement in the same batch + language as the quote it replaces.
+			const orig = items.find((q) => q.id === id);
 			const [fresh] = await fetchQuotes(
 				1,
 				items.map((q) => q.text),
-				origBatch,
+				orig?.batchId ?? null,
+				orig?.outputLang ?? "",
 			);
 			if (fresh) {
 				setItems((prev) => prev.map((q) => (q.id === id ? fresh : q)));
@@ -288,29 +308,64 @@ export function QuoteStudio({
 							))}
 						</select>
 					</label>
-					<label className="block text-xs font-medium opacity-60">
-						Output language
-						<select
-							value={outputLang}
-							onChange={(e) => setOutputLang(e.target.value)}
-							className="mt-1 rounded-md border border-black/15 px-2.5 py-1.5 text-sm"
-						>
-							{LANGUAGES.map((l) => (
-								<option key={l || "same"} value={l}>
-									{l || "Same as content"}
-								</option>
+					<div className="text-xs font-medium opacity-60">
+						Output languages
+						<div className="mt-1 flex flex-wrap items-center gap-1">
+							{langs.map((l) => (
+								<span
+									key={l}
+									className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary"
+								>
+									{l}
+									<button
+										type="button"
+										onClick={() => setLangs((p) => p.filter((x) => x !== l))}
+										className="leading-none hover:opacity-70"
+										aria-label={`Remove ${l}`}
+									>
+										×
+									</button>
+								</span>
 							))}
-						</select>
-					</label>
+							<select
+								value=""
+								onChange={(e) => {
+									const v = e.target.value;
+									if (v && !langs.includes(v)) setLangs((p) => [...p, v]);
+								}}
+								className="rounded-md border border-black/15 px-2.5 py-1.5 text-sm"
+							>
+								<option value="">
+									{langs.length ? "+ Add language" : "Same as content"}
+								</option>
+								{LANGUAGES.filter((l) => l && !langs.includes(l)).map((l) => (
+									<option key={l} value={l}>
+										{l}
+									</option>
+								))}
+							</select>
+						</div>
+					</div>
 					<button
 						type="button"
 						onClick={generate}
 						disabled={busy}
 						className="ml-auto h-10 rounded-md bg-primary px-5 text-sm font-medium text-white disabled:opacity-50"
 					>
-						{busy ? "Generating…" : "Generate quotes"}
+						{busy
+							? (queueMsg ?? "Generating…")
+							: langs.length > 1
+								? `Generate · ${langs.length} languages`
+								: "Generate quotes"}
 					</button>
 				</div>
+				{langs.length > 1 && (
+					<p className="text-xs opacity-50">
+						Generates {count} quotes in each of {langs.length} languages —
+						queued one after another, each as its own batch you can render &
+						schedule separately.
+					</p>
+				)}
 				{error && <p className="text-sm text-red-600">{error}</p>}
 				<p className="text-xs opacity-40">
 					Uses your Gemini key, falling back to NVIDIA — add them under Settings

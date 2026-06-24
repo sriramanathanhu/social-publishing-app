@@ -17,6 +17,7 @@ export type QuoteItem = {
 	panY: number;
 	zoom: number;
 	batchId: string | null;
+	outputLang: string | null;
 };
 
 /** Persist a partial update to a saved quote (best-effort). */
