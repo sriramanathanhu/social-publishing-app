@@ -26,14 +26,41 @@ export const GET = route(async () => {
 });
 
 /**
- * POST /api/video — STREAM a video straight to R2 (no in-memory buffering), then
- * record it. The body is the raw file bytes; the name + type come from headers
- * (`x-filename`, `Content-Type`). Streaming keeps memory bounded so back-to-back
- * uploads don't wedge the process.
+ * POST /api/video — record a video.
+ *
+ * Two modes:
+ *  - JSON body `{ key, url, name, contentType, size }` → the browser already
+ *    uploaded straight to R2 (presigned PUT); we just record the row.
+ *  - Raw file body (streaming) → STREAM the bytes to R2 (no buffering) and
+ *    record. Fallback for when the presigned/direct path can't be used.
  */
 export const POST = route(async (req: NextRequest) => {
 	const user = await requireUser();
 	if (!req.body) throw new HttpError(400, "No file uploaded");
+
+	// JSON mode: the file is already in R2 (direct presigned upload).
+	if ((req.headers.get("content-type") || "").includes("application/json")) {
+		const body = await req.json().catch(() => null);
+		const key = String(body?.key ?? "");
+		const url = String(body?.url ?? "");
+		// Only let a user record an object under their own prefix.
+		if (!key.startsWith(`user-videos/${user.id}/`) || !url) {
+			throw new HttpError(400, "Invalid upload reference");
+		}
+		const nm = String(body?.name ?? "video.mp4").slice(0, 200);
+		const [recorded] = await db
+			.insert(userVideos)
+			.values({
+				userId: user.id,
+				title: nm.replace(/\.[^.]+$/, "") || "Untitled",
+				r2Key: key,
+				url,
+				contentType: body?.contentType ? String(body.contentType) : null,
+				sizeBytes: Number(body?.size) || null,
+			})
+			.returning();
+		return Response.json({ video: recorded });
+	}
 
 	const contentType = req.headers.get("content-type") || "video/mp4";
 	if (!contentType.startsWith("video/")) {

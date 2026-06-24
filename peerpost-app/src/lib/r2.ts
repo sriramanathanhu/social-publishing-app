@@ -5,6 +5,7 @@ import {
 	S3Client,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 /**
  * Cloudflare R2 (S3-compatible) client for durably archiving finished dubs.
@@ -105,6 +106,33 @@ export async function uploadStreamObject(
 	const url = r2PublicUrl(key);
 	if (!url) throw new Error("R2_PUBLIC_BASE_URL is not configured");
 	return url;
+}
+
+/**
+ * Presign a PUT URL so a browser can upload a (potentially multi-GB) object
+ * straight to R2 — bypassing the app server and Cloudflare's body-size limit.
+ * The client MUST send the same Content-Type on the PUT (it's part of the
+ * signature). Returns the signed upload URL + the object's public URL.
+ */
+export async function presignPutUrl(
+	key: string,
+	contentType: string,
+	expiresIn = 3600,
+): Promise<{ uploadUrl: string; publicUrl: string }> {
+	const r = r2();
+	if (!r) throw new Error("R2 is not configured");
+	const uploadUrl = await getSignedUrl(
+		r.client,
+		new PutObjectCommand({
+			Bucket: r.bucket,
+			Key: key,
+			ContentType: contentType,
+		}),
+		{ expiresIn },
+	);
+	const publicUrl = r2PublicUrl(key);
+	if (!publicUrl) throw new Error("R2_PUBLIC_BASE_URL is not configured");
+	return { uploadUrl, publicUrl };
 }
 
 /**

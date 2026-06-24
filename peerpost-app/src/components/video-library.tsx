@@ -136,31 +136,79 @@ export function VideoLibrary({
 		tagsById,
 	]);
 
+	function addUploaded(video: {
+		id: string;
+		title: string;
+		url: string;
+		createdAt: string;
+	}) {
+		const v: Item = {
+			id: video.id,
+			kind: "video",
+			title: video.title,
+			url: video.url,
+			tags: [],
+			createdAt: String(video.createdAt),
+			userName: me,
+			lang: null,
+		};
+		setItems((p) => [v, ...p]);
+		setTagsById((t) => ({ ...t, [v.id]: [] }));
+	}
+
 	async function uploadOne(file: File): Promise<boolean> {
-		// Stream the raw file as the request body (no multipart) so the server can
-		// pipe it straight to R2 without buffering — name/type travel in headers.
+		const ct = file.type || "video/mp4";
+		// Preferred: presign → upload straight to R2 (bypasses the app server and
+		// Cloudflare's body limit, so multi-GB files work) → record the row.
+		let presign: { uploadUrl?: string; key?: string; url?: string } | null =
+			null;
+		try {
+			const pr = await fetch("/api/video/presign", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ name: file.name, type: ct, size: file.size }),
+			});
+			if (pr.ok) presign = await pr.json();
+		} catch {
+			presign = null;
+		}
+
+		if (presign?.uploadUrl) {
+			const put = await fetch(presign.uploadUrl, {
+				method: "PUT",
+				headers: { "Content-Type": ct },
+				body: file,
+			});
+			if (!put.ok) throw new Error(`Direct upload failed (${put.status})`);
+			const rec = await fetch("/api/video", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					key: presign.key,
+					url: presign.url,
+					name: file.name,
+					contentType: ct,
+					size: file.size,
+				}),
+			});
+			const d = await rec.json();
+			if (!rec.ok) throw new Error(d.error ?? "Failed to record upload");
+			addUploaded(d.video);
+			return true;
+		}
+
+		// Fallback: stream through the app (bounded memory; under CF body limit).
 		const res = await fetch("/api/video", {
 			method: "POST",
 			headers: {
-				"Content-Type": file.type || "video/mp4",
+				"Content-Type": ct,
 				"x-filename": encodeURIComponent(file.name),
 			},
 			body: file,
 		});
 		const d = await res.json();
 		if (!res.ok) throw new Error(d.error ?? "Upload failed");
-		const v: Item = {
-			id: d.video.id,
-			kind: "video",
-			title: d.video.title,
-			url: d.video.url,
-			tags: [],
-			createdAt: String(d.video.createdAt),
-			userName: me,
-			lang: null,
-		};
-		setItems((p) => [v, ...p]);
-		setTagsById((t) => ({ ...t, [v.id]: [] }));
+		addUploaded(d.video);
 		return true;
 	}
 
