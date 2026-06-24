@@ -7,7 +7,7 @@ import {
 } from "@/components/bulk-publish-panel";
 import type { Ecosystem } from "@/components/publish-row";
 import { TagEditor } from "@/components/tag-editor";
-import { langLabel } from "@/lib/dub-options";
+import { DUB_LANGUAGES, langLabel } from "@/lib/dub-options";
 
 type Kind = "video" | "short" | "dub";
 type Item = {
@@ -69,6 +69,10 @@ export function VideoLibrary({
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [showPublish, setShowPublish] = useState(false);
 	const [uploadBusy, setUploadBusy] = useState(false);
+	const [dubLang, setDubLang] = useState(DUB_LANGUAGES[0].code);
+	const [dubBusy, setDubBusy] = useState(false);
+	const [dubDone, setDubDone] = useState(0);
+	const [dubMsg, setDubMsg] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const fileRef = useRef<HTMLInputElement>(null);
 
@@ -169,6 +173,61 @@ export function VideoLibrary({
 			n.has(id) ? n.delete(id) : n.add(id);
 			return n;
 		});
+	}
+
+	// Queue a dub job (target language `dubLang`) for every selected video. The
+	// dubber-service caps concurrency, so the rest wait in its queue and process
+	// as slots free. Outputs reappear here (as "Dubbed → …") once done.
+	async function bulkDub() {
+		const picked = all.filter((i) => selected.has(i.id));
+		const voice = DUB_LANGUAGES.find((l) => l.code === dubLang)?.voices[0]?.id;
+		if (picked.length === 0 || !voice) return;
+		setDubBusy(true);
+		setDubMsg(null);
+		setDubDone(0);
+		let ok = 0;
+		let fail = 0;
+		let firstErr: string | null = null;
+		for (const it of picked) {
+			try {
+				const res = await fetch("/api/dub", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						sourceType: "upload",
+						sourceInput: it.url,
+						sourceLang: "auto",
+						targetLang: dubLang,
+						voice,
+						sourceLibraryId: it.id,
+						sourceLibraryKind:
+							it.kind === "short"
+								? "short"
+								: it.kind === "video"
+									? "upload"
+									: undefined,
+					}),
+				});
+				if (res.ok) ok++;
+				else {
+					fail++;
+					if (!firstErr) {
+						const d = await res.json().catch(() => ({}));
+						firstErr = d.error ?? `HTTP ${res.status}`;
+					}
+				}
+			} catch {
+				fail++;
+			}
+			setDubDone((d) => d + 1);
+		}
+		setDubBusy(false);
+		setDubMsg(
+			ok
+				? `Queued ${ok} dub job${ok === 1 ? "" : "s"} → ${langLabel(dubLang)}${fail ? ` · ${fail} failed` : ""}. They'll appear here when done.`
+				: `Couldn't queue dubs: ${firstErr ?? "failed"}`,
+		);
+		if (ok) setSelected(new Set());
 	}
 
 	const bulkItems: BulkItem[] = view
@@ -286,6 +345,34 @@ export function VideoLibrary({
 						Publish {selected.size} selected
 					</button>
 				)}
+				{selected.size > 0 && (
+					<span className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-2 py-1">
+						<select
+							value={dubLang}
+							onChange={(e) => setDubLang(e.target.value)}
+							disabled={dubBusy}
+							className="rounded border-0 bg-transparent text-sm focus:outline-none"
+							title="Dub language"
+						>
+							{DUB_LANGUAGES.map((l) => (
+								<option key={l.code} value={l.code}>
+									{l.label}
+								</option>
+							))}
+						</select>
+						<button
+							type="button"
+							onClick={bulkDub}
+							disabled={dubBusy}
+							className="rounded-md bg-indigo-600 px-2.5 py-1 font-medium text-sm text-white disabled:opacity-50"
+						>
+							{dubBusy
+								? `Queuing… (${dubDone}/${selected.size})`
+								: `Dub ${selected.size} → queue`}
+						</button>
+					</span>
+				)}
+				{dubMsg && <span className="text-indigo-700 text-sm">{dubMsg}</span>}
 				{error && <span className="text-red-600 text-sm">{error}</span>}
 			</div>
 
