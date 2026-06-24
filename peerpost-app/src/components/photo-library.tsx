@@ -31,6 +31,10 @@ export function PhotoLibrary({
 		),
 	);
 	const [busy, setBusy] = useState(false);
+	const [progress, setProgress] = useState<{
+		done: number;
+		total: number;
+	} | null>(null);
 	const bgRef = useRef<HTMLInputElement>(null);
 	const ovRef = useRef<HTMLInputElement>(null);
 
@@ -51,16 +55,26 @@ export function PhotoLibrary({
 		[sections, typeFilter, q, tagsById],
 	);
 
-	async function upload(s: Section, file: File) {
+	// Bulk upload: POST each file in turn (the endpoints take one file), then
+	// refresh once. Works for a single file too.
+	async function uploadMany(s: Section, files: FileList) {
 		setBusy(true);
-		try {
-			const fd = new FormData();
-			fd.append("file", file);
-			const res = await fetch(s.uploadUrl, { method: "POST", body: fd });
-			if (res.ok) router.refresh();
-		} finally {
-			setBusy(false);
+		setProgress({ done: 0, total: files.length });
+		let ok = 0;
+		for (const file of Array.from(files)) {
+			try {
+				const fd = new FormData();
+				fd.append("file", file);
+				const res = await fetch(s.uploadUrl, { method: "POST", body: fd });
+				if (res.ok) ok++;
+			} catch {
+				// skip; counted as not-ok
+			}
+			setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
 		}
+		setBusy(false);
+		setProgress(null);
+		if (ok) router.refresh();
 	}
 
 	async function remove(s: Section, id: string) {
@@ -95,7 +109,7 @@ export function PhotoLibrary({
 							disabled={busy}
 							className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
 						>
-							Upload background
+							Upload backgrounds
 						</button>
 						<button
 							type="button"
@@ -103,17 +117,23 @@ export function PhotoLibrary({
 							disabled={busy}
 							className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
 						>
-							Upload overlay
+							Upload overlays
 						</button>
+						{progress && (
+							<span className="text-slate-500 text-sm">
+								Uploading… ({progress.done}/{progress.total})
+							</span>
+						)}
 						<input
 							ref={bgRef}
 							type="file"
 							accept="image/jpeg,image/png,image/webp"
+							multiple
 							className="hidden"
 							onChange={(e) => {
-								const f = e.target.files?.[0];
+								const files = e.target.files;
 								const s = sections.find((x) => x.kind === "background");
-								if (f && s) upload(s, f);
+								if (files?.length && s) uploadMany(s, files);
 								e.target.value = "";
 							}}
 						/>
@@ -121,11 +141,12 @@ export function PhotoLibrary({
 							ref={ovRef}
 							type="file"
 							accept="image/png"
+							multiple
 							className="hidden"
 							onChange={(e) => {
-								const f = e.target.files?.[0];
+								const files = e.target.files;
 								const s = sections.find((x) => x.kind === "overlay");
-								if (f && s) upload(s, f);
+								if (files?.length && s) uploadMany(s, files);
 								e.target.value = "";
 							}}
 						/>
