@@ -80,7 +80,7 @@ export function VideoLibrary({
 		done: number;
 		total: number;
 	} | null>(null);
-	const [dubLang, setDubLang] = useState(DUB_LANGUAGES[0].code);
+	const [dubLangs, setDubLangs] = useState<string[]>([]);
 	const [dubBusy, setDubBusy] = useState(false);
 	const [dubDone, setDubDone] = useState(0);
 	const [dubMsg, setDubMsg] = useState<string | null>(null);
@@ -256,56 +256,67 @@ export function VideoLibrary({
 		});
 	}
 
-	// Queue a dub job (target language `dubLang`) for every selected video. The
+	function clearSelection() {
+		setSelected(new Set());
+	}
+
+	// Queue a dub job for every (selected video × selected language). The
 	// dubber-service caps concurrency, so the rest wait in its queue and process
 	// as slots free. Outputs reappear here (as "Dubbed → …") once done.
 	async function bulkDub() {
 		const picked = all.filter((i) => selected.has(i.id));
-		const voice = DUB_LANGUAGES.find((l) => l.code === dubLang)?.voices[0]?.id;
-		if (picked.length === 0 || !voice) return;
+		if (picked.length === 0 || dubLangs.length === 0) return;
 		setDubBusy(true);
 		setDubMsg(null);
 		setDubDone(0);
 		let ok = 0;
 		let fail = 0;
 		let firstErr: string | null = null;
-		for (const it of picked) {
-			try {
-				const res = await fetch("/api/dub", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						sourceType: "upload",
-						sourceInput: it.url,
-						sourceLang: "auto",
-						targetLang: dubLang,
-						voice,
-						sourceLibraryId: it.id,
-						sourceLibraryKind:
-							it.kind === "short"
-								? "short"
-								: it.kind === "video"
-									? "upload"
-									: undefined,
-					}),
-				});
-				if (res.ok) ok++;
-				else {
-					fail++;
-					if (!firstErr) {
-						const d = await res.json().catch(() => ({}));
-						firstErr = d.error ?? `HTTP ${res.status}`;
+		for (const lang of dubLangs) {
+			const voice = DUB_LANGUAGES.find((l) => l.code === lang)?.voices[0]?.id;
+			if (!voice) continue;
+			for (const it of picked) {
+				try {
+					const res = await fetch("/api/dub", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							sourceType: "upload",
+							sourceInput: it.url,
+							sourceLang: "auto",
+							targetLang: lang,
+							voice,
+							sourceLibraryId: it.id,
+							sourceLibraryKind:
+								it.kind === "short"
+									? "short"
+									: it.kind === "video"
+										? "upload"
+										: undefined,
+						}),
+					});
+					if (res.ok) ok++;
+					else {
+						fail++;
+						if (!firstErr) {
+							const d = await res.json().catch(() => ({}));
+							firstErr = d.error ?? `HTTP ${res.status}`;
+						}
 					}
+				} catch {
+					fail++;
 				}
-			} catch {
-				fail++;
+				setDubDone((d) => d + 1);
 			}
-			setDubDone((d) => d + 1);
 		}
 		setDubBusy(false);
 		setDubMsg(
 			ok
-				? `Queued ${ok} dub job${ok === 1 ? "" : "s"} → ${langLabel(dubLang)}${fail ? ` · ${fail} failed` : ""}. They'll appear here when done.`
+				? `Queued ${ok} dub job${ok === 1 ? "" : "s"} → ${dubLangs
+						.map((l) => langLabel(l))
+						.join(
+							", ",
+						)}${fail ? ` · ${fail} failed` : ""}. They'll appear here when done.`
 				: `Couldn't queue dubs: ${firstErr ?? "failed"}`,
 		);
 		if (ok) setSelected(new Set());
@@ -422,43 +433,6 @@ export function VideoLibrary({
 						e.target.value = "";
 					}}
 				/>
-				{selected.size > 0 && (
-					<button
-						type="button"
-						onClick={() => setShowPublish(true)}
-						className="rounded-lg border border-slate-900 px-3 py-1.5 font-medium text-slate-900 text-sm"
-					>
-						Publish {selected.size} selected
-					</button>
-				)}
-				{selected.size > 0 && (
-					<span className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-2 py-1">
-						<select
-							value={dubLang}
-							onChange={(e) => setDubLang(e.target.value)}
-							disabled={dubBusy}
-							className="rounded border-0 bg-transparent text-sm focus:outline-none"
-							title="Dub language"
-						>
-							{DUB_LANGUAGES.map((l) => (
-								<option key={l.code} value={l.code}>
-									{l.label}
-								</option>
-							))}
-						</select>
-						<button
-							type="button"
-							onClick={bulkDub}
-							disabled={dubBusy}
-							className="rounded-md bg-indigo-600 px-2.5 py-1 font-medium text-sm text-white disabled:opacity-50"
-						>
-							{dubBusy
-								? `Queuing… (${dubDone}/${selected.size})`
-								: `Dub ${selected.size} → queue`}
-						</button>
-					</span>
-				)}
-				{dubMsg && <span className="text-indigo-700 text-sm">{dubMsg}</span>}
 				{error && <span className="text-red-600 text-sm">{error}</span>}
 			</div>
 
@@ -570,6 +544,89 @@ export function VideoLibrary({
 					>
 						{loadingMore ? "Loading…" : "Show more"}
 					</button>
+				</div>
+			)}
+
+			{/* Floating action bar — follows the viewport while a selection is active. */}
+			{selected.size > 0 && (
+				<div className="-translate-x-1/2 fixed bottom-5 left-1/2 z-40 flex max-w-[95vw] flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-xl">
+					<span className="font-medium text-slate-800 text-sm">
+						{selected.size} selected
+					</span>
+					<button
+						type="button"
+						onClick={clearSelection}
+						className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm hover:bg-slate-50"
+					>
+						Clear
+					</button>
+					<button
+						type="button"
+						onClick={() => setShowPublish(true)}
+						className="rounded-lg border border-slate-900 px-3 py-1.5 font-medium text-slate-900 text-sm hover:bg-slate-50"
+					>
+						Publish {selected.size}
+					</button>
+
+					<span className="mx-1 h-6 w-px bg-slate-200" />
+
+					{/* Multi-language dub queue */}
+					<div className="flex flex-wrap items-center gap-1.5">
+						{dubLangs.map((code) => (
+							<span
+								key={code}
+								className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-1 text-indigo-700 text-xs"
+							>
+								{langLabel(code)}
+								<button
+									type="button"
+									onClick={() =>
+										setDubLangs((p) => p.filter((c) => c !== code))
+									}
+									disabled={dubBusy}
+									className="leading-none hover:opacity-70"
+									aria-label={`Remove ${langLabel(code)}`}
+								>
+									×
+								</button>
+							</span>
+						))}
+						<select
+							value=""
+							disabled={dubBusy}
+							onChange={(e) => {
+								const v = e.target.value;
+								if (v && !dubLangs.includes(v)) setDubLangs((p) => [...p, v]);
+							}}
+							className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+							title="Add a dub language"
+						>
+							<option value="">
+								{dubLangs.length ? "+ Add language" : "Dub language…"}
+							</option>
+							{DUB_LANGUAGES.filter((l) => !dubLangs.includes(l.code)).map(
+								(l) => (
+									<option key={l.code} value={l.code}>
+										{l.label}
+									</option>
+								),
+							)}
+						</select>
+						<button
+							type="button"
+							onClick={bulkDub}
+							disabled={dubBusy || dubLangs.length === 0}
+							className="rounded-lg bg-indigo-600 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-50"
+							title="Queue a dub of each selected video into each chosen language"
+						>
+							{dubBusy
+								? `Queuing… (${dubDone}/${selected.size * dubLangs.length})`
+								: `Dub → queue${dubLangs.length ? ` (${selected.size}×${dubLangs.length})` : ""}`}
+						</button>
+					</div>
+					{dubMsg && (
+						<span className="w-full text-indigo-700 text-xs">{dubMsg}</span>
+					)}
 				</div>
 			)}
 		</div>
