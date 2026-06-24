@@ -20,6 +20,7 @@ type Item = {
 	createdAt: string;
 	userName: string;
 	lang: string | null;
+	caption?: string | null;
 	durationSec?: number | null;
 	viralScore?: number | null;
 };
@@ -316,7 +317,8 @@ export function VideoLibrary({
 			id: i.id,
 			mediaType: "video",
 			url: i.url,
-			caption: i.title,
+			// Dubs carry an AI-generated title + description; fall back to the title.
+			caption: i.caption || i.title,
 		}));
 
 	return (
@@ -510,6 +512,14 @@ export function VideoLibrary({
 								>
 									by {i.userName}
 								</div>
+								{i.caption && (
+									<div
+										className="mt-0.5 line-clamp-2 text-[10px] text-slate-500"
+										title={i.caption}
+									>
+										{i.caption}
+									</div>
+								)}
 								{dubbed && dubbed.length > 0 && (
 									<div className="mt-0.5 flex flex-wrap gap-1 text-[10px]">
 										<span className="text-slate-400">dubbed:</span>

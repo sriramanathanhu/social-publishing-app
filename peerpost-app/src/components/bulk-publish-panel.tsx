@@ -284,13 +284,16 @@ export function BulkPublishPanel({
 				</div>
 
 				<div className="flex flex-wrap items-center gap-3 border-slate-200 border-t px-4 py-3">
-					<input
-						type="datetime-local"
-						value={when}
-						onChange={(e) => setWhen(e.target.value)}
-						className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-						title="Leave empty to publish now"
-					/>
+					<label className="flex items-center gap-2 text-slate-600 text-sm">
+						<span className="whitespace-nowrap">Schedule for</span>
+						<input
+							type="datetime-local"
+							value={when}
+							onChange={(e) => setWhen(e.target.value)}
+							className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+							title="Leave empty to publish now"
+						/>
+					</label>
 					{when && (
 						<span className="flex items-center gap-1 text-slate-500 text-xs">
 							every

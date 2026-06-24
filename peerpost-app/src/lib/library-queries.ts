@@ -3,13 +3,33 @@ import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
 	articles,
+	type DubCaption,
 	dubJobs,
 	quoteItems,
 	transcriptJobs,
 	users,
 } from "@/db/schema";
+import { langLabel } from "@/lib/dub-options";
 import { loadTags } from "@/lib/library-tags";
 import { r2PublicUrl } from "@/lib/r2";
+
+/** Best caption (title + description) from a dub's per-platform AI captions. */
+function dubCaptionText(
+	captions: Record<string, DubCaption> | null | undefined,
+): string | null {
+	if (!captions) return null;
+	const prefer = ["instagram", "youtube", "facebook", "linkedin", "twitter"];
+	const keys = [...prefer.filter((k) => captions[k]), ...Object.keys(captions)];
+	for (const k of keys) {
+		const c = captions[k];
+		const title = c?.title?.trim();
+		const body = c?.caption?.trim();
+		if (title || body) {
+			return title && body ? `${title}\n\n${body}` : title || body || null;
+		}
+	}
+	return null;
+}
 
 /** Library galleries load one page at a time; "Show more" fetches the next. */
 export const LIB_PAGE = 48;
@@ -188,6 +208,7 @@ type VideoRow = {
 	duration_sec: number | null;
 	viral_score: number | null;
 	lang: string | null;
+	captions: Record<string, DubCaption> | null;
 	created_at: string | Date;
 	user_name: string | null;
 	user_email: string | null;
@@ -200,17 +221,17 @@ export async function loadVideoPage(
 ) {
 	const result = await db.execute(sql`
 		SELECT id, kind, title, url, archive_key, duration_sec, viral_score, lang,
-		       created_at, user_name, user_email
+		       captions, created_at, user_name, user_email
 		FROM (
 			SELECT uv.id::text AS id, 'video' AS kind, uv.title, uv.url,
 			       NULL::text AS archive_key, NULL::int AS duration_sec,
-			       NULL::int AS viral_score, NULL::text AS lang,
+			       NULL::int AS viral_score, NULL::text AS lang, NULL::jsonb AS captions,
 			       uv.created_at, u.name AS user_name, u.email AS user_email
 			FROM user_videos uv JOIN users u ON u.id = uv.user_id
 			UNION ALL
 			SELECT sc.id::text, 'short', COALESCE(sc.title, 'Short clip'),
 			       sc.public_url, NULL::text, sc.duration_sec, sc.viral_score,
-			       sj.settings->>'language', sj.created_at, u.name, u.email
+			       sj.settings->>'language', NULL::jsonb, sj.created_at, u.name, u.email
 			FROM shorts_clips sc
 			JOIN shorts_jobs sj ON sj.id = sc.job_id
 			JOIN users u ON u.id = sj.user_id
@@ -218,7 +239,7 @@ export async function loadVideoPage(
 			UNION ALL
 			SELECT dj.id::text, 'dub', 'Dubbed → ' || dj.target_lang,
 			       NULL::text, dj.archive_key, NULL::int, NULL::int,
-			       dj.target_lang, dj.created_at, u.name, u.email
+			       dj.target_lang, dj.captions, dj.created_at, u.name, u.email
 			FROM dub_jobs dj JOIN users u ON u.id = dj.user_id
 			WHERE dj.status = 'done' AND dj.archive_key IS NOT NULL
 		) t
@@ -241,14 +262,17 @@ export async function loadVideoPage(
 		.map((r) => {
 			const url = r.url ?? (r.archive_key ? r2PublicUrl(r.archive_key) : null);
 			if (!url) return null;
+			const caption = r.kind === "dub" ? dubCaptionText(r.captions) : null;
 			return {
 				id: r.id,
 				kind: r.kind,
-				title: r.title,
+				// Spell out the language on dubs ("Dubbed → Hindi", not "→ hi").
+				title: r.kind === "dub" ? `Dubbed → ${langLabel(r.lang)}` : r.title,
 				url,
 				durationSec: r.duration_sec,
 				viralScore: r.viral_score,
 				lang: r.lang,
+				caption,
 				tags: tagsFor(r.kind, r.id),
 				createdAt: String(r.created_at),
 				userName: who(r.user_name, r.user_email),
