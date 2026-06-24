@@ -49,6 +49,7 @@ export const POST = route(async (req: NextRequest) => {
 						text: q.text,
 						hashtags: q.hashtags,
 						batchId,
+						outputLang: input.outputLang || null,
 					})),
 				)
 				.returning()

@@ -2,6 +2,11 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import {
+	LibraryFilters,
+	metaOptions,
+	passesMeta,
+} from "@/components/library-filters";
 import { TagEditor } from "@/components/tag-editor";
 
 type Item = {
@@ -11,6 +16,8 @@ type Item = {
 	provider: string | null;
 	tags: string[];
 	createdAt: string;
+	author: string;
+	lang: string | null;
 };
 
 export function ArticlesLibrary({ items }: { items: Item[] }) {
@@ -19,14 +26,22 @@ export function ArticlesLibrary({ items }: { items: Item[] }) {
 	);
 	const [search, setSearch] = useState("");
 	const [sort, setSort] = useState("newest");
+	const [langFilter, setLangFilter] = useState("all");
+	const [userFilter, setUserFilter] = useState("all");
+	const [dateFilter, setDateFilter] = useState(0);
+
+	const { langs, users } = useMemo(() => metaOptions(items), [items]);
 
 	const view = useMemo(() => {
 		const q = search.trim().toLowerCase();
-		let list = items;
+		let list = items.filter((i) =>
+			passesMeta(i, langFilter, userFilter, dateFilter),
+		);
 		if (q)
 			list = list.filter(
 				(i) =>
 					i.title.toLowerCase().includes(q) ||
+					i.author.toLowerCase().includes(q) ||
 					(tagsById[i.id] ?? []).some((t) => t.toLowerCase().includes(q)),
 			);
 		const s = [...list];
@@ -38,7 +53,7 @@ export function ArticlesLibrary({ items }: { items: Item[] }) {
 					: b.createdAt.localeCompare(a.createdAt),
 		);
 		return s;
-	}, [items, search, sort, tagsById]);
+	}, [items, search, sort, tagsById, langFilter, userFilter, dateFilter]);
 
 	return (
 		<div className="space-y-4">
@@ -58,6 +73,16 @@ export function ArticlesLibrary({ items }: { items: Item[] }) {
 					<option value="oldest">Oldest</option>
 					<option value="title">Title</option>
 				</select>
+				<LibraryFilters
+					langs={langs}
+					users={users}
+					lang={langFilter}
+					setLang={setLangFilter}
+					user={userFilter}
+					setUser={setUserFilter}
+					date={dateFilter}
+					setDate={setDateFilter}
+				/>
 			</div>
 			<div className="space-y-2">
 				{view.map((a) => (
@@ -70,6 +95,8 @@ export function ArticlesLibrary({ items }: { items: Item[] }) {
 							<div className="mt-1 text-slate-500 text-sm">{a.snippet}…</div>
 							<div className="mt-1 text-slate-400 text-xs">
 								{new Date(a.createdAt).toLocaleDateString()}
+								{a.lang ? ` · ${a.lang}` : ""}
+								{a.author ? ` · by ${a.author}` : ""}
 								{a.provider ? ` · ${a.provider}` : ""}
 							</div>
 						</Link>

@@ -1,6 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import {
+	type FilterMeta,
+	LibraryFilters,
+	metaOptions,
+	passesMeta,
+} from "@/components/library-filters";
 import { TagEditor } from "@/components/tag-editor";
 
 type Item = {
@@ -14,22 +20,35 @@ type Item = {
 	tags: string[];
 };
 
+// Transcripts filter by their pushed-to-corpus date, not a created date.
+const meta = (i: Item): FilterMeta => ({
+	lang: i.lang,
+	author: i.author ?? "",
+	createdAt: i.pushedAt ?? "",
+});
+
 export function TranscriptLibrary({ items }: { items: Item[] }) {
 	const [tagsById, setTagsById] = useState<Record<string, string[]>>(() =>
 		Object.fromEntries(items.map((i) => [i.id, i.tags])),
 	);
 	const [search, setSearch] = useState("");
-	const [lang, setLang] = useState("all");
+	const [langFilter, setLangFilter] = useState("all");
+	const [userFilter, setUserFilter] = useState("all");
+	const [dateFilter, setDateFilter] = useState(0);
 	const [sort, setSort] = useState("pushed");
+
+	const { langs, users } = useMemo(() => metaOptions(items.map(meta)), [items]);
 
 	const view = useMemo(() => {
 		const q = search.trim().toLowerCase();
-		let list = items;
-		if (lang !== "all") list = list.filter((i) => i.lang === lang);
+		let list = items.filter((i) =>
+			passesMeta(meta(i), langFilter, userFilter, dateFilter),
+		);
 		if (q)
 			list = list.filter(
 				(i) =>
 					i.title.toLowerCase().includes(q) ||
+					(i.author ?? "").toLowerCase().includes(q) ||
 					(tagsById[i.id] ?? []).some((t) => t.toLowerCase().includes(q)),
 			);
 		const s = [...list];
@@ -39,7 +58,7 @@ export function TranscriptLibrary({ items }: { items: Item[] }) {
 				: (b.pushedAt ?? "").localeCompare(a.pushedAt ?? ""),
 		);
 		return s;
-	}, [items, search, lang, sort, tagsById]);
+	}, [items, search, langFilter, userFilter, dateFilter, sort, tagsById]);
 
 	return (
 		<div className="space-y-4">
@@ -51,15 +70,6 @@ export function TranscriptLibrary({ items }: { items: Item[] }) {
 					className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
 				/>
 				<select
-					value={lang}
-					onChange={(e) => setLang(e.target.value)}
-					className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"
-				>
-					<option value="all">All languages</option>
-					<option value="Tamil">Tamil</option>
-					<option value="English">English</option>
-				</select>
-				<select
 					value={sort}
 					onChange={(e) => setSort(e.target.value)}
 					className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"
@@ -67,6 +77,16 @@ export function TranscriptLibrary({ items }: { items: Item[] }) {
 					<option value="pushed">Pushed date</option>
 					<option value="title">Title</option>
 				</select>
+				<LibraryFilters
+					langs={langs}
+					users={users}
+					lang={langFilter}
+					setLang={setLangFilter}
+					user={userFilter}
+					setUser={setUserFilter}
+					date={dateFilter}
+					setDate={setDateFilter}
+				/>
 			</div>
 			<div className="space-y-3">
 				{view.map((t) => (

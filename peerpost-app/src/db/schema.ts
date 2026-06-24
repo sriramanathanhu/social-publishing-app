@@ -569,6 +569,8 @@ export const quoteItems = pgTable(
 		hashtags: jsonb("hashtags").$type<string[]>().default([]),
 		// Groups quotes made in the same generation call (batch segregation).
 		batchId: text("batch_id"),
+		// Output language chosen at generation (label, e.g. "Hindi"); null = default.
+		outputLang: text("output_lang"),
 		// Card composition (filled when a card is made).
 		bgUrl: text("bg_url"),
 		overlayUrl: text("overlay_url"),
@@ -602,6 +604,8 @@ export const articles = pgTable(
 			.$type<{ n: number; file: string; uri: string }[]>()
 			.default([]),
 		provider: text("provider"),
+		// Output language chosen at generation (label, e.g. "Hindi"); null = default.
+		outputLang: text("output_lang"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),

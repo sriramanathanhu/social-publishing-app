@@ -5,6 +5,11 @@ import {
 	type BulkItem,
 	BulkPublishPanel,
 } from "@/components/bulk-publish-panel";
+import {
+	LibraryFilters,
+	metaOptions,
+	passesMeta,
+} from "@/components/library-filters";
 import type { Ecosystem } from "@/components/publish-row";
 import { TagEditor } from "@/components/tag-editor";
 
@@ -14,6 +19,8 @@ type Item = {
 	cardUrl: string | null;
 	tags: string[];
 	createdAt: string;
+	author: string;
+	lang: string | null;
 };
 
 export function QuotesLibrary({
@@ -29,18 +36,26 @@ export function QuotesLibrary({
 	const [search, setSearch] = useState("");
 	const [filter, setFilter] = useState("all");
 	const [sort, setSort] = useState("newest");
+	const [langFilter, setLangFilter] = useState("all");
+	const [userFilter, setUserFilter] = useState("all");
+	const [dateFilter, setDateFilter] = useState(0);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [showPublish, setShowPublish] = useState(false);
 
+	const { langs, users } = useMemo(() => metaOptions(items), [items]);
+
 	const view = useMemo(() => {
 		const q = search.trim().toLowerCase();
-		let list = items;
+		let list = items.filter((i) =>
+			passesMeta(i, langFilter, userFilter, dateFilter),
+		);
 		if (filter === "card") list = list.filter((i) => i.cardUrl);
 		if (filter === "text") list = list.filter((i) => !i.cardUrl);
 		if (q)
 			list = list.filter(
 				(i) =>
 					i.text.toLowerCase().includes(q) ||
+					i.author.toLowerCase().includes(q) ||
 					(tagsById[i.id] ?? []).some((t) => t.toLowerCase().includes(q)),
 			);
 		const s = [...list];
@@ -50,7 +65,16 @@ export function QuotesLibrary({
 				: b.createdAt.localeCompare(a.createdAt),
 		);
 		return s;
-	}, [items, filter, search, sort, tagsById]);
+	}, [
+		items,
+		filter,
+		search,
+		sort,
+		tagsById,
+		langFilter,
+		userFilter,
+		dateFilter,
+	]);
 
 	function toggle(id: string) {
 		setSelected((s) => {
@@ -103,6 +127,16 @@ export function QuotesLibrary({
 					<option value="newest">Newest</option>
 					<option value="oldest">Oldest</option>
 				</select>
+				<LibraryFilters
+					langs={langs}
+					users={users}
+					lang={langFilter}
+					setLang={setLangFilter}
+					user={userFilter}
+					setUser={setUserFilter}
+					date={dateFilter}
+					setDate={setDateFilter}
+				/>
 				{selected.size > 0 && (
 					<button
 						type="button"
@@ -147,6 +181,15 @@ export function QuotesLibrary({
 								</div>
 							)}
 						</div>
+						{(q.lang || q.author) && (
+							<div
+								className="mt-0.5 truncate text-[10px] text-slate-400"
+								title={`${q.lang ? `${q.lang} · ` : ""}${q.author}`}
+							>
+								{q.lang ? `${q.lang} · ` : ""}
+								{q.author ? `by ${q.author}` : ""}
+							</div>
+						)}
 						<div className="mt-1">
 							<TagEditor
 								kind="quote"

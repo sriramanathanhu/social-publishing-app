@@ -57,6 +57,7 @@ export const POST = route(async (req: NextRequest) => {
 			content: result.content,
 			citations: result.citations,
 			provider: result.provider,
+			outputLang: input.outputLang || null,
 		})
 		.returning();
 	return Response.json({ article: row });

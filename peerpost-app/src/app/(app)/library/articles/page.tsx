@@ -2,9 +2,12 @@ import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { ArticlesLibrary } from "@/components/articles-library";
 import { db } from "@/db";
-import { articles } from "@/db/schema";
+import { articles, users } from "@/db/schema";
 import { loadTags } from "@/lib/library-tags";
 import { requirePageUser } from "@/lib/page-auth";
+
+const who = (name: string | null, email: string | null) =>
+	name?.trim() || email?.trim() || "Unknown";
 
 function snippet(md: string): string {
 	return md
@@ -25,10 +28,13 @@ export default async function ArticlesLibraryPage() {
 			topic: articles.topic,
 			content: articles.content,
 			provider: articles.provider,
+			outputLang: articles.outputLang,
 			createdAt: articles.createdAt,
+			authorName: users.name,
+			authorEmail: users.email,
 		})
 		.from(articles)
-		.where(eq(articles.userId, user.id))
+		.innerJoin(users, eq(articles.userId, users.id))
 		.orderBy(desc(articles.createdAt))
 		.limit(300);
 
@@ -59,6 +65,8 @@ export default async function ArticlesLibraryPage() {
 				provider: a.provider,
 				tags: tags[a.id] ?? [],
 				createdAt: String(a.createdAt),
+				author: who(a.authorName, a.authorEmail),
+				lang: a.outputLang,
 			}))}
 		/>
 	);
