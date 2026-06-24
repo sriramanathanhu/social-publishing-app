@@ -31,11 +31,13 @@ _CAP_FONTS = {
     "es": "Noto Sans",
     "nl": "Noto Sans",
     "en": "Noto Sans",
+    # Noto Sans CJK KR carries Hangul + Han, so it also covers Chinese.
+    "ko": "Noto Sans CJK KR",
+    "zh": "Noto Sans CJK KR",
 }
 
 
 def _caption_font(lang):
-    # CJK (ko/zh) has no bundled font yet → falls back to Noto Sans.
     return _CAP_FONTS.get((lang or "").lower(), "Noto Sans")
 
 
