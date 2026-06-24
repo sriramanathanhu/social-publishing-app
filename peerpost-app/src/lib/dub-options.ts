@@ -56,11 +56,11 @@ export const DUB_LANGUAGES: DubLanguage[] = [
 		],
 	},
 	{
-		code: "bn",
-		label: "Bengali",
+		code: "sw",
+		label: "Swahili",
 		voices: [
-			{ id: "bn-IN-BashkarNeural", label: "Bashkar (male)" },
-			{ id: "bn-IN-TanishaaNeural", label: "Tanishaa (female)" },
+			{ id: "sw-KE-RafikiNeural", label: "Rafiki (male)" },
+			{ id: "sw-KE-ZuriNeural", label: "Zuri (female)" },
 		],
 	},
 	{
@@ -122,11 +122,11 @@ export const DUB_LANGUAGES: DubLanguage[] = [
 		],
 	},
 	{
-		code: "zh-CN",
-		label: "Chinese (Mandarin)",
+		code: "pt",
+		label: "Portuguese",
 		voices: [
-			{ id: "zh-CN-YunxiNeural", label: "Yunxi (male)" },
-			{ id: "zh-CN-XiaoxiaoNeural", label: "Xiaoxiao (female)" },
+			{ id: "pt-BR-AntonioNeural", label: "Antônio (male)" },
+			{ id: "pt-BR-FranciscaNeural", label: "Francisca (female)" },
 		],
 	},
 ];

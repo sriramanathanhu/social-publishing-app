@@ -61,10 +61,10 @@ LANGUAGE_SPECS = {
         "strict_script_validation": True,
         "pivot_via_english": False,
     },
-    "bn": {
-        "name": "Bengali",
-        "script_ranges": [(0x0980, 0x09FF)],
-        "strict_script_validation": True,
+    "sw": {
+        "name": "Swahili",
+        "script_ranges": [(0x0041, 0x005A), (0x0061, 0x007A), (0x00C0, 0x00FF)],
+        "strict_script_validation": False,
         "pivot_via_english": False,
     },
     "es": {
@@ -108,11 +108,10 @@ LANGUAGE_SPECS = {
         "strict_script_validation": False,
         "pivot_via_english": False,
     },
-    "zh-cn": {
-        # _language_spec lowercases the lookup, so key this as "zh-cn".
-        "name": "Chinese (Simplified)",
-        "script_ranges": [(0x3400, 0x4DBF), (0x4E00, 0x9FFF)],
-        "strict_script_validation": True,
+    "pt": {
+        "name": "Portuguese",
+        "script_ranges": [(0x0041, 0x005A), (0x0061, 0x007A), (0x00C0, 0x00FF)],
+        "strict_script_validation": False,
         "pivot_via_english": False,
     },
 }

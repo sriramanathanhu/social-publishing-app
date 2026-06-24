@@ -69,11 +69,11 @@ LANGUAGE_META = {
         "script_hint": "Write in Malayalam script.",
         "script_ranges": [(0x0D00, 0x0D7F)],
     },
-    "bn": {
-        "name": "Bengali",
-        "style": "Use natural spoken Bengali with devotional warmth and Sanskrit terms only where they fit naturally.",
-        "script_hint": "Write in Bengali script.",
-        "script_ranges": [(0x0980, 0x09FF)],
+    "sw": {
+        "name": "Swahili",
+        "style": "Use natural spoken Kenyan Swahili with devotional warmth; keep Sanskrit terms only where they fit naturally.",
+        "script_hint": "Write in Swahili (Latin script).",
+        "script_ranges": [(0x0041, 0x005A), (0x0061, 0x007A), (0x00C0, 0x00FF)],
     },
     "es": {
         "name": "Spanish",

@@ -31,6 +31,8 @@ _CAP_FONTS = {
     "es": "Noto Sans",
     "nl": "Noto Sans",
     "en": "Noto Sans",
+    "sw": "Noto Sans",
+    "pt": "Noto Sans",
     # Noto Sans CJK KR carries Hangul + Han, so it also covers Chinese.
     "ko": "Noto Sans CJK KR",
     "zh": "Noto Sans CJK KR",

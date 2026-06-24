@@ -28,7 +28,7 @@ const LANGUAGES = [
 	"Telugu",
 	"Kannada",
 	"Malayalam",
-	"Bengali",
+	"Swahili",
 	"Gujarati",
 	"Marathi",
 	"Bhojpuri",
@@ -38,7 +38,7 @@ const LANGUAGES = [
 	"French",
 	"Dutch",
 	"Korean",
-	"Chinese (Mandarin)",
+	"Portuguese",
 ];
 
 /**

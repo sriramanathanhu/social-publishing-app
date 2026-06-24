@@ -13,7 +13,7 @@ LANGUAGE_META = {
     "te": ("Telugu", "Telugu script"),
     "kn": ("Kannada", "Kannada script"),
     "ml": ("Malayalam", "Malayalam script"),
-    "bn": ("Bengali", "Bengali script"),
+    "sw": ("Swahili", "Latin script"),
     "es": ("Spanish", "Spanish"),
     "ru": ("Russian", "Cyrillic Russian"),
     "en": ("English", "English"),

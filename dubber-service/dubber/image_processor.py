@@ -88,10 +88,10 @@ LANGUAGE_META = {
         "script_hint": "Write in Malayalam script.",
         "style_hint": "Use natural spoken Malayalam with devotional warmth.",
     },
-    "bn": {
-        "name": "Bengali",
-        "script_hint": "Write in Bengali script.",
-        "style_hint": "Use natural spoken Bengali with devotional warmth.",
+    "sw": {
+        "name": "Swahili",
+        "script_hint": "Write in Swahili (Latin script).",
+        "style_hint": "Use natural spoken Kenyan Swahili with devotional warmth.",
     },
     "es": {
         "name": "Spanish",
