@@ -12,6 +12,70 @@ SMALL_GAP_KEEP = 0.08
 MEDIUM_GAP_KEEP = 0.18
 THOUGHT_PAUSE_KEEP = 0.32
 
+# ── Burned-in captions (subtitles in the dub language) ──────────────────────
+# Local Noto fonts (bundled for quote cards) so libass can render Indic/Cyrillic
+# scripts. Each dub is a single language → one script → one font family.
+_CAP_ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "quote")
+_CAP_FONTS = {
+    "hi": "Noto Sans Devanagari",
+    "mr": "Noto Sans Devanagari",
+    "bho": "Noto Sans Devanagari",
+    "bn": "Noto Sans Bengali",
+    "gu": "Noto Sans Gujarati",
+    "ta": "Noto Sans Tamil",
+    "te": "Noto Sans Telugu",
+    "kn": "Noto Sans Kannada",
+    "ml": "Noto Sans Malayalam",
+    "ru": "Noto Sans",
+    "fr": "Noto Sans",
+    "es": "Noto Sans",
+    "nl": "Noto Sans",
+    "en": "Noto Sans",
+}
+
+
+def _caption_font(lang):
+    # CJK (ko/zh) has no bundled font yet → falls back to Noto Sans.
+    return _CAP_FONTS.get((lang or "").lower(), "Noto Sans")
+
+
+def _srt_ts(sec):
+    if sec < 0:
+        sec = 0
+    ms = int(round(sec * 1000))
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _write_srt(subs, path):
+    """subs = [(start_sec, dur_sec, text), ...] in the OUTPUT timeline."""
+    blocks = []
+    idx = 1
+    for start, dur, text in subs:
+        text = (text or "").strip()
+        if not text:
+            continue
+        end = start + max(dur, 0.4)
+        blocks.append(f"{idx}\n{_srt_ts(start)} --> {_srt_ts(end)}\n{text}\n")
+        idx += 1
+    if not blocks:
+        return False
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(blocks))
+    return True
+
+
+def _subtitles_vf(srt_path, lang):
+    family = _caption_font(lang)
+    style = (
+        f"FontName={family},FontSize=16,"
+        "PrimaryColour=&H00FFFFFF&,OutlineColour=&H78000000&,"
+        "BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=28"
+    )
+    return f"subtitles={srt_path}:fontsdir={_CAP_ASSETS}:force_style='{style}'"
+
 
 def _cut(src, start, end, dst):
     dur = max(round(end - start, 4), 0.1)
@@ -256,6 +320,8 @@ def build_dubbed_video(
     bgm_path=None,
     bgm_volume=0.35,
     output_dir="workspace",
+    burn_captions=False,
+    caption_lang="",
 ):
     os.makedirs(output_dir, exist_ok=True)
     tmp = os.path.join(output_dir, "_tmp")
@@ -280,6 +346,7 @@ def build_dubbed_video(
     segs = sorted(segments, key=lambda s: s["start"])
     parts = []
     positions = []
+    subs = []  # (output_start, dur, translated_text) for burned-in captions
     original_audio_ranges = []
     prev = 0.0
     cursor = 0.0
@@ -386,6 +453,7 @@ def build_dubbed_video(
 
         audio_start = cursor
         parts.append(seg_out)
+        subs.append((audio_start, actual_seg_dur, seg.get("text", "")))
         cursor += actual_seg_dur
         prev = seg_end
         prev_seg = seg
@@ -470,35 +538,34 @@ def build_dubbed_video(
     wav_out = os.path.join(output_dir, "dubbed_audio.wav")
     mixed.export(wav_out, format="wav")
 
-    r = subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-i",
-            joined,
-            "-i",
-            wav_out,
-            "-map",
-            "0:v",
-            "-map",
-            "1:a",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "fast",
-            "-crf",
-            "18",
-            "-r",
-            str(source_fps or _FPS_FALLBACK),
-            "-c:a",
-            "aac",
-            "-shortest",
-            output_path,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
+    # Optionally burn the translated captions (timed to the OUTPUT timeline).
+    vf = None
+    if burn_captions:
+        srt_path = os.path.join(output_dir, "captions.srt")
+        if _write_srt(subs, srt_path):
+            vf = _subtitles_vf(srt_path, caption_lang)
+            log("BUILD", f"  burning {len(subs)} caption cues ({caption_lang or 'auto'})")
+        else:
+            log("BUILD", "  burn_captions requested but no caption text — skipping")
+
+    cmd = ["ffmpeg", "-y", "-i", joined, "-i", wav_out, "-map", "0:v", "-map", "1:a"]
+    if vf:
+        cmd += ["-vf", vf]
+    cmd += [
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-crf",
+        "18",
+        "-r",
+        str(source_fps or _FPS_FALLBACK),
+        "-c:a",
+        "aac",
+        "-shortest",
+        output_path,
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if r.returncode != 0:
         raise RuntimeError(f"Audio attach failed:\n{r.stderr[-400:]}")
 

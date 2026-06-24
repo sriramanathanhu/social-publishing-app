@@ -27,6 +27,7 @@ export function DubStudio({
 	const [langCode, setLangCode] = useState(DUB_LANGUAGES[0].code);
 	const [voice, setVoice] = useState(DUB_LANGUAGES[0].voices[0].id);
 	const [sourceLang, setSourceLang] = useState("auto");
+	const [burnCaptions, setBurnCaptions] = useState(false);
 
 	const [jobId, setJobId] = useState<string | null>(null);
 	const [progress, setProgress] = useState<Progress | null>(null);
@@ -134,6 +135,7 @@ export function DubStudio({
 					sourceLang,
 					targetLang: langCode,
 					voice,
+					burnCaptions,
 					sourceLibraryId,
 					sourceLibraryKind,
 				}),
@@ -306,6 +308,22 @@ export function DubStudio({
 						</select>
 					</div>
 				</div>
+
+				<label className="flex items-start gap-2 text-sm">
+					<input
+						type="checkbox"
+						checked={burnCaptions}
+						onChange={(e) => setBurnCaptions(e.target.checked)}
+						className="mt-0.5"
+					/>
+					<span>
+						Burn captions into the video
+						<span className="block text-xs opacity-50">
+							Adds subtitles in the dub language, baked onto the frames — for
+							source videos that have no captions.
+						</span>
+					</span>
+				</label>
 
 				<button
 					type="submit"

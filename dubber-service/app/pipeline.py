@@ -58,6 +58,7 @@ class DubRequest:
     output_path: str = "output.mp4"
     source_type: str = "url"          # "url" (extractor) | "upload" (direct fetch)
     cookies_file: Optional[str] = None  # per-job yt-dlp cookies (login/rate-limit)
+    burn_captions: bool = False       # burn translated subtitles into the video
 
 
 @dataclass
@@ -168,6 +169,8 @@ def run_dub(req: DubRequest, on_progress: Optional[ProgressCb] = None) -> "DubRe
         req.output_path,
         bgm_path=None,
         output_dir=req.workspace,
+        burn_captions=req.burn_captions,
+        caption_lang=req.target_lang,
     )
     if not os.path.exists(req.output_path):
         raise RuntimeError("Build finished but output file is missing.")

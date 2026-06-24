@@ -91,6 +91,7 @@ class CreateJob(BaseModel):
     source_lang: str = "auto"
     source_type: str = "url"          # "url" | "upload" (direct fetch, no extractor)
     cookies: str = ""                 # per-job yt-dlp cookies.txt content (optional)
+    burn_captions: bool = False       # burn translated subtitles into the video
 
 
 def _run_job(job: Job, body: CreateJob) -> None:
@@ -127,6 +128,7 @@ def _run_job(job: Job, body: CreateJob) -> None:
                 source_lang=body.source_lang,
                 source_type=body.source_type,
                 cookies_file=cookies_file,
+                burn_captions=body.burn_captions,
                 workspace=os.path.join("workspace", job.id),
                 output_path=out_path,
             ),

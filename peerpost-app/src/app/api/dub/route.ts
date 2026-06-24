@@ -35,6 +35,8 @@ const createSchema = z.object({
 	// When dubbing a Library item, link back to it (for the "Dubbed" tag).
 	sourceLibraryId: z.string().max(64).optional(),
 	sourceLibraryKind: z.enum(["upload", "short"]).optional(),
+	// Burn the translated captions (subtitles) into the dubbed video.
+	burnCaptions: z.boolean().default(false),
 });
 
 /**
@@ -91,6 +93,7 @@ export const POST = route(async (request: NextRequest) => {
 			voice: input.voice,
 			source_type: input.sourceType,
 			cookies,
+			burn_captions: input.burnCaptions,
 			deepgram_key: keys.deepgram,
 			gemini_key: keys.gemini,
 			// Writes the AI captions (NVIDIA NIM); pipeline degrades to a template

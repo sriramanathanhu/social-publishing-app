@@ -32,6 +32,7 @@ export type DubberCreateInput = {
 	source_lang?: string;
 	source_type?: "url" | "upload";
 	cookies?: string;
+	burn_captions?: boolean;
 };
 
 export type DubberCaption = { caption: string; title?: string };
