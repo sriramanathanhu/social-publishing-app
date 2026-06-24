@@ -7,6 +7,7 @@ import {
 } from "@/components/bulk-publish-panel";
 import type { Ecosystem } from "@/components/publish-row";
 import { TagEditor } from "@/components/tag-editor";
+import { useLibraryPage } from "@/components/use-library-page";
 import { DUB_LANGUAGES, langLabel } from "@/lib/dub-options";
 
 type Kind = "video" | "short" | "dub";
@@ -40,26 +41,31 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export function VideoLibrary({
-	uploads: initialUploads,
-	shorts,
-	dubs,
+	items: initialItems,
+	hasMore: initialHasMore,
 	dubBySource,
 	ecosystems,
 	me,
 }: {
-	uploads: Item[];
-	shorts: Item[];
-	dubs: Item[];
+	items: Item[];
+	hasMore: boolean;
 	dubBySource: Record<string, { lang: string; url: string }[]>;
 	ecosystems: Ecosystem[];
 	me: string;
 }) {
-	const [uploads, setUploads] = useState<Item[]>(initialUploads);
+	const { items, setItems, hasMore, loadingMore, loadMore } =
+		useLibraryPage<Item>("video", initialItems, initialHasMore);
 	const [tagsById, setTagsById] = useState<Record<string, string[]>>(() =>
-		Object.fromEntries(
-			[...initialUploads, ...shorts, ...dubs].map((i) => [i.id, i.tags]),
-		),
+		Object.fromEntries(initialItems.map((i) => [i.id, i.tags])),
 	);
+	// Seed tags for rows brought in by "Show more".
+	useEffect(() => {
+		setTagsById((prev) => {
+			const next = { ...prev };
+			for (const i of items) if (!(i.id in next)) next[i.id] = i.tags;
+			return next;
+		});
+	}, [items]);
 	const [search, setSearch] = useState("");
 	const [typeFilter, setTypeFilter] = useState("all");
 	const [langFilter, setLangFilter] = useState("all");
@@ -74,18 +80,9 @@ export function VideoLibrary({
 	const [dubDone, setDubDone] = useState(0);
 	const [dubMsg, setDubMsg] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const [visible, setVisible] = useState(48);
 	const fileRef = useRef<HTMLInputElement>(null);
 
-	// Reset the page size whenever the filters change.
-	useEffect(() => {
-		setVisible(48);
-	}, [search, typeFilter, langFilter, userFilter, dateFilter, sort]);
-
-	const all = useMemo(
-		() => [...uploads, ...shorts, ...dubs],
-		[uploads, shorts, dubs],
-	);
+	const all = items;
 
 	// Distinct languages + users present, for the filter dropdowns.
 	const langOptions = useMemo(() => {
@@ -154,7 +151,7 @@ export function VideoLibrary({
 				userName: me,
 				lang: null,
 			};
-			setUploads((p) => [v, ...p]);
+			setItems((p) => [v, ...p]);
 			setTagsById((t) => ({ ...t, [v.id]: [] }));
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "Upload failed");
@@ -164,7 +161,7 @@ export function VideoLibrary({
 	}
 
 	async function removeUpload(id: string) {
-		setUploads((p) => p.filter((v) => v.id !== id));
+		setItems((p) => p.filter((v) => v.id !== id));
 		setSelected((s) => {
 			const n = new Set(s);
 			n.delete(id);
@@ -386,7 +383,7 @@ export function VideoLibrary({
 				<p className="text-slate-400 text-sm">Nothing here.</p>
 			) : (
 				<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-					{view.slice(0, visible).map((i) => {
+					{view.map((i) => {
 						const dubbed = dubBySource[i.id];
 						return (
 							<div
@@ -472,14 +469,15 @@ export function VideoLibrary({
 					})}
 				</div>
 			)}
-			{view.length > visible && (
+			{hasMore && (
 				<div className="flex justify-center pt-2">
 					<button
 						type="button"
-						onClick={() => setVisible((v) => v + 48)}
-						className="rounded-lg border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-50"
+						onClick={loadMore}
+						disabled={loadingMore}
+						className="rounded-lg border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
 					>
-						Show more ({view.length - visible} more)
+						{loadingMore ? "Loading…" : "Show more"}
 					</button>
 				</div>
 			)}

@@ -8,6 +8,7 @@ import {
 	passesMeta,
 } from "@/components/library-filters";
 import { TagEditor } from "@/components/tag-editor";
+import { useLibraryPage } from "@/components/use-library-page";
 
 type Item = {
 	id: string;
@@ -27,21 +28,33 @@ const meta = (i: Item): FilterMeta => ({
 	createdAt: i.createdAt,
 });
 
-export function TranscriptLibrary({ items }: { items: Item[] }) {
-	const [tagsById, setTagsById] = useState<Record<string, string[]>>(() =>
-		Object.fromEntries(items.map((i) => [i.id, i.tags])),
+export function TranscriptLibrary({
+	items: initialItems,
+	hasMore: initialHasMore,
+}: {
+	items: Item[];
+	hasMore: boolean;
+}) {
+	const { items, hasMore, loadingMore, loadMore } = useLibraryPage<Item>(
+		"transcript",
+		initialItems,
+		initialHasMore,
 	);
+	const [tagsById, setTagsById] = useState<Record<string, string[]>>(() =>
+		Object.fromEntries(initialItems.map((i) => [i.id, i.tags])),
+	);
+	useEffect(() => {
+		setTagsById((prev) => {
+			const next = { ...prev };
+			for (const i of items) if (!(i.id in next)) next[i.id] = i.tags;
+			return next;
+		});
+	}, [items]);
 	const [search, setSearch] = useState("");
 	const [langFilter, setLangFilter] = useState("all");
 	const [userFilter, setUserFilter] = useState("all");
 	const [dateFilter, setDateFilter] = useState(0);
 	const [sort, setSort] = useState("pushed");
-	const [visible, setVisible] = useState(30);
-
-	// Reset the page size whenever the filters change.
-	useEffect(() => {
-		setVisible(30);
-	}, [search, langFilter, userFilter, dateFilter, sort]);
 
 	const { langs, users } = useMemo(() => metaOptions(items.map(meta)), [items]);
 
@@ -95,7 +108,7 @@ export function TranscriptLibrary({ items }: { items: Item[] }) {
 				/>
 			</div>
 			<div className="space-y-3">
-				{view.slice(0, visible).map((t) => (
+				{view.map((t) => (
 					<div
 						key={t.id}
 						className="rounded-lg border border-slate-200 bg-white p-4"
@@ -131,14 +144,15 @@ export function TranscriptLibrary({ items }: { items: Item[] }) {
 					</div>
 				))}
 			</div>
-			{view.length > visible && (
+			{hasMore && (
 				<div className="flex justify-center pt-2">
 					<button
 						type="button"
-						onClick={() => setVisible((v) => v + 30)}
-						className="rounded-lg border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-50"
+						onClick={loadMore}
+						disabled={loadingMore}
+						className="rounded-lg border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
 					>
-						Show more ({view.length - visible} more)
+						{loadingMore ? "Loading…" : "Show more"}
 					</button>
 				</div>
 			)}

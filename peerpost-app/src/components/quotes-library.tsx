@@ -12,6 +12,7 @@ import {
 } from "@/components/library-filters";
 import type { Ecosystem } from "@/components/publish-row";
 import { TagEditor } from "@/components/tag-editor";
+import { useLibraryPage } from "@/components/use-library-page";
 
 type Item = {
 	id: string;
@@ -24,15 +25,29 @@ type Item = {
 };
 
 export function QuotesLibrary({
-	items,
+	items: initialItems,
+	hasMore: initialHasMore,
 	ecosystems,
 }: {
 	items: Item[];
+	hasMore: boolean;
 	ecosystems: Ecosystem[];
 }) {
-	const [tagsById, setTagsById] = useState<Record<string, string[]>>(() =>
-		Object.fromEntries(items.map((i) => [i.id, i.tags])),
+	const { items, hasMore, loadingMore, loadMore } = useLibraryPage<Item>(
+		"quotes",
+		initialItems,
+		initialHasMore,
 	);
+	const [tagsById, setTagsById] = useState<Record<string, string[]>>(() =>
+		Object.fromEntries(initialItems.map((i) => [i.id, i.tags])),
+	);
+	useEffect(() => {
+		setTagsById((prev) => {
+			const next = { ...prev };
+			for (const i of items) if (!(i.id in next)) next[i.id] = i.tags;
+			return next;
+		});
+	}, [items]);
 	const [search, setSearch] = useState("");
 	const [filter, setFilter] = useState("all");
 	const [sort, setSort] = useState("newest");
@@ -41,12 +56,6 @@ export function QuotesLibrary({
 	const [dateFilter, setDateFilter] = useState(0);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [showPublish, setShowPublish] = useState(false);
-	const [visible, setVisible] = useState(48);
-
-	// Reset the page size whenever the filters change.
-	useEffect(() => {
-		setVisible(48);
-	}, [search, filter, sort, langFilter, userFilter, dateFilter]);
 
 	const { langs, users } = useMemo(() => metaOptions(items), [items]);
 
@@ -160,7 +169,7 @@ export function QuotesLibrary({
 			</div>
 
 			<div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-				{view.slice(0, visible).map((q) => (
+				{view.map((q) => (
 					<div
 						key={q.id}
 						className={`rounded-lg border p-1.5 ${selected.has(q.id) ? "border-slate-900 ring-1 ring-slate-900" : "border-slate-200"}`}
@@ -210,14 +219,15 @@ export function QuotesLibrary({
 					</div>
 				))}
 			</div>
-			{view.length > visible && (
+			{hasMore && (
 				<div className="flex justify-center pt-2">
 					<button
 						type="button"
-						onClick={() => setVisible((v) => v + 48)}
-						className="rounded-lg border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-50"
+						onClick={loadMore}
+						disabled={loadingMore}
+						className="rounded-lg border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
 					>
-						Show more ({view.length - visible} more)
+						{loadingMore ? "Loading…" : "Show more"}
 					</button>
 				</div>
 			)}

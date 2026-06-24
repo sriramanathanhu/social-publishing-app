@@ -1,41 +1,17 @@
-import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { QuotesLibrary } from "@/components/quotes-library";
-import { db } from "@/db";
-import { quoteItems, users } from "@/db/schema";
-import { loadTags } from "@/lib/library-tags";
+import { loadQuotesPage } from "@/lib/library-queries";
 import { requirePageUser } from "@/lib/page-auth";
 import { getAccessibleProfiles, getConnectedAccounts } from "@/lib/queries";
 
-const who = (name: string | null, email: string | null) =>
-	name?.trim() || email?.trim() || "Unknown";
-
 /** Library › Quotes: a SHARED gallery of everyone's saved quotes + rendered
- * cards, with tags, bulk publish, and date/language/user filters. */
+ * cards, with tags, bulk publish, date/language/user filters, and load-more. */
 export default async function QuotesLibraryPage() {
 	const user = await requirePageUser();
-	const [items, profiles] = await Promise.all([
-		db
-			.select({
-				id: quoteItems.id,
-				text: quoteItems.text,
-				cardUrl: quoteItems.cardUrl,
-				outputLang: quoteItems.outputLang,
-				createdAt: quoteItems.createdAt,
-				authorName: users.name,
-				authorEmail: users.email,
-			})
-			.from(quoteItems)
-			.innerJoin(users, eq(quoteItems.userId, users.id))
-			.orderBy(desc(quoteItems.createdAt))
-			.limit(300),
+	const [{ items, hasMore }, profiles] = await Promise.all([
+		loadQuotesPage(user.id, 0),
 		getAccessibleProfiles(user),
 	]);
-	const tags = await loadTags(
-		user.id,
-		"quote",
-		items.map((i) => i.id),
-	);
 	const ecosystems = await Promise.all(
 		profiles.map(async (p) => ({
 			id: p.id,
@@ -58,17 +34,6 @@ export default async function QuotesLibraryPage() {
 	}
 
 	return (
-		<QuotesLibrary
-			ecosystems={ecosystems}
-			items={items.map((i) => ({
-				id: i.id,
-				text: i.text,
-				cardUrl: i.cardUrl,
-				tags: tags[i.id] ?? [],
-				createdAt: String(i.createdAt),
-				author: who(i.authorName, i.authorEmail),
-				lang: i.outputLang,
-			}))}
-		/>
+		<QuotesLibrary ecosystems={ecosystems} items={items} hasMore={hasMore} />
 	);
 }
