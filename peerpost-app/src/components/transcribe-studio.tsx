@@ -2,9 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { RichEditor } from "@/components/rich-editor";
+import { DUB_LANGUAGES } from "@/lib/dub-options";
 
 const LANGS = ["Tamil", "English"] as const;
 type Lang = (typeof LANGS)[number];
+
+// Translate a finished transcript into any of these (the same 15 as dubbing).
+const TRANSLATE_LANGS = DUB_LANGUAGES.map((l) => l.label);
 
 export type TranscriptJob = {
 	id: string;
@@ -53,6 +57,8 @@ export function TranscribeStudio({
 	const [busy, setBusy] = useState(false);
 	const [merging, setMerging] = useState(false);
 	const [pushing, setPushing] = useState<string | null>(null);
+	const [translating, setTranslating] = useState<string | null>(null);
+	const [transLang, setTransLang] = useState(TRANSLATE_LANGS[0]);
 	const [error, setError] = useState<string | null>(null);
 	const fileRef = useRef<HTMLInputElement>(null);
 	const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -228,6 +234,26 @@ export function TranscribeStudio({
 			setError(e instanceof Error ? e.message : "Push failed");
 		} finally {
 			setPushing(null);
+		}
+	}
+
+	async function translateTo(id: string, lang: string) {
+		setTranslating(id);
+		setError(null);
+		try {
+			const res = await fetch(`/api/transcribe/${id}/translate`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ lang }),
+			});
+			const d = await res.json();
+			if (!res.ok) throw new Error(d.error ?? "Translation failed");
+			setJobs((prev) => [d.job, ...prev]);
+			setSelectedId(d.job.id);
+		} catch (e) {
+			setError(e instanceof Error ? e.message : "Translation failed");
+		} finally {
+			setTranslating(null);
 		}
 	}
 
@@ -551,6 +577,30 @@ export function TranscribeStudio({
 												: selected.pushedAt
 													? "Re-push to corpus"
 													: "Push to corpus"}
+										</button>
+										<span className="mx-1 h-5 w-px bg-slate-200" />
+										<select
+											value={transLang}
+											onChange={(e) => setTransLang(e.target.value)}
+											disabled={translating === selected.id}
+											className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+											title="Translate this transcript into…"
+										>
+											{TRANSLATE_LANGS.map((l) => (
+												<option key={l} value={l}>
+													{l}
+												</option>
+											))}
+										</select>
+										<button
+											type="button"
+											onClick={() => translateTo(selected.id, transLang)}
+											disabled={translating === selected.id}
+											className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-sm hover:bg-slate-50 disabled:opacity-40"
+										>
+											{translating === selected.id
+												? "Translating…"
+												: "Translate → new transcript"}
 										</button>
 										{selected.pushedAt && (
 											<span className="text-slate-400 text-xs">
