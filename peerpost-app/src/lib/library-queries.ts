@@ -109,6 +109,25 @@ export async function loadQuotesPage(
 	};
 }
 
+/** Distinct languages + users across ALL quotes (for the filter dropdowns —
+ * independent of which page is loaded). */
+export async function loadQuoteFacets() {
+	const [langRows, userRows] = await Promise.all([
+		db.selectDistinct({ lang: quoteItems.outputLang }).from(quoteItems),
+		db
+			.selectDistinct({ name: users.name, email: users.email })
+			.from(quoteItems)
+			.innerJoin(users, eq(quoteItems.userId, users.id)),
+	]);
+	const langs = [
+		...new Set(langRows.map((r) => r.lang).filter((l): l is string => !!l)),
+	].sort();
+	const usersList = [
+		...new Set(userRows.map((r) => who(r.name, r.email))),
+	].sort();
+	return { langs, users: usersList };
+}
+
 // ── Transcripts ────────────────────────────────────────────────────────────
 export async function loadTranscriptsPage(
 	userId: string,

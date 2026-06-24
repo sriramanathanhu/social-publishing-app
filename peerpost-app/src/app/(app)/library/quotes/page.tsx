@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { QuotesLibrary } from "@/components/quotes-library";
-import { loadQuotesPage } from "@/lib/library-queries";
+import { loadQuoteFacets, loadQuotesPage } from "@/lib/library-queries";
 import { requirePageUser } from "@/lib/page-auth";
 import { getAccessibleProfiles, getConnectedAccounts } from "@/lib/queries";
 
@@ -8,8 +8,9 @@ import { getAccessibleProfiles, getConnectedAccounts } from "@/lib/queries";
  * cards, with tags, bulk publish, date/language/user filters, and load-more. */
 export default async function QuotesLibraryPage() {
 	const user = await requirePageUser();
-	const [{ items, hasMore }, profiles] = await Promise.all([
+	const [{ items, hasMore }, facets, profiles] = await Promise.all([
 		loadQuotesPage(user.id, 0),
+		loadQuoteFacets(),
 		getAccessibleProfiles(user),
 	]);
 	const ecosystems = await Promise.all(
@@ -34,6 +35,12 @@ export default async function QuotesLibraryPage() {
 	}
 
 	return (
-		<QuotesLibrary ecosystems={ecosystems} items={items} hasMore={hasMore} />
+		<QuotesLibrary
+			ecosystems={ecosystems}
+			items={items}
+			hasMore={hasMore}
+			langFacets={facets.langs}
+			userFacets={facets.users}
+		/>
 	);
 }

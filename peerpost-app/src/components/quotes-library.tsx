@@ -28,10 +28,14 @@ export function QuotesLibrary({
 	items: initialItems,
 	hasMore: initialHasMore,
 	ecosystems,
+	langFacets = [],
+	userFacets = [],
 }: {
 	items: Item[];
 	hasMore: boolean;
 	ecosystems: Ecosystem[];
+	langFacets?: string[];
+	userFacets?: string[];
 }) {
 	const { items, hasMore, loadingMore, loadMore } = useLibraryPage<Item>(
 		"quotes",
@@ -57,7 +61,15 @@ export function QuotesLibrary({
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [showPublish, setShowPublish] = useState(false);
 
-	const { langs, users } = useMemo(() => metaOptions(items), [items]);
+	// Dropdown options come from server-side facets (every quote, not just the
+	// loaded page); fall back to the loaded set if no facets were provided.
+	const { langs, users } = useMemo(() => {
+		const derived = metaOptions(items);
+		return {
+			langs: langFacets.length ? langFacets : derived.langs,
+			users: userFacets.length ? userFacets : derived.users,
+		};
+	}, [items, langFacets, userFacets]);
 
 	const view = useMemo(() => {
 		const q = search.trim().toLowerCase();
