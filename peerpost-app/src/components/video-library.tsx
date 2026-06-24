@@ -137,9 +137,16 @@ export function VideoLibrary({
 	]);
 
 	async function uploadOne(file: File): Promise<boolean> {
-		const fd = new FormData();
-		fd.append("file", file);
-		const res = await fetch("/api/video", { method: "POST", body: fd });
+		// Stream the raw file as the request body (no multipart) so the server can
+		// pipe it straight to R2 without buffering — name/type travel in headers.
+		const res = await fetch("/api/video", {
+			method: "POST",
+			headers: {
+				"Content-Type": file.type || "video/mp4",
+				"x-filename": encodeURIComponent(file.name),
+			},
+			body: file,
+		});
 		const d = await res.json();
 		if (!res.ok) throw new Error(d.error ?? "Upload failed");
 		const v: Item = {

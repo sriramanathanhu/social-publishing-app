@@ -1,8 +1,10 @@
+import type { Readable } from "node:stream";
 import {
 	DeleteObjectCommand,
 	PutObjectCommand,
 	S3Client,
 } from "@aws-sdk/client-s3";
+import { Upload } from "@aws-sdk/lib-storage";
 
 /**
  * Cloudflare R2 (S3-compatible) client for durably archiving finished dubs.
@@ -70,6 +72,36 @@ export async function uploadPublicObject(
 			ContentType: contentType,
 		}),
 	);
+	const url = r2PublicUrl(key);
+	if (!url) throw new Error("R2_PUBLIC_BASE_URL is not configured");
+	return url;
+}
+
+/**
+ * Stream bytes to R2 without buffering the whole payload in memory (multipart
+ * upload, ~8 MB parts). Used for large user video uploads so the app process
+ * doesn't have to hold a 100s-of-MB file in memory. Returns the public URL.
+ */
+export async function uploadStreamObject(
+	key: string,
+	body: Readable | ReadableStream,
+	contentType: string,
+): Promise<string> {
+	const r = r2();
+	if (!r) throw new Error("R2 is not configured");
+	const upload = new Upload({
+		client: r.client,
+		params: {
+			Bucket: r.bucket,
+			Key: key,
+			Body: body,
+			ContentType: contentType,
+		},
+		queueSize: 4,
+		partSize: 8 * 1024 * 1024,
+		leavePartsOnError: false,
+	});
+	await upload.done();
 	const url = r2PublicUrl(key);
 	if (!url) throw new Error("R2_PUBLIC_BASE_URL is not configured");
 	return url;
