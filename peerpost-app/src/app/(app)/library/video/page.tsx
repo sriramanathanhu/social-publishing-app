@@ -1,21 +1,38 @@
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { VideoLibrary } from "@/components/video-library";
 import { db } from "@/db";
-import { dubJobs, shortsClips, shortsJobs, userVideos } from "@/db/schema";
+import {
+	dubJobs,
+	shortsClips,
+	shortsJobs,
+	users,
+	userVideos,
+} from "@/db/schema";
 import { loadTags } from "@/lib/library-tags";
 import { requirePageUser } from "@/lib/page-auth";
 import { getAccessibleProfiles, getConnectedAccounts } from "@/lib/queries";
 import { r2PublicUrl } from "@/lib/r2";
 
-/** Library › Video: generated shorts clips + uploaded videos + dubbed outputs,
- * with tags/filter/sort, "dubbed" links, and bulk publish. */
+const who = (name: string | null, email: string | null) =>
+	name?.trim() || email?.trim() || "Unknown";
+
+/** Library › Video: a SHARED gallery of every user's generated shorts, uploaded
+ * videos and dubbed outputs — with tags, "dubbed" links, bulk publish, and
+ * filters by date, language (shorts/dub output) and the user who made it. */
 export default async function VideoLibraryPage() {
 	const user = await requirePageUser();
 	const [uploadRows, clipRows, dubRows, profiles] = await Promise.all([
 		db
-			.select()
+			.select({
+				id: userVideos.id,
+				title: userVideos.title,
+				url: userVideos.url,
+				createdAt: userVideos.createdAt,
+				userName: users.name,
+				userEmail: users.email,
+			})
 			.from(userVideos)
-			.where(eq(userVideos.userId, user.id))
+			.innerJoin(users, eq(userVideos.userId, users.id))
 			.orderBy(desc(userVideos.createdAt))
 			.limit(300),
 		db
@@ -26,10 +43,13 @@ export default async function VideoLibraryPage() {
 				durationSec: shortsClips.durationSec,
 				viralScore: shortsClips.viralScore,
 				createdAt: shortsJobs.createdAt,
+				settings: shortsJobs.settings,
+				userName: users.name,
+				userEmail: users.email,
 			})
 			.from(shortsClips)
 			.innerJoin(shortsJobs, eq(shortsClips.jobId, shortsJobs.id))
-			.where(eq(shortsJobs.userId, user.id))
+			.innerJoin(users, eq(shortsJobs.userId, users.id))
 			.orderBy(desc(shortsJobs.createdAt))
 			.limit(300),
 		db
@@ -39,15 +59,12 @@ export default async function VideoLibraryPage() {
 				archiveKey: dubJobs.archiveKey,
 				sourceLibraryId: dubJobs.sourceLibraryId,
 				createdAt: dubJobs.createdAt,
+				userName: users.name,
+				userEmail: users.email,
 			})
 			.from(dubJobs)
-			.where(
-				and(
-					eq(dubJobs.userId, user.id),
-					eq(dubJobs.status, "done"),
-					isNotNull(dubJobs.archiveKey),
-				),
-			)
+			.innerJoin(users, eq(dubJobs.userId, users.id))
+			.where(and(eq(dubJobs.status, "done"), isNotNull(dubJobs.archiveKey)))
 			.orderBy(desc(dubJobs.createdAt))
 			.limit(300),
 		getAccessibleProfiles(user),
@@ -69,6 +86,7 @@ export default async function VideoLibraryPage() {
 			url: r2PublicUrl(d.archiveKey),
 			sourceLibraryId: d.sourceLibraryId,
 			createdAt: d.createdAt,
+			userName: who(d.userName, d.userEmail),
 		}))
 		.filter((d) => d.url);
 
@@ -104,6 +122,7 @@ export default async function VideoLibraryPage() {
 		<VideoLibrary
 			ecosystems={ecosystems}
 			dubBySource={dubBySource}
+			me={who(user.name, user.email)}
 			uploads={uploadRows.map((u) => ({
 				id: u.id,
 				kind: "video" as const,
@@ -111,6 +130,8 @@ export default async function VideoLibraryPage() {
 				url: u.url,
 				tags: uploadTags[u.id] ?? [],
 				createdAt: String(u.createdAt),
+				userName: who(u.userName, u.userEmail),
+				lang: null,
 			}))}
 			shorts={clipRows
 				.filter((c) => c.url)
@@ -123,6 +144,8 @@ export default async function VideoLibraryPage() {
 					viralScore: c.viralScore,
 					tags: shortTags[c.id] ?? [],
 					createdAt: String(c.createdAt),
+					userName: who(c.userName, c.userEmail),
+					lang: (c.settings?.language as string | undefined) ?? null,
 				}))}
 			dubs={dubs.map((d) => ({
 				id: d.id,
@@ -131,6 +154,8 @@ export default async function VideoLibraryPage() {
 				url: d.url as string,
 				tags: dubTags[d.id] ?? [],
 				createdAt: String(d.createdAt),
+				userName: d.userName,
+				lang: d.targetLang,
 			}))}
 		/>
 	);

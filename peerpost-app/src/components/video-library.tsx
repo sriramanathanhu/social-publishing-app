@@ -7,6 +7,7 @@ import {
 } from "@/components/bulk-publish-panel";
 import type { Ecosystem } from "@/components/publish-row";
 import { TagEditor } from "@/components/tag-editor";
+import { langLabel } from "@/lib/dub-options";
 
 type Kind = "video" | "short" | "dub";
 type Item = {
@@ -16,9 +17,20 @@ type Item = {
 	url: string;
 	tags: string[];
 	createdAt: string;
+	userName: string;
+	lang: string | null;
 	durationSec?: number | null;
 	viralScore?: number | null;
 };
+
+// "Date generated" presets (days back; 0 = all time).
+const DATE_PRESETS: [string, number][] = [
+	["All dates", 0],
+	["Last 24 hours", 1],
+	["Last 7 days", 7],
+	["Last 30 days", 30],
+	["Last 90 days", 90],
+];
 
 const TYPE_LABEL: Record<string, string> = {
 	all: "All types",
@@ -33,12 +45,14 @@ export function VideoLibrary({
 	dubs,
 	dubBySource,
 	ecosystems,
+	me,
 }: {
 	uploads: Item[];
 	shorts: Item[];
 	dubs: Item[];
 	dubBySource: Record<string, { lang: string; url: string }[]>;
 	ecosystems: Ecosystem[];
+	me: string;
 }) {
 	const [uploads, setUploads] = useState<Item[]>(initialUploads);
 	const [tagsById, setTagsById] = useState<Record<string, string[]>>(() =>
@@ -48,6 +62,9 @@ export function VideoLibrary({
 	);
 	const [search, setSearch] = useState("");
 	const [typeFilter, setTypeFilter] = useState("all");
+	const [langFilter, setLangFilter] = useState("all");
+	const [userFilter, setUserFilter] = useState("all");
+	const [dateFilter, setDateFilter] = useState(0);
 	const [sort, setSort] = useState("newest");
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [showPublish, setShowPublish] = useState(false);
@@ -60,13 +77,31 @@ export function VideoLibrary({
 		[uploads, shorts, dubs],
 	);
 
+	// Distinct languages + users present, for the filter dropdowns.
+	const langOptions = useMemo(() => {
+		const m = new Map<string, string>();
+		for (const i of all) if (i.lang) m.set(i.lang, langLabel(i.lang));
+		return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+	}, [all]);
+	const userOptions = useMemo(
+		() => [...new Set(all.map((i) => i.userName))].sort(),
+		[all],
+	);
+
 	const view = useMemo(() => {
 		const q = search.trim().toLowerCase();
+		const since = dateFilter ? Date.now() - dateFilter * 86_400_000 : 0;
 		let list = all.filter((i) => typeFilter === "all" || i.kind === typeFilter);
+		if (langFilter !== "all") list = list.filter((i) => i.lang === langFilter);
+		if (userFilter !== "all")
+			list = list.filter((i) => i.userName === userFilter);
+		if (since)
+			list = list.filter((i) => new Date(i.createdAt).getTime() >= since);
 		if (q)
 			list = list.filter(
 				(i) =>
 					i.title.toLowerCase().includes(q) ||
+					i.userName.toLowerCase().includes(q) ||
 					(tagsById[i.id] ?? []).some((t) => t.toLowerCase().includes(q)),
 			);
 		const s = [...list];
@@ -79,7 +114,16 @@ export function VideoLibrary({
 			return b.createdAt.localeCompare(a.createdAt); // newest
 		});
 		return s;
-	}, [all, typeFilter, search, sort, tagsById]);
+	}, [
+		all,
+		typeFilter,
+		langFilter,
+		userFilter,
+		dateFilter,
+		search,
+		sort,
+		tagsById,
+	]);
 
 	async function upload(file: File) {
 		setUploadBusy(true);
@@ -97,6 +141,8 @@ export function VideoLibrary({
 				url: d.video.url,
 				tags: [],
 				createdAt: String(d.video.createdAt),
+				userName: me,
+				lang: null,
 			};
 			setUploads((p) => [v, ...p]);
 			setTagsById((t) => ({ ...t, [v.id]: [] }));
@@ -160,6 +206,44 @@ export function VideoLibrary({
 					{Object.entries(TYPE_LABEL).map(([v, l]) => (
 						<option key={v} value={v}>
 							{l}
+						</option>
+					))}
+				</select>
+				<select
+					value={langFilter}
+					onChange={(e) => setLangFilter(e.target.value)}
+					className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"
+					title="Filter by language (shorts / dub output)"
+				>
+					<option value="all">All languages</option>
+					{langOptions.map(([code, label]) => (
+						<option key={code} value={code}>
+							{label}
+						</option>
+					))}
+				</select>
+				<select
+					value={userFilter}
+					onChange={(e) => setUserFilter(e.target.value)}
+					className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"
+					title="Filter by who uploaded / generated / dubbed"
+				>
+					<option value="all">All users</option>
+					{userOptions.map((u) => (
+						<option key={u} value={u}>
+							{u}
+						</option>
+					))}
+				</select>
+				<select
+					value={dateFilter}
+					onChange={(e) => setDateFilter(Number(e.target.value))}
+					className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"
+					title="Filter by date generated"
+				>
+					{DATE_PRESETS.map(([label, days]) => (
+						<option key={days} value={days}>
+							{label}
 						</option>
 					))}
 				</select>
@@ -241,8 +325,19 @@ export function VideoLibrary({
 									<span className="rounded bg-slate-100 px-1">
 										{TYPE_LABEL[i.kind]}
 									</span>
+									{i.lang ? (
+										<span className="rounded bg-slate-100 px-1">
+											{langLabel(i.lang)}
+										</span>
+									) : null}
 									{i.durationSec ? <span>{i.durationSec}s</span> : null}
 									{i.viralScore ? <span>★{i.viralScore}</span> : null}
+								</div>
+								<div
+									className="truncate text-[10px] text-slate-400"
+									title={i.userName}
+								>
+									by {i.userName}
 								</div>
 								{dubbed && dubbed.length > 0 && (
 									<div className="mt-0.5 flex flex-wrap gap-1 text-[10px]">

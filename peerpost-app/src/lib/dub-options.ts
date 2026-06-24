@@ -135,3 +135,18 @@ export const DUB_LANGUAGE_CODES = DUB_LANGUAGES.map((l) => l.code);
 export const DUB_VOICE_IDS = DUB_LANGUAGES.flatMap((l) =>
 	l.voices.map((v) => v.id),
 );
+
+// Map a stored language code (dub target_lang, shorts settings.language) to a
+// human label for display + filtering. Falls back to the upper-cased code.
+const EXTRA_LANG_LABELS: Record<string, string> = {
+	en: "English",
+	auto: "Auto",
+	und: "Unknown",
+};
+export function langLabel(code: string | null | undefined): string {
+	if (!code) return "—";
+	const c = code.toLowerCase();
+	const dub = DUB_LANGUAGES.find((l) => l.code === c);
+	if (dub) return dub.label;
+	return EXTRA_LANG_LABELS[c] ?? code.toUpperCase();
+}
