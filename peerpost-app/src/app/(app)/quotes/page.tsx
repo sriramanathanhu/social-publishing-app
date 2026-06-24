@@ -95,6 +95,7 @@ export default async function QuotesPage() {
 					cardUrl: i.cardUrl,
 					panY: i.panY,
 					zoom: i.zoom,
+					batchId: i.batchId,
 				}))}
 				transcripts={transcripts
 					.filter((t) => t.transcript)

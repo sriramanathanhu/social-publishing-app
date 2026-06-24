@@ -567,6 +567,8 @@ export const quoteItems = pgTable(
 			.references(() => users.id, { onDelete: "cascade" }),
 		text: text("text").notNull(),
 		hashtags: jsonb("hashtags").$type<string[]>().default([]),
+		// Groups quotes made in the same generation call (batch segregation).
+		batchId: text("batch_id"),
 		// Card composition (filled when a card is made).
 		bgUrl: text("bg_url"),
 		overlayUrl: text("overlay_url"),

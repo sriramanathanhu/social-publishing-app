@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BackgroundPicker } from "@/components/background-picker";
 import type { Ecosystem } from "@/components/publish-row";
 import { readJson } from "@/components/publish-row";
@@ -75,6 +75,57 @@ export function QuoteBatchPanel({
 	const [lightbox, setLightbox] = useState<string | null>(null);
 	const [pickerFor, setPickerFor] = useState<string | null>(null);
 
+	// Group quotes by the generation that made them (newest batch first), so
+	// each batch is segregated and can be (de)selected independently.
+	const batches = useMemo(() => {
+		const order: string[] = [];
+		const map = new Map<string, QuoteItem[]>();
+		for (const q of items) {
+			const b = q.batchId ?? "_";
+			if (!map.has(b)) {
+				map.set(b, []);
+				order.push(b);
+			}
+			map.get(b)?.push(q);
+		}
+		return order.map((b) => ({ batchId: b, items: map.get(b) ?? [] }));
+	}, [items]);
+
+	// Which quotes participate in render/publish. Default + auto-select: the
+	// newest batch only, so a fresh generation isn't lumped with older ones.
+	const [chosen, setChosen] = useState<Set<string>>(
+		() => new Set(batches[0]?.items.map((q) => q.id) ?? []),
+	);
+	const seenBatches = useRef<Set<string>>(new Set());
+	useEffect(() => {
+		const ids = batches.map((b) => b.batchId);
+		const fresh = ids.find((b) => !seenBatches.current.has(b));
+		if (fresh !== undefined) {
+			for (const b of ids) seenBatches.current.add(b);
+			const nb = batches.find((b) => b.batchId === fresh);
+			setChosen(new Set(nb?.items.map((q) => q.id) ?? []));
+		}
+	}, [batches]);
+
+	function toggleChosen(id: string) {
+		setChosen((prev) => {
+			const n = new Set(prev);
+			if (n.has(id)) n.delete(id);
+			else n.add(id);
+			return n;
+		});
+	}
+	function setBatchChosen(batchItems: QuoteItem[], on: boolean) {
+		setChosen((prev) => {
+			const n = new Set(prev);
+			for (const q of batchItems) {
+				if (on) n.add(q.id);
+				else n.delete(q.id);
+			}
+			return n;
+		});
+	}
+
 	const [ecoId, setEcoId] = useState("");
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [mode, setMode] = useState<"now" | "schedule">("schedule");
@@ -92,8 +143,10 @@ export function QuoteBatchPanel({
 	const accounts = (eco?.accounts ?? []).filter((a) =>
 		CARD_PLATFORMS.has(a.platform),
 	);
-	const assignedCount = items.filter((q) => q.bgUrl).length;
-	const readyCount = items.filter((q) => q.cardUrl).length;
+	const chosenItems = items.filter((q) => chosen.has(q.id));
+	const chosenCount = chosenItems.length;
+	const assignedCount = chosenItems.filter((q) => q.bgUrl).length;
+	const readyCount = chosenItems.filter((q) => q.cardUrl).length;
 
 	function editText(id: string, v: string) {
 		onChange(id, { text: v, cardUrl: null });
@@ -178,7 +231,7 @@ export function QuoteBatchPanel({
 	async function renderAll() {
 		setRendering(true);
 		setMsg(null);
-		const todo = items.filter((q) => q.bgUrl);
+		const todo = items.filter((q) => chosen.has(q.id) && q.bgUrl);
 		await runPool(todo, 3, async (q) => {
 			setRenderingIds((s) => new Set(s).add(q.id));
 			try {
@@ -218,12 +271,16 @@ export function QuoteBatchPanel({
 		setRendering(false);
 	}
 
+	// Preview of the auto-spaced schedule, over the chosen rendered cards.
 	const scheduleTimes = useMemo(() => {
 		if (mode !== "schedule" || !startAt) return [];
 		const base = new Date(startAt).getTime();
 		const stepMs = every * (unit === "days" ? 86_400_000 : 3_600_000);
-		return items.map((_, i) => new Date(base + i * stepMs));
-	}, [mode, startAt, every, unit, items]);
+		return Array.from(
+			{ length: readyCount },
+			(_, i) => new Date(base + i * stepMs),
+		);
+	}, [mode, startAt, every, unit, readyCount]);
 
 	async function publishAll() {
 		const targets = accounts
@@ -233,9 +290,9 @@ export function QuoteBatchPanel({
 			setMsg("Pick at least one account.");
 			return;
 		}
-		const ready = items.filter((q) => q.cardUrl);
+		const ready = items.filter((q) => chosen.has(q.id) && q.cardUrl);
 		if (ready.length === 0) {
-			setMsg("Render the cards first.");
+			setMsg("Select at least one rendered card to publish.");
 			return;
 		}
 		if (mode === "schedule" && !startAt) {
@@ -245,10 +302,12 @@ export function QuoteBatchPanel({
 		setPublishing(true);
 		setDone(0);
 		setMsg(null);
+		const base = startAt ? new Date(startAt).getTime() : 0;
+		const stepMs = every * (unit === "days" ? 86_400_000 : 3_600_000);
 		let failures = 0;
 		for (let i = 0; i < ready.length; i++) {
 			const q = ready[i];
-			const when = mode === "schedule" ? scheduleTimes[items.indexOf(q)] : null;
+			const when = mode === "schedule" ? new Date(base + i * stepMs) : null;
 			const caption = q.hashtags.length
 				? `${q.text}\n\n${q.hashtags.map((h) => `#${h}`).join(" ")}`
 				: q.text;
@@ -310,7 +369,8 @@ export function QuoteBatchPanel({
 				<div className="flex flex-wrap items-center gap-2 text-sm">
 					<span className="font-medium">1. Cards</span>
 					<span className="text-xs opacity-50">
-						{assignedCount}/{items.length} backgrounds · {readyCount} rendered
+						{chosenCount} selected · {assignedCount} with background ·{" "}
+						{readyCount} rendered
 					</span>
 					<label className="cursor-pointer rounded-md border border-black/15 px-2.5 py-1 text-xs hover:bg-black/5">
 						{uploadBusy ? "Uploading…" : "Upload images (in order)"}
@@ -334,73 +394,116 @@ export function QuoteBatchPanel({
 						Fill from library
 					</button>
 				</div>
-				<div className="space-y-2">
-					{items.map((q, i) => (
-						<div
-							key={q.id}
-							className="flex gap-2 rounded-lg border border-black/10 bg-white p-2"
-						>
-							<button
-								type="button"
-								onClick={() =>
-									q.cardUrl ? setLightbox(q.cardUrl) : setPickerFor(q.id)
-								}
-								title={
-									q.cardUrl
-										? "Click to enlarge"
-										: "Click to choose a background from the gallery"
-								}
-								className="relative h-20 w-16 shrink-0 overflow-hidden rounded border border-black/10 bg-black/5"
+				<div className="space-y-3">
+					{batches.map((batch, bi) => {
+						const allChosen =
+							batch.items.length > 0 &&
+							batch.items.every((q) => chosen.has(q.id));
+						return (
+							<div
+								key={batch.batchId}
+								className="rounded-lg border border-black/10 bg-black/[0.015] p-2"
 							>
-								{q.cardUrl || q.bgUrl ? (
-									// biome-ignore lint/performance/noImgElement: remote thumb
-									<img
-										src={q.cardUrl ?? q.bgUrl ?? ""}
-										alt={`card ${i + 1}`}
-										className="h-full w-full object-cover"
+								<label className="mb-1.5 flex cursor-pointer items-center gap-2 text-xs">
+									<input
+										type="checkbox"
+										checked={allChosen}
+										onChange={(e) =>
+											setBatchChosen(batch.items, e.target.checked)
+										}
 									/>
-								) : (
-									<span className="flex h-full items-center justify-center text-[10px] opacity-40">
-										+
+									<span className="font-medium">
+										{bi === 0 ? "Latest batch" : `Batch ${batches.length - bi}`}
 									</span>
-								)}
-								<span className="absolute left-0 top-0 bg-black/50 px-1 text-[9px] text-white">
-									{i + 1}
-								</span>
-								{renderingIds.has(q.id) && (
-									<span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[10px] text-white">
-										…
+									<span className="opacity-50">
+										· {batch.items.length} quote
+										{batch.items.length === 1 ? "" : "s"}
 									</span>
-								)}
-							</button>
-							<div className="min-w-0 flex-1">
-								<textarea
-									value={q.text}
-									onChange={(e) => editText(q.id, e.target.value)}
-									rows={2}
-									className="w-full resize-y rounded-md border border-black/15 px-2 py-1 text-sm"
-								/>
-								<div className="mt-0.5 flex items-center gap-2 text-[11px] opacity-50">
-									<button
-										type="button"
-										onClick={() => setPickerFor(q.id)}
-										className="hover:underline"
-									>
-										{q.bgUrl ? "change bg" : "choose bg"}
-									</button>
-									{q.cardUrl && (
-										<button
-											type="button"
-											onClick={() => setLightbox(q.cardUrl as string)}
-											className="text-primary hover:underline"
-										>
-											preview ⛶
-										</button>
-									)}
+								</label>
+								<div className="space-y-2">
+									{batch.items.map((q) => {
+										const i = items.indexOf(q);
+										const isChosen = chosen.has(q.id);
+										return (
+											<div
+												key={q.id}
+												className={`flex gap-2 rounded-lg border bg-white p-2 ${isChosen ? "border-primary/40" : "border-black/10 opacity-60"}`}
+											>
+												<input
+													type="checkbox"
+													checked={isChosen}
+													onChange={() => toggleChosen(q.id)}
+													className="mt-1 shrink-0"
+													title="Include in render / publish"
+												/>
+												<button
+													type="button"
+													onClick={() =>
+														q.cardUrl
+															? setLightbox(q.cardUrl)
+															: setPickerFor(q.id)
+													}
+													title={
+														q.cardUrl
+															? "Click to enlarge"
+															: "Click to choose a background from the gallery"
+													}
+													className="relative h-20 w-16 shrink-0 overflow-hidden rounded border border-black/10 bg-black/5"
+												>
+													{q.cardUrl || q.bgUrl ? (
+														// biome-ignore lint/performance/noImgElement: remote thumb
+														<img
+															src={q.cardUrl ?? q.bgUrl ?? ""}
+															alt={`card ${i + 1}`}
+															className="h-full w-full object-cover"
+														/>
+													) : (
+														<span className="flex h-full items-center justify-center text-[10px] opacity-40">
+															+
+														</span>
+													)}
+													<span className="absolute left-0 top-0 bg-black/50 px-1 text-[9px] text-white">
+														{i + 1}
+													</span>
+													{renderingIds.has(q.id) && (
+														<span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[10px] text-white">
+															…
+														</span>
+													)}
+												</button>
+												<div className="min-w-0 flex-1">
+													<textarea
+														value={q.text}
+														onChange={(e) => editText(q.id, e.target.value)}
+														rows={2}
+														className="w-full resize-y rounded-md border border-black/15 px-2 py-1 text-sm"
+													/>
+													<div className="mt-0.5 flex items-center gap-2 text-[11px] opacity-50">
+														<button
+															type="button"
+															onClick={() => setPickerFor(q.id)}
+															className="hover:underline"
+														>
+															{q.bgUrl ? "change bg" : "choose bg"}
+														</button>
+														{q.cardUrl && (
+															<button
+																type="button"
+																onClick={() => setLightbox(q.cardUrl as string)}
+																className="text-primary hover:underline"
+															>
+																preview ⛶
+															</button>
+														)}
+													</div>
+												</div>
+											</div>
+										);
+									})}
 								</div>
 							</div>
-						</div>
-					))}
+						);
+					})}
 				</div>
 			</section>
 
@@ -455,7 +558,7 @@ export function QuoteBatchPanel({
 				>
 					{rendering
 						? `Rendering… (${readyCount}/${assignedCount})`
-						: `3. Render all cards (${assignedCount})`}
+						: `3. Render selected cards (${assignedCount})`}
 				</button>
 			</section>
 
@@ -551,7 +654,8 @@ export function QuoteBatchPanel({
 				{mode === "schedule" && scheduleTimes.length > 1 && (
 					<p className="text-xs opacity-50">
 						Card 1 → {scheduleTimes[0].toLocaleString()} · … · Card{" "}
-						{items.length} → {scheduleTimes[items.length - 1]?.toLocaleString()}
+						{scheduleTimes.length} →{" "}
+						{scheduleTimes[scheduleTimes.length - 1]?.toLocaleString()}
 					</p>
 				)}
 
@@ -564,7 +668,7 @@ export function QuoteBatchPanel({
 					>
 						{publishing
 							? `Working… (${done}/${readyCount})`
-							: `▶ ${mode === "schedule" ? "Schedule" : "Publish"} all (${readyCount})`}
+							: `▶ ${mode === "schedule" ? "Schedule" : "Publish"} selected (${readyCount})`}
 					</button>
 					{msg && (
 						<span

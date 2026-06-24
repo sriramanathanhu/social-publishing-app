@@ -16,6 +16,7 @@ export type QuoteItem = {
 	cardUrl: string | null;
 	panY: number;
 	zoom: number;
+	batchId: string | null;
 };
 
 /** Persist a partial update to a saved quote (best-effort). */

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -17,6 +18,8 @@ const schema = z.object({
 	avoid: z.array(z.string()).max(40).optional(),
 	// Language to write the quotes in (empty/omitted = same as the content).
 	outputLang: z.string().max(40).optional(),
+	// Reuse an existing batch (regenerate keeps a quote in its batch); else new.
+	batchId: z.string().max(64).optional(),
 });
 
 /**
@@ -36,6 +39,7 @@ export const POST = route(async (req: NextRequest) => {
 		avoid: input.avoid,
 		outputLang: input.outputLang,
 	});
+	const batchId = input.batchId ?? randomUUID();
 	const saved = result.quotes.length
 		? await db
 				.insert(quoteItems)
@@ -44,6 +48,7 @@ export const POST = route(async (req: NextRequest) => {
 						userId: user.id,
 						text: q.text,
 						hashtags: q.hashtags,
+						batchId,
 					})),
 				)
 				.returning()

@@ -71,7 +71,11 @@ export function QuoteStudio({
 	const [items, setItems] = useState<QuoteItem[]>(initialItems);
 	const [view, setView] = useState<"single" | "batch">("single");
 
-	async function fetchQuotes(n: number, avoid: string[]): Promise<QuoteItem[]> {
+	async function fetchQuotes(
+		n: number,
+		avoid: string[],
+		batchId?: string | null,
+	): Promise<QuoteItem[]> {
 		const res = await fetch("/api/quotes", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -81,6 +85,7 @@ export function QuoteStudio({
 				tone: tone || undefined,
 				avoid: avoid.length ? avoid : undefined,
 				outputLang: outputLang || undefined,
+				batchId: batchId || undefined,
 			}),
 		});
 		const d = await res.json().catch(() => ({}));
@@ -94,6 +99,7 @@ export function QuoteStudio({
 			cardUrl: q.cardUrl ?? null,
 			panY: q.panY ?? 0.4,
 			zoom: q.zoom ?? 1,
+			batchId: q.batchId ?? null,
 		}));
 	}
 
@@ -140,9 +146,12 @@ export function QuoteStudio({
 		setRegenId(id);
 		setError(null);
 		try {
+			// Keep the replacement in the same batch as the quote it replaces.
+			const origBatch = items.find((q) => q.id === id)?.batchId ?? null;
 			const [fresh] = await fetchQuotes(
 				1,
 				items.map((q) => q.text),
+				origBatch,
 			);
 			if (fresh) {
 				setItems((prev) => prev.map((q) => (q.id === id ? fresh : q)));
