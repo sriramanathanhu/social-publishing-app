@@ -42,6 +42,7 @@ type ShortsJobRow = {
 	error: string | null;
 	createdAt: string | Date;
 	completedAt: string | Date | null;
+	queuePosition: number | null;
 };
 
 /** Human-readable elapsed time between two timestamps (e.g. "3m 12s"). */
@@ -85,10 +86,12 @@ export function ShortsTable({
 	jobs,
 	clips,
 	ecosystems,
+	queueTotal = 0,
 }: {
 	jobs: ShortsJobRow[];
 	clips: ClipRow[];
 	ecosystems: Ecosystem[];
+	queueTotal?: number;
 }) {
 	if (jobs.length === 0) {
 		return (
@@ -126,7 +129,17 @@ export function ShortsTable({
 								</div>
 							</div>
 							<div className="flex shrink-0 items-center gap-2">
-								<StatusBadge status={job.status} />
+								{job.status === "queued" && job.queuePosition ? (
+									<span
+										className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 text-xs"
+										title={`${job.queuePosition} of ${queueTotal} waiting · 4 process at a time`}
+									>
+										queued · #{job.queuePosition}
+										{queueTotal ? ` of ${queueTotal}` : ""} in line
+									</span>
+								) : (
+									<StatusBadge status={job.status} />
+								)}
 								<DeleteJobButton id={job.id} />
 							</div>
 						</div>

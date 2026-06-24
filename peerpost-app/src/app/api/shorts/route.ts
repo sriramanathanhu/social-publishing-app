@@ -112,7 +112,9 @@ export const POST = route(async (request: NextRequest) => {
 
 		const [updated] = await db
 			.update(shortsJobs)
-			.set({ shortsJobId: job_id, status: "running", updatedAt: new Date() })
+			// "queued" until the sidecar's pool actually starts it (it parks on a
+			// slot); the status sync flips it to "running" when work begins.
+			.set({ shortsJobId: job_id, status: "queued", updatedAt: new Date() })
 			.where(eq(shortsJobs.id, job.id))
 			.returning();
 		return Response.json({ job: updated }, { status: 201 });

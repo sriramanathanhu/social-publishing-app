@@ -28,6 +28,16 @@ export default async function ShortsPage() {
 		.orderBy(desc(shortsJobs.createdAt))
 		.limit(20);
 
+	// FIFO position in the shared shorts/transcribe pool (4 process at a time).
+	// #1 = next to start. Computed across all users since the pool is global.
+	const queuedRows = await db
+		.select({ id: shortsJobs.id })
+		.from(shortsJobs)
+		.where(eq(shortsJobs.status, "queued"))
+		.orderBy(shortsJobs.createdAt);
+	const queuePos = new Map(queuedRows.map((q, i) => [q.id, i + 1]));
+	const queueTotal = queuedRows.length;
+
 	const assets = await getUserAssets(user.id);
 	const jobIds = jobs.map((j) => j.id);
 	const clips = jobIds.length
@@ -63,6 +73,7 @@ export default async function ShortsPage() {
 				? j.completedAt.toISOString()
 				: j.completedAt
 			: null,
+		queuePosition: j.status === "queued" ? (queuePos.get(j.id) ?? null) : null,
 	}));
 
 	return (
@@ -92,7 +103,12 @@ export default async function ShortsPage() {
 				<>
 					<ShortsAssets assets={assets} />
 					<ShortsStudio />
-					<ShortsTable jobs={jobRows} clips={clips} ecosystems={ecosystems} />
+					<ShortsTable
+						jobs={jobRows}
+						clips={clips}
+						ecosystems={ecosystems}
+						queueTotal={queueTotal}
+					/>
 				</>
 			)}
 		</div>

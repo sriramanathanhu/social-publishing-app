@@ -71,19 +71,28 @@ export async function reconcileRunningShorts(userId: string): Promise<number> {
 		if (!job.shortsJobId) continue;
 		try {
 			const remote = await shorts.getStatus(job.shortsJobId);
-			if (remote.status !== "done" && remote.status !== "failed") continue;
-			if (remote.status === "done") {
-				await persistClips(job.id, job.shortsJobId);
-			}
+			// Reflect the sidecar's real state — including queued↔running, so a job
+			// parked in the pool shows "queued" instead of a misleading "running".
+			const status =
+				remote.status === "done"
+					? "done"
+					: remote.status === "failed"
+						? "failed"
+						: remote.status === "queued"
+							? "queued"
+							: "running";
+			const terminal = status === "done" || status === "failed";
+			if (status === job.status && !terminal) continue; // unchanged
+			if (status === "done") await persistClips(job.id, job.shortsJobId);
 			await db
 				.update(shortsJobs)
 				.set({
-					status: remote.status,
+					status,
 					pct: remote.pct,
 					stage: remote.stage,
 					message: remote.message,
 					error: remote.error,
-					completedAt: new Date(),
+					...(terminal ? { completedAt: new Date() } : {}),
 					updatedAt: new Date(),
 				})
 				.where(eq(shortsJobs.id, job.id));

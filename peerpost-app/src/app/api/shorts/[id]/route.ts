@@ -31,7 +31,9 @@ export const GET = route(async (_req: NextRequest, { params }: Ctx) => {
 					? "done"
 					: remote.status === "failed"
 						? "failed"
-						: "running";
+						: remote.status === "queued"
+							? "queued"
+							: "running";
 			if (status === "done") await persistClips(job.id, job.shortsJobId);
 			const terminal = status === "done" || status === "failed";
 			const [updated] = await db
