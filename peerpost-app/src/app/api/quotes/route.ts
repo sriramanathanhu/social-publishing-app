@@ -11,8 +11,8 @@ import { generateQuotes } from "@/lib/quotes";
 export const runtime = "nodejs";
 
 const schema = z.object({
-	content: z.string().min(40).max(50_000),
-	count: z.number().int().min(1).max(15).default(6),
+	content: z.string().min(40).max(200_000),
+	count: z.number().int().min(1).max(50).default(6),
 	tone: z.string().max(40).optional(),
 	// Existing quote texts to NOT repeat (regenerate / "more like this").
 	avoid: z.array(z.string()).max(40).optional(),

@@ -89,7 +89,14 @@ export function QuoteStudio({
 			}),
 		});
 		const d = await res.json().catch(() => ({}));
-		if (!res.ok) throw new Error(d.error ?? "Generation failed");
+		if (!res.ok) {
+			const fields = d.details?.fieldErrors
+				? Object.entries(d.details.fieldErrors)
+						.map(([k, v]) => `${k}: ${(v as string[]).join(", ")}`)
+						.join(" · ")
+				: "";
+			throw new Error(fields || d.error || "Generation failed");
+		}
 		setProvider(d.provider ?? null);
 		return ((d.quotes ?? []) as QuoteItem[]).map((q) => ({
 			...q,
@@ -257,7 +264,7 @@ export function QuoteStudio({
 						<input
 							type="number"
 							min={1}
-							max={15}
+							max={50}
 							value={count}
 							onChange={(e) => setCount(Number(e.target.value))}
 							className="mt-1 w-20 rounded-md border border-black/15 px-2.5 py-1.5 text-sm"
