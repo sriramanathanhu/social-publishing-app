@@ -4,6 +4,10 @@ import { useRef, useState } from "react";
 import { ArticlePublish } from "@/components/article-publish";
 import type { Ecosystem } from "@/components/publish-row";
 import { RichEditor } from "@/components/rich-editor";
+import { DUB_LANGUAGES } from "@/lib/dub-options";
+
+// Output languages — the same 15 as dubbing (plus the default/source language).
+const ARTICLE_LANGUAGES = ["", ...DUB_LANGUAGES.map((l) => l.label)];
 
 const LENGTHS = [
 	{ value: "short", label: "Short (~700w)" },
@@ -110,6 +114,7 @@ export function ArticleStudio({
 	const [length, setLength] = useState<"short" | "medium" | "long">("medium");
 	const [tone, setTone] = useState("");
 	const [quality, setQuality] = useState<"standard" | "high">("standard");
+	const [outputLang, setOutputLang] = useState("");
 	const [instructions, setInstructions] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -134,6 +139,7 @@ export function ArticleStudio({
 					length,
 					tone: tone || undefined,
 					quality,
+					outputLang: outputLang || undefined,
 					instructions: instructions.trim() || undefined,
 				}),
 			});
@@ -281,6 +287,18 @@ export function ArticleStudio({
 						>
 							<option value="standard">Standard (fast)</option>
 							<option value="high">High quality (Pro)</option>
+						</select>
+						<select
+							value={outputLang}
+							onChange={(e) => setOutputLang(e.target.value)}
+							className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+							title="Write the article in this language"
+						>
+							{ARTICLE_LANGUAGES.map((l) => (
+								<option key={l || "default"} value={l}>
+									{l || "Default language"}
+								</option>
+							))}
 						</select>
 						<button
 							type="button"

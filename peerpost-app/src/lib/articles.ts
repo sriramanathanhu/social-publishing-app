@@ -218,7 +218,7 @@ function buildPrompt(
 	sources: Citation[],
 	sourceText: string[],
 	words: number,
-	opts: { tone?: string; instructions?: string },
+	opts: { tone?: string; instructions?: string; outputLang?: string },
 ): string {
 	const block = sources
 		.map((s, i) => `[${s.n}] (${s.file})\n${sourceText[i]}`)
@@ -229,11 +229,14 @@ function buildPrompt(
 	const brief = opts.instructions?.trim()
 		? `\nAUTHOR INSTRUCTIONS — follow these EXACTLY; they take priority over the default structure (e.g. a requested summary, call-to-action, meditation, format, or length):\n${opts.instructions.trim()}\n`
 		: "";
+	const lang = opts.outputLang
+		? `\nWrite the ENTIRE article — title, headings and body — in ${opts.outputLang}. The source excerpts may be in another language; translate the meaning and compose naturally in ${opts.outputLang}. Do NOT mix languages or transliterate into Latin script. Keep the inline [n] citation markers as-is.\n`
+		: "";
 	return `You are an expert long-form writer and teacher. Write a comprehensive, deeply instructive article, grounded STRICTLY in the numbered SOURCE EXCERPTS below (a corpus of spiritual talks and transcripts).
 
 TOPIC: ${topic}
 ${opts.tone ? `TONE: ${opts.tone}\n` : ""}TARGET LENGTH: about ${words} words.
-${brief}${plan}
+${lang}${brief}${plan}
 Requirements:
 - Open with a short, substantive introduction — no clickbait, no "read on!" filler.
 - Unless the author instructions say otherwise: DEFINE the key terms precisely (including any Sanskrit terms in the sources), explain the MECHANISM (cause and effect), give a clearly numbered set of STEP-BY-STEP techniques, and end with a CONCLUSIVE synthesis.
@@ -252,6 +255,7 @@ export async function generateArticle(
 		length?: "short" | "medium" | "long";
 		quality?: "standard" | "high";
 		instructions?: string;
+		outputLang?: string;
 	},
 ): Promise<{
 	title: string;
@@ -301,6 +305,7 @@ export async function generateArticle(
 	const prompt = buildPrompt(topic, outline, sources, sourceText, words, {
 		tone: opts.tone,
 		instructions: opts.instructions,
+		outputLang: opts.outputLang,
 	});
 	const { text, provider } = await completeLong(keys, model, prompt, maxTokens);
 
