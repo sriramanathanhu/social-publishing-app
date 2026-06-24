@@ -75,6 +75,10 @@ export function VideoLibrary({
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [showPublish, setShowPublish] = useState(false);
 	const [uploadBusy, setUploadBusy] = useState(false);
+	const [uploadProgress, setUploadProgress] = useState<{
+		done: number;
+		total: number;
+	} | null>(null);
 	const [dubLang, setDubLang] = useState(DUB_LANGUAGES[0].code);
 	const [dubBusy, setDubBusy] = useState(false);
 	const [dubDone, setDubDone] = useState(0);
@@ -132,32 +136,50 @@ export function VideoLibrary({
 		tagsById,
 	]);
 
-	async function upload(file: File) {
+	async function uploadOne(file: File): Promise<boolean> {
+		const fd = new FormData();
+		fd.append("file", file);
+		const res = await fetch("/api/video", { method: "POST", body: fd });
+		const d = await res.json();
+		if (!res.ok) throw new Error(d.error ?? "Upload failed");
+		const v: Item = {
+			id: d.video.id,
+			kind: "video",
+			title: d.video.title,
+			url: d.video.url,
+			tags: [],
+			createdAt: String(d.video.createdAt),
+			userName: me,
+			lang: null,
+		};
+		setItems((p) => [v, ...p]);
+		setTagsById((t) => ({ ...t, [v.id]: [] }));
+		return true;
+	}
+
+	// Upload one or many videos: POST each in turn, with a progress count.
+	async function upload(files: FileList) {
 		setUploadBusy(true);
 		setError(null);
-		try {
-			const fd = new FormData();
-			fd.append("file", file);
-			const res = await fetch("/api/video", { method: "POST", body: fd });
-			const d = await res.json();
-			if (!res.ok) throw new Error(d.error ?? "Upload failed");
-			const v: Item = {
-				id: d.video.id,
-				kind: "video",
-				title: d.video.title,
-				url: d.video.url,
-				tags: [],
-				createdAt: String(d.video.createdAt),
-				userName: me,
-				lang: null,
-			};
-			setItems((p) => [v, ...p]);
-			setTagsById((t) => ({ ...t, [v.id]: [] }));
-		} catch (e) {
-			setError(e instanceof Error ? e.message : "Upload failed");
-		} finally {
-			setUploadBusy(false);
+		setUploadProgress(
+			files.length > 1 ? { done: 0, total: files.length } : null,
+		);
+		let fail = 0;
+		let firstErr: string | null = null;
+		for (const file of Array.from(files)) {
+			try {
+				await uploadOne(file);
+			} catch (e) {
+				fail++;
+				if (!firstErr)
+					firstErr = e instanceof Error ? e.message : "Upload failed";
+			}
+			setUploadProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
 		}
+		setUploadBusy(false);
+		setUploadProgress(null);
+		if (fail)
+			setError(`${fail} of ${files.length} uploads failed: ${firstErr}`);
 	}
 
 	async function removeUpload(id: string) {
@@ -326,16 +348,20 @@ export function VideoLibrary({
 					disabled={uploadBusy}
 					className="rounded-lg bg-slate-900 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-50"
 				>
-					{uploadBusy ? "Uploading…" : "Upload video"}
+					{uploadBusy
+						? uploadProgress
+							? `Uploading… (${uploadProgress.done}/${uploadProgress.total})`
+							: "Uploading…"
+						: "Upload videos"}
 				</button>
 				<input
 					ref={fileRef}
 					type="file"
 					accept="video/*"
+					multiple
 					className="hidden"
 					onChange={(e) => {
-						const f = e.target.files?.[0];
-						if (f) upload(f);
+						if (e.target.files?.length) upload(e.target.files);
 						e.target.value = "";
 					}}
 				/>
