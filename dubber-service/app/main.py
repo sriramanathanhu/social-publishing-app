@@ -74,6 +74,13 @@ JOBS: dict[str, Job] = {}
 MAX_CONCURRENT_JOBS = max(1, int(os.getenv("DUBBER_MAX_CONCURRENT_JOBS", "2")))
 _job_slots = threading.BoundedSemaphore(MAX_CONCURRENT_JOBS)
 
+# Shorts + transcribe run in a SEPARATE pool so a backlog of dub jobs can't
+# block them (head-of-line blocking) and vice versa.
+OTHER_MAX_CONCURRENT_JOBS = max(
+    1, int(os.getenv("OTHER_MAX_CONCURRENT_JOBS", "2"))
+)
+_other_slots = threading.BoundedSemaphore(OTHER_MAX_CONCURRENT_JOBS)
+
 
 def _cleanup_workspace(job_id: str) -> None:
     """Remove a job's scratch folder once it's finished (frees disk)."""
@@ -255,7 +262,7 @@ class CreateTranscribe(BaseModel):
 def _run_transcribe(job: "TranscribeJobState", body: CreateTranscribe) -> None:
     job.status = "queued"
     job.message = "Queued — waiting for a free slot…"
-    _job_slots.acquire()
+    _other_slots.acquire()
     job.status = "running"
 
     def on_progress(pct: int, stage: str, message: str) -> None:
@@ -277,7 +284,7 @@ def _run_transcribe(job: "TranscribeJobState", body: CreateTranscribe) -> None:
         job.status = "failed"
         job.error = str(exc)
     finally:
-        _job_slots.release()
+        _other_slots.release()
 
 
 @app.post("/transcribe", dependencies=[Depends(require_token)])
@@ -351,7 +358,7 @@ class CreateShorts(BaseModel):
 def _run_shorts(job: ShortsJob, body: CreateShorts) -> None:
     job.status = "queued"
     job.message = "Queued — waiting for a free slot…"
-    _job_slots.acquire()
+    _other_slots.acquire()
     job.status = "running"
     cookies_file = None
     if body.cookies.strip():
@@ -412,7 +419,7 @@ def _run_shorts(job: ShortsJob, body: CreateShorts) -> None:
             except OSError:
                 pass
         _cleanup_workspace(job.id)
-        _job_slots.release()
+        _other_slots.release()
         job.events.put(None)  # type: ignore[arg-type]
 
 
