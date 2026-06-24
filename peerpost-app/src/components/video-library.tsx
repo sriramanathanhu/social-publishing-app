@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	type BulkItem,
 	BulkPublishPanel,
@@ -74,7 +74,13 @@ export function VideoLibrary({
 	const [dubDone, setDubDone] = useState(0);
 	const [dubMsg, setDubMsg] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [visible, setVisible] = useState(48);
 	const fileRef = useRef<HTMLInputElement>(null);
+
+	// Reset the page size whenever the filters change.
+	useEffect(() => {
+		setVisible(48);
+	}, [search, typeFilter, langFilter, userFilter, dateFilter, sort]);
 
 	const all = useMemo(
 		() => [...uploads, ...shorts, ...dubs],
@@ -380,7 +386,7 @@ export function VideoLibrary({
 				<p className="text-slate-400 text-sm">Nothing here.</p>
 			) : (
 				<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-					{view.map((i) => {
+					{view.slice(0, visible).map((i) => {
 						const dubbed = dubBySource[i.id];
 						return (
 							<div
@@ -398,7 +404,7 @@ export function VideoLibrary({
 									<video
 										src={i.url}
 										controls
-										preload="metadata"
+										preload="none"
 										className="aspect-[9/16] w-full rounded bg-black object-cover"
 									/>
 								</div>
@@ -464,6 +470,17 @@ export function VideoLibrary({
 							</div>
 						);
 					})}
+				</div>
+			)}
+			{view.length > visible && (
+				<div className="flex justify-center pt-2">
+					<button
+						type="button"
+						onClick={() => setVisible((v) => v + 48)}
+						className="rounded-lg border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-50"
+					>
+						Show more ({view.length - visible} more)
+					</button>
 				</div>
 			)}
 		</div>

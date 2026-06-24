@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	type FilterMeta,
 	LibraryFilters,
@@ -36,6 +36,12 @@ export function TranscriptLibrary({ items }: { items: Item[] }) {
 	const [userFilter, setUserFilter] = useState("all");
 	const [dateFilter, setDateFilter] = useState(0);
 	const [sort, setSort] = useState("pushed");
+	const [visible, setVisible] = useState(30);
+
+	// Reset the page size whenever the filters change.
+	useEffect(() => {
+		setVisible(30);
+	}, [search, langFilter, userFilter, dateFilter, sort]);
 
 	const { langs, users } = useMemo(() => metaOptions(items.map(meta)), [items]);
 
@@ -89,7 +95,7 @@ export function TranscriptLibrary({ items }: { items: Item[] }) {
 				/>
 			</div>
 			<div className="space-y-3">
-				{view.map((t) => (
+				{view.slice(0, visible).map((t) => (
 					<div
 						key={t.id}
 						className="rounded-lg border border-slate-200 bg-white p-4"
@@ -125,6 +131,17 @@ export function TranscriptLibrary({ items }: { items: Item[] }) {
 					</div>
 				))}
 			</div>
+			{view.length > visible && (
+				<div className="flex justify-center pt-2">
+					<button
+						type="button"
+						onClick={() => setVisible((v) => v + 30)}
+						className="rounded-lg border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-50"
+					>
+						Show more ({view.length - visible} more)
+					</button>
+				</div>
+			)}
 		</div>
 	);
 }

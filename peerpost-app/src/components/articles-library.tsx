@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	LibraryFilters,
 	metaOptions,
@@ -29,6 +29,12 @@ export function ArticlesLibrary({ items }: { items: Item[] }) {
 	const [langFilter, setLangFilter] = useState("all");
 	const [userFilter, setUserFilter] = useState("all");
 	const [dateFilter, setDateFilter] = useState(0);
+	const [visible, setVisible] = useState(40);
+
+	// Reset the page size whenever the filters change.
+	useEffect(() => {
+		setVisible(40);
+	}, [search, sort, langFilter, userFilter, dateFilter]);
 
 	const { langs, users } = useMemo(() => metaOptions(items), [items]);
 
@@ -85,7 +91,7 @@ export function ArticlesLibrary({ items }: { items: Item[] }) {
 				/>
 			</div>
 			<div className="space-y-2">
-				{view.map((a) => (
+				{view.slice(0, visible).map((a) => (
 					<div
 						key={a.id}
 						className="rounded-lg border border-slate-200 bg-white p-4"
@@ -113,6 +119,17 @@ export function ArticlesLibrary({ items }: { items: Item[] }) {
 					</div>
 				))}
 			</div>
+			{view.length > visible && (
+				<div className="flex justify-center pt-2">
+					<button
+						type="button"
+						onClick={() => setVisible((v) => v + 40)}
+						className="rounded-lg border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-50"
+					>
+						Show more ({view.length - visible} more)
+					</button>
+				</div>
+			)}
 		</div>
 	);
 }

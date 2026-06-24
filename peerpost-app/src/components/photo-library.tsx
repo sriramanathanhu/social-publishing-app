@@ -148,6 +148,7 @@ export function PhotoLibrary({
 									<img
 										src={it.url}
 										alt={it.label ?? s.title}
+										loading="lazy"
 										className={`aspect-[4/5] w-full rounded-lg border border-slate-200 object-cover ${s.checkered ? "bg-[length:16px_16px] bg-[linear-gradient(45deg,#ddd_25%,transparent_25%),linear-gradient(-45deg,#ddd_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#ddd_75%),linear-gradient(-45deg,transparent_75%,#ddd_75%)] [background-position:0_0,0_8px,8px_-8px,-8px_0]" : ""}`}
 									/>
 									<TagEditor

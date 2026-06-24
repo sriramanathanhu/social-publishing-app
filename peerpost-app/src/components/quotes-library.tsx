@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	type BulkItem,
 	BulkPublishPanel,
@@ -41,6 +41,12 @@ export function QuotesLibrary({
 	const [dateFilter, setDateFilter] = useState(0);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [showPublish, setShowPublish] = useState(false);
+	const [visible, setVisible] = useState(48);
+
+	// Reset the page size whenever the filters change.
+	useEffect(() => {
+		setVisible(48);
+	}, [search, filter, sort, langFilter, userFilter, dateFilter]);
 
 	const { langs, users } = useMemo(() => metaOptions(items), [items]);
 
@@ -154,7 +160,7 @@ export function QuotesLibrary({
 			</div>
 
 			<div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-				{view.map((q) => (
+				{view.slice(0, visible).map((q) => (
 					<div
 						key={q.id}
 						className={`rounded-lg border p-1.5 ${selected.has(q.id) ? "border-slate-900 ring-1 ring-slate-900" : "border-slate-200"}`}
@@ -172,6 +178,7 @@ export function QuotesLibrary({
 									<img
 										src={q.cardUrl}
 										alt={q.text.slice(0, 40)}
+										loading="lazy"
 										className="aspect-[4/5] w-full rounded object-cover"
 									/>
 								</a>
@@ -203,6 +210,17 @@ export function QuotesLibrary({
 					</div>
 				))}
 			</div>
+			{view.length > visible && (
+				<div className="flex justify-center pt-2">
+					<button
+						type="button"
+						onClick={() => setVisible((v) => v + 48)}
+						className="rounded-lg border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-50"
+					>
+						Show more ({view.length - visible} more)
+					</button>
+				</div>
+			)}
 		</div>
 	);
 }
