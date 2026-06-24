@@ -47,6 +47,9 @@ _SCRIPT_FONTS = [
     ("kannada", (0x0C80, 0x0CFF), "noto-kannada.ttf"),
     ("malayalam", (0x0D00, 0x0D7F), "noto-malayalam.ttf"),
     ("cyrillic", (0x0400, 0x04FF), "noto-sans.ttf"),
+    # Noto Sans CJK KR carries Hangul + Han, so it covers Korean and Chinese.
+    ("hangul", (0xAC00, 0xD7A3), "noto-korean.otf"),
+    ("han", (0x4E00, 0x9FFF), "noto-korean.otf"),
 ]
 # Indic scripts have stacked matras (vowel marks above/below), so they need a
 # bit more line height than Latin to avoid clipping.

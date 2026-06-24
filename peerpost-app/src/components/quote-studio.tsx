@@ -31,10 +31,14 @@ const LANGUAGES = [
 	"Bengali",
 	"Gujarati",
 	"Marathi",
+	"Bhojpuri",
 	"Punjabi",
 	"Russian",
 	"Spanish",
 	"French",
+	"Dutch",
+	"Korean",
+	"Chinese (Mandarin)",
 ];
 
 /**
