@@ -140,23 +140,18 @@ export async function runDubAutopublish(): Promise<number> {
 			.returning();
 		if (!claimed) continue;
 
-		const release = () =>
-			db
-				.update(dubJobs)
-				.set({ autoPublishedAt: null })
-				.where(eq(dubJobs.id, job.id));
-
+		// The claim is PERMANENT (run-once). We never release it on a posting
+		// failure — otherwise a dub whose content PostPeer rejects (e.g. an
+		// "already scheduled" duplicate) would be retried every minute, spamming
+		// failed posts forever. A failure is recorded in posts_log to retry by hand.
 		try {
 			const url = r2PublicUrl(job.archiveKey);
-			if (!url) {
-				await release();
-				continue;
-			}
+			if (!url) continue;
 			// Rules for this language in any ecosystem the owner can publish to.
 			const accessibleIds = (await getAccessibleProfiles(owner as AppUser)).map(
 				(p) => p.id,
 			);
-			if (accessibleIds.length === 0) continue; // nothing to route to
+			if (accessibleIds.length === 0) continue;
 			const rules = await db
 				.select()
 				.from(dubAutopublishRules)
@@ -166,7 +161,7 @@ export async function runDubAutopublish(): Promise<number> {
 						inArray(dubAutopublishRules.profileId, accessibleIds),
 					),
 				);
-			if (rules.length === 0) continue; // no rule for this language — done
+			if (rules.length === 0) continue; // no rule for this language
 
 			const { caption } = dubPrefill(job.captions);
 			const content = caption || `Dubbed → ${job.targetLang}`;
@@ -186,9 +181,8 @@ export async function runDubAutopublish(): Promise<number> {
 				);
 			}
 			if (scheduled > 0) count++;
-			else await release(); // couldn't schedule any — retry next run
 		} catch {
-			await release();
+			/* keep the claim — never loop */
 		}
 	}
 	return count;

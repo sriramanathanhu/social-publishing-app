@@ -1,8 +1,8 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { dubJobs, users } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { route } from "@/lib/http";
 
@@ -18,6 +18,23 @@ const schema = z.object({ enabled: z.boolean() });
 export const PUT = route(async (req: NextRequest) => {
 	const user = await requireUser();
 	const { enabled } = schema.parse(await req.json());
+
+	// Turning it ON only affects dubs finished from now on — never retroactively
+	// dump the existing backlog. Mark all already-done dubs as handled so the
+	// driver skips them; only future completions auto-publish.
+	if (enabled) {
+		await db
+			.update(dubJobs)
+			.set({ autoPublishedAt: new Date() })
+			.where(
+				and(
+					eq(dubJobs.userId, user.id),
+					eq(dubJobs.status, "done"),
+					isNull(dubJobs.autoPublishedAt),
+				),
+			);
+	}
+
 	await db
 		.update(users)
 		.set({ dubAutopublish: enabled })
