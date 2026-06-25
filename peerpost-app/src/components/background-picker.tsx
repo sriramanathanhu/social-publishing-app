@@ -90,6 +90,7 @@ export function BackgroundPicker({
 								<img
 									src={b.url}
 									alt={b.label ?? "background"}
+									loading="lazy"
 									className="aspect-[4/5] w-full object-cover"
 								/>
 							</button>

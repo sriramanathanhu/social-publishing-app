@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { BackgroundPicker } from "@/components/background-picker";
 import {
 	type Ecosystem,
 	type Provider,
@@ -107,6 +108,7 @@ export function QuoteRow({
 	const [rendering, setRendering] = useState(false);
 	const [uploadBusy, setUploadBusy] = useState(false);
 	const [lightbox, setLightbox] = useState(false);
+	const [pickerOpen, setPickerOpen] = useState(false);
 	const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const textTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
 		undefined,
@@ -508,24 +510,33 @@ export function QuoteRow({
 						<div className="text-[11px] font-medium uppercase tracking-wide opacity-40">
 							Background
 						</div>
-						<div className="flex flex-wrap gap-1.5">
-							{backgrounds.map((b) => (
+						<div className="flex flex-wrap items-center gap-1.5">
+							{bgUrl && (
 								<button
 									type="button"
-									key={b.id}
-									onClick={() => setBgUrl(b.url)}
-									title={b.label ?? ""}
-									className={`h-12 w-12 overflow-hidden rounded border-2 ${bgUrl === b.url ? "border-primary" : "border-transparent"}`}
+									onClick={() => setPickerOpen(true)}
+									title="Change background"
+									className="h-12 w-12 overflow-hidden rounded border-2 border-primary"
 								>
 									{/* biome-ignore lint/performance/noImgElement: small remote thumb */}
 									<img
-										src={b.url}
-										alt={b.label ?? "bg"}
+										src={bgUrl}
+										alt="background"
 										className="h-full w-full object-cover"
 									/>
 								</button>
-							))}
-							<label className="flex h-12 w-12 cursor-pointer items-center justify-center rounded border border-dashed border-black/20 text-lg opacity-50 hover:opacity-100">
+							)}
+							<button
+								type="button"
+								onClick={() => setPickerOpen(true)}
+								className="flex h-12 items-center gap-1 rounded border border-dashed border-black/20 px-3 text-xs opacity-70 hover:opacity-100"
+							>
+								{bgUrl ? "Change" : "+ Choose from library"}
+							</button>
+							<label
+								className="flex h-12 w-12 cursor-pointer items-center justify-center rounded border border-dashed border-black/20 text-lg opacity-50 hover:opacity-100"
+								title="Upload an image"
+							>
 								{uploadBusy ? "…" : "+"}
 								<input
 									type="file"
@@ -538,6 +549,15 @@ export function QuoteRow({
 								/>
 							</label>
 						</div>
+						{pickerOpen && (
+							<BackgroundPicker
+								backgrounds={backgrounds}
+								onSelect={(url) => setBgUrl(url)}
+								onClose={() => setPickerOpen(false)}
+								onUploadFile={(file) => uploadBackground(file)}
+								uploadBusy={uploadBusy}
+							/>
+						)}
 						{overlays.length > 0 && (
 							<label className="block text-[11px] opacity-60">
 								Overlay
