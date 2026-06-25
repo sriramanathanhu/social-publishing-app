@@ -128,8 +128,11 @@ export default async function DubPage() {
 				</p>
 			) : (
 				<>
-					<DubAutopublishRules ecosystems={ecosystems} />
-					<DubStudio libraryVideos={libraryVideos} ecosystems={ecosystems} />
+					<DubAutopublishRules
+						ecosystems={ecosystems}
+						enabled={user.dubAutopublish}
+					/>
+					<DubStudio libraryVideos={libraryVideos} />
 					<DubTable rows={rows} ecosystems={ecosystems} />
 				</>
 			)}

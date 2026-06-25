@@ -29,15 +29,32 @@ type Rule = { accountIds: string[]; bufferMinutes: number };
  */
 export function DubAutopublishRules({
 	ecosystems,
+	enabled: initialEnabled,
 }: {
 	ecosystems: Ecosystem[];
+	enabled: boolean;
 }) {
 	const [open, setOpen] = useState(false);
+	const [enabled, setEnabled] = useState(initialEnabled);
 	const [ecoId, setEcoId] = useState(ecosystems[0]?.id ?? "");
 	const [rules, setRules] = useState<Record<string, Rule>>({});
 	const [adding, setAdding] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [msg, setMsg] = useState<string | null>(null);
+
+	async function setGlobal(on: boolean) {
+		setEnabled(on); // optimistic
+		try {
+			const res = await fetch("/api/dub/autopublish-enabled", {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ enabled: on }),
+			});
+			if (!res.ok) setEnabled(!on);
+		} catch {
+			setEnabled(!on);
+		}
+	}
 
 	const eco = ecosystems.find((e) => e.id === ecoId);
 	const accounts = (eco?.accounts ?? []).filter((a) =>
@@ -132,9 +149,26 @@ export function DubAutopublishRules({
 			</button>
 			{open && (
 				<div className="mt-3 space-y-3 text-sm">
+					<label className="flex items-center gap-2 rounded-md border border-black/10 bg-white p-2">
+						<input
+							type="checkbox"
+							checked={enabled}
+							onChange={(e) => setGlobal(e.target.checked)}
+						/>
+						<span className="font-medium">
+							Auto-publish my dubs{" "}
+							<span
+								className={`ml-1 rounded px-1.5 py-0.5 text-[10px] ${enabled ? "bg-green-100 text-green-700" : "bg-black/10 opacity-60"}`}
+							>
+								{enabled ? "ON" : "OFF"}
+							</span>
+						</span>
+						<span className="ml-auto text-xs opacity-50">global on/off</span>
+					</label>
 					<p className="text-xs opacity-60">
-						When a dub finishes, if you ticked “auto-publish” on it, the dubbed
-						reel is scheduled to the accounts you map here for its language.
+						While ON, every finished dub of yours is automatically scheduled to
+						the accounts you map below for its language — no per-dub step. Turn
+						it OFF to pause (your rules are kept).
 					</p>
 					<label className="block text-xs font-medium opacity-60">
 						Ecosystem

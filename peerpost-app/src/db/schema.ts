@@ -90,6 +90,9 @@ export const users = pgTable(
 		// an admin has APPROVED them AND assigned them ecosystem(s). Admins are
 		// always treated as approved regardless of this flag.
 		approved: boolean("approved").notNull().default(false),
+		// When true, every finished dub of this user auto-publishes to the accounts
+		// mapped for its language (dub_autopublish_rules) — no per-dub opt-in.
+		dubAutopublish: boolean("dub_autopublish").notNull().default(false),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),

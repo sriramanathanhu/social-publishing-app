@@ -81,7 +81,6 @@ export function VideoLibrary({
 		total: number;
 	} | null>(null);
 	const [dubLangs, setDubLangs] = useState<string[]>([]);
-	const [autoPubEco, setAutoPubEco] = useState("");
 	const [dubBusy, setDubBusy] = useState(false);
 	const [dubDone, setDubDone] = useState(0);
 	const [dubMsg, setDubMsg] = useState<string | null>(null);
@@ -287,7 +286,6 @@ export function VideoLibrary({
 							sourceLang: "auto",
 							targetLang: lang,
 							voice,
-							autoPublishProfileId: autoPubEco || undefined,
 							sourceLibraryId: it.id,
 							sourceLibraryKind:
 								it.kind === "short"
@@ -625,22 +623,6 @@ export function VideoLibrary({
 								? `Queuing… (${dubDone}/${selected.size * dubLangs.length})`
 								: `Dub → queue${dubLangs.length ? ` (${selected.size}×${dubLangs.length})` : ""}`}
 						</button>
-						{ecosystems.length > 0 && (
-							<select
-								value={autoPubEco}
-								onChange={(e) => setAutoPubEco(e.target.value)}
-								disabled={dubBusy}
-								className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
-								title="Auto-publish each dub to that language's mapped accounts when done"
-							>
-								<option value="">No auto-publish</option>
-								{ecosystems.map((e) => (
-									<option key={e.id} value={e.id}>
-										Auto-publish · {e.name}
-									</option>
-								))}
-							</select>
-						)}
 					</div>
 					{dubMsg && (
 						<span className="w-full text-indigo-700 text-xs">{dubMsg}</span>
