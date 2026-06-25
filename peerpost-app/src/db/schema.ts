@@ -460,7 +460,12 @@ export const dubAutopublishRules = pgTable(
 			.references(() => profiles.id, { onDelete: "cascade" }),
 		lang: text("lang").notNull(), // dub target code, e.g. "hi"
 		accountIds: jsonb("account_ids").$type<string[]>().notNull().default([]),
+		// Delay before the FIRST post of a batch: schedule = dub-done + buffer.
 		bufferMinutes: integer("buffer_minutes").notNull().default(30),
+		// Drip: minimum spacing between consecutive auto-posts to these accounts.
+		// 0 = no spacing (each posts at its own buffer). >0 staggers a batch so it
+		// doesn't flood — each post lands at least gapMinutes after the previous.
+		gapMinutes: integer("gap_minutes").notNull().default(0),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),

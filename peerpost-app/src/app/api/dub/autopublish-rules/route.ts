@@ -28,6 +28,7 @@ const putSchema = z.object({
 	lang: z.enum(DUB_LANGUAGE_CODES as [string, ...string[]]),
 	accountIds: z.array(z.string()).max(50),
 	bufferMinutes: z.number().int().min(0).max(10080).default(30),
+	gapMinutes: z.number().int().min(0).max(10080).default(0),
 });
 
 /** PUT /api/dub/autopublish-rules — upsert the rule for one (ecosystem, language).
@@ -56,12 +57,14 @@ export const PUT = route(async (req: NextRequest) => {
 			lang: input.lang,
 			accountIds: input.accountIds,
 			bufferMinutes: input.bufferMinutes,
+			gapMinutes: input.gapMinutes,
 		})
 		.onConflictDoUpdate({
 			target: [dubAutopublishRules.profileId, dubAutopublishRules.lang],
 			set: {
 				accountIds: input.accountIds,
 				bufferMinutes: input.bufferMinutes,
+				gapMinutes: input.gapMinutes,
 				updatedAt: new Date(),
 			},
 		})

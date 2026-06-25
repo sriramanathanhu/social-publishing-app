@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
 	dubAutopublishRules,
@@ -107,6 +107,44 @@ async function scheduleVideoToAccounts(
 	return ok;
 }
 
+type Rule = typeof dubAutopublishRules.$inferSelect;
+
+/**
+ * Compute when to schedule this dub for a rule, applying the drip stagger.
+ * - Base = now + bufferMinutes (the head start before the first post).
+ * - If gapMinutes > 0, never land closer than gapMinutes after the latest
+ *   already-scheduled auto-post to these same accounts — so a batch finishing
+ *   minutes apart still goes out spaced `gapMinutes` apart instead of flooding.
+ */
+async function nextDripSlot(rule: Rule): Promise<string> {
+	const nowMs = Date.now();
+	const earliestMs = nowMs + rule.bufferMinutes * 60_000;
+	if (rule.gapMinutes <= 0) return new Date(earliestMs).toISOString();
+
+	// Latest still-pending auto-post aimed at any of this rule's accounts. Each
+	// dub-auto row carries exactly one account at platforms[0].accountId.
+	const [row] = await db
+		.select({ last: sql<string | null>`max(${postsLog.scheduledFor})` })
+		.from(postsLog)
+		.where(
+			and(
+				eq(postsLog.source, "dub-auto"),
+				eq(postsLog.status, "scheduled"),
+				gt(postsLog.scheduledFor, new Date(nowMs)),
+				inArray(
+					sql`(${postsLog.platforms} -> 0 ->> 'accountId')`,
+					rule.accountIds,
+				),
+			),
+		);
+	const lastMs = row?.last ? new Date(row.last).getTime() : 0;
+	const whenMs =
+		lastMs > 0
+			? Math.max(earliestMs, lastMs + rule.gapMinutes * 60_000)
+			: earliestMs;
+	return new Date(whenMs).toISOString();
+}
+
 /**
  * Auto-publish driver. For every finished dub whose OWNER has the global
  * `dubAutopublish` toggle on (and isn't published yet), route it to the accounts
@@ -168,9 +206,7 @@ export async function runDubAutopublish(): Promise<number> {
 			let scheduled = 0;
 			for (const rule of rules) {
 				if (rule.accountIds.length === 0) continue;
-				const when = new Date(
-					Date.now() + rule.bufferMinutes * 60_000,
-				).toISOString();
+				const when = await nextDripSlot(rule);
 				scheduled += await scheduleVideoToAccounts(
 					rule.profileId,
 					job.userId,

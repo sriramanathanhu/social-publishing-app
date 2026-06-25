@@ -20,7 +20,11 @@ const VIDEO_PLATFORMS = new Set([
 	"whatsapp",
 ]);
 
-type Rule = { accountIds: string[]; bufferMinutes: number };
+type Rule = {
+	accountIds: string[];
+	bufferMinutes: number;
+	gapMinutes: number;
+};
 
 /**
  * Configure, per ecosystem, which connected accounts a dub of each target
@@ -75,6 +79,7 @@ export function DubAutopublishRules({
 					next[r.lang] = {
 						accountIds: r.accountIds ?? [],
 						bufferMinutes: r.bufferMinutes ?? 30,
+						gapMinutes: r.gapMinutes ?? 0,
 					};
 				setRules(next);
 			})
@@ -83,7 +88,11 @@ export function DubAutopublishRules({
 
 	function toggleAccount(lang: string, accountId: string) {
 		setRules((prev) => {
-			const r = prev[lang] ?? { accountIds: [], bufferMinutes: 30 };
+			const r = prev[lang] ?? {
+				accountIds: [],
+				bufferMinutes: 30,
+				gapMinutes: 0,
+			};
 			const has = r.accountIds.includes(accountId);
 			return {
 				...prev,
@@ -98,7 +107,11 @@ export function DubAutopublishRules({
 	}
 
 	async function saveRule(lang: string) {
-		const r = rules[lang] ?? { accountIds: [], bufferMinutes: 30 };
+		const r = rules[lang] ?? {
+			accountIds: [],
+			bufferMinutes: 30,
+			gapMinutes: 0,
+		};
 		setBusy(true);
 		setMsg(null);
 		try {
@@ -110,6 +123,7 @@ export function DubAutopublishRules({
 					lang,
 					accountIds: r.accountIds,
 					bufferMinutes: r.bufferMinutes,
+					gapMinutes: r.gapMinutes,
 				}),
 			});
 			if (!res.ok) throw new Error((await res.json()).error ?? "Save failed");
@@ -168,7 +182,8 @@ export function DubAutopublishRules({
 					<p className="text-xs opacity-60">
 						While ON, every finished dub of yours is automatically scheduled to
 						the accounts you map below for its language — no per-dub step. Turn
-						it OFF to pause (your rules are kept).
+						it OFF to pause (your rules are kept). Use <b>Space each … apart</b>{" "}
+						to stagger a batch (e.g. 120 min) so 10 dubs don’t all post at once.
 					</p>
 					<label className="block text-xs font-medium opacity-60">
 						Ecosystem
@@ -223,26 +238,48 @@ export function DubAutopublishRules({
 											);
 										})}
 									</div>
-									<div className="mt-1.5 flex items-center gap-2 text-xs">
+									<div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
 										<label className="flex items-center gap-1 opacity-70">
-											Schedule
+											First post
 											<input
 												type="number"
 												min={0}
-												max={1440}
+												max={10080}
 												value={rules[lang]?.bufferMinutes ?? 30}
 												onChange={(e) =>
 													setRules((prev) => ({
 														...prev,
 														[lang]: {
 															accountIds: prev[lang]?.accountIds ?? [],
+															gapMinutes: prev[lang]?.gapMinutes ?? 0,
 															bufferMinutes: Number(e.target.value) || 0,
 														},
 													}))
 												}
 												className="w-16 rounded border border-black/15 px-1.5 py-0.5"
 											/>
-											min after it’s dubbed
+											min after dub
+										</label>
+										<label className="flex items-center gap-1 opacity-70">
+											Space each
+											<input
+												type="number"
+												min={0}
+												max={10080}
+												value={rules[lang]?.gapMinutes ?? 0}
+												onChange={(e) =>
+													setRules((prev) => ({
+														...prev,
+														[lang]: {
+															accountIds: prev[lang]?.accountIds ?? [],
+															bufferMinutes: prev[lang]?.bufferMinutes ?? 30,
+															gapMinutes: Number(e.target.value) || 0,
+														},
+													}))
+												}
+												className="w-16 rounded border border-black/15 px-1.5 py-0.5"
+											/>
+											min apart
 										</label>
 										<button
 											type="button"
@@ -264,7 +301,11 @@ export function DubAutopublishRules({
 										if (l && !rules[l])
 											setRules((prev) => ({
 												...prev,
-												[l]: { accountIds: [], bufferMinutes: 30 },
+												[l]: {
+													accountIds: [],
+													bufferMinutes: 30,
+													gapMinutes: 0,
+												},
 											}));
 										setAdding("");
 									}}
