@@ -77,6 +77,7 @@ export function QuoteStudio({
 	const [provider, setProvider] = useState<string | null>(null);
 	const [items, setItems] = useState<QuoteItem[]>(initialItems);
 	const [view, setView] = useState<"single" | "batch">("single");
+	const [page, setPage] = useState(0);
 
 	async function fetchQuotes(
 		n: number,
@@ -144,6 +145,7 @@ export function QuoteStudio({
 				total += fresh.length;
 				setItems((prev) => [...fresh, ...prev]);
 			}
+			setPage(0); // newest (prepended) quotes are on the first page
 			if (total === 0) setError("No quotes were generated — try more content.");
 			else if (targets.length > 1) setView("batch");
 		} catch (err) {
@@ -409,20 +411,55 @@ export function QuoteStudio({
 					)}
 
 					{view === "single" &&
-						items.map((q) => (
-							<QuoteRow
-								key={q.id}
-								item={q}
-								ecosystems={ecosystems}
-								backgrounds={backgrounds}
-								overlays={overlays}
-								tone={tone || undefined}
-								regenerating={regenId === q.id}
-								onRegenerate={() => regenerate(q.id)}
-								onDelete={() => removeItem(q.id)}
-								onChange={(patch) => patchLocal(q.id, patch)}
-							/>
-						))}
+						(() => {
+							const PAGE = 5;
+							const pageCount = Math.ceil(items.length / PAGE);
+							const cur = Math.min(page, pageCount - 1);
+							const visible = items.slice(cur * PAGE, cur * PAGE + PAGE);
+							return (
+								<>
+									{visible.map((q) => (
+										<QuoteRow
+											key={q.id}
+											item={q}
+											ecosystems={ecosystems}
+											backgrounds={backgrounds}
+											overlays={overlays}
+											tone={tone || undefined}
+											regenerating={regenId === q.id}
+											onRegenerate={() => regenerate(q.id)}
+											onDelete={() => removeItem(q.id)}
+											onChange={(patch) => patchLocal(q.id, patch)}
+										/>
+									))}
+									{pageCount > 1 && (
+										<div className="flex items-center justify-center gap-3 text-sm">
+											<button
+												type="button"
+												onClick={() => setPage((p) => Math.max(0, p - 1))}
+												disabled={cur === 0}
+												className="rounded-md border border-black/15 px-2.5 py-1 hover:bg-black/5 disabled:opacity-40"
+											>
+												‹ Prev
+											</button>
+											<span className="opacity-60">
+												Page {cur + 1} of {pageCount}
+											</span>
+											<button
+												type="button"
+												onClick={() =>
+													setPage((p) => Math.min(pageCount - 1, p + 1))
+												}
+												disabled={cur >= pageCount - 1}
+												className="rounded-md border border-black/15 px-2.5 py-1 hover:bg-black/5 disabled:opacity-40"
+											>
+												Next ›
+											</button>
+										</div>
+									)}
+								</>
+							);
+						})()}
 
 					<button
 						type="button"
