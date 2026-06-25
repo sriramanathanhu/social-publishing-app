@@ -1,10 +1,12 @@
 import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
+import { DubAutopublishRules } from "@/components/dub-autopublish-rules";
 import { DubStudio } from "@/components/dub-studio";
 import { DubTable } from "@/components/dub-table";
 import { db } from "@/db";
 import { dubJobs, shortsClips, shortsJobs, userVideos } from "@/db/schema";
 import { getUserKeyPresence } from "@/lib/api-keys";
+import { runDubAutopublish } from "@/lib/dub-autopublish";
 import { reconcileRunningJobs } from "@/lib/dub-jobs";
 import { dubPrefill } from "@/lib/dub-prefill";
 import { requirePageUser } from "@/lib/page-auth";
@@ -19,6 +21,8 @@ export default async function DubPage() {
 	const keysReady = presence.deepgram && presence.gemini;
 
 	await reconcileRunningJobs(user.id);
+	// Auto-schedule any finished, opted-in dubs to their language's accounts.
+	await runDubAutopublish().catch(() => 0);
 
 	// Load a larger history (cheap single query); the table paginates it
 	// 5-per-page and only renders one page of heavy preview rows at a time.
@@ -124,7 +128,8 @@ export default async function DubPage() {
 				</p>
 			) : (
 				<>
-					<DubStudio libraryVideos={libraryVideos} />
+					<DubAutopublishRules ecosystems={ecosystems} />
+					<DubStudio libraryVideos={libraryVideos} ecosystems={ecosystems} />
 					<DubTable rows={rows} ecosystems={ecosystems} />
 				</>
 			)}

@@ -10,6 +10,7 @@ type Progress = { pct: number; stage: string; message: string };
  * the DubTable below, which re-renders when this calls router.refresh(). */
 export function DubStudio({
 	libraryVideos = [],
+	ecosystems = [],
 }: {
 	libraryVideos?: {
 		id: string;
@@ -17,6 +18,7 @@ export function DubStudio({
 		url: string;
 		kind: "upload" | "short";
 	}[];
+	ecosystems?: { id: string; name: string; teamName: string }[];
 }) {
 	const router = useRouter();
 	const [tab, setTab] = useState<"url" | "upload" | "library">("url");
@@ -28,6 +30,8 @@ export function DubStudio({
 	const [voice, setVoice] = useState(DUB_LANGUAGES[0].voices[0].id);
 	const [sourceLang, setSourceLang] = useState("auto");
 	const [burnCaptions, setBurnCaptions] = useState(false);
+	const [autoPublish, setAutoPublish] = useState(false);
+	const [autoEcoId, setAutoEcoId] = useState(ecosystems[0]?.id ?? "");
 
 	const [jobId, setJobId] = useState<string | null>(null);
 	const [progress, setProgress] = useState<Progress | null>(null);
@@ -136,6 +140,8 @@ export function DubStudio({
 					targetLang: langCode,
 					voice,
 					burnCaptions,
+					autoPublishProfileId:
+						autoPublish && autoEcoId ? autoEcoId : undefined,
 					sourceLibraryId,
 					sourceLibraryKind,
 				}),
@@ -324,6 +330,39 @@ export function DubStudio({
 						</span>
 					</span>
 				</label>
+
+				{ecosystems.length > 0 && (
+					<label className="flex items-start gap-2 text-sm">
+						<input
+							type="checkbox"
+							checked={autoPublish}
+							onChange={(e) => setAutoPublish(e.target.checked)}
+							className="mt-0.5"
+						/>
+						<span className="flex-1">
+							Auto-publish when done
+							<span className="block text-xs opacity-50">
+								Schedules the finished dub to the accounts mapped for{" "}
+								{DUB_LANGUAGES.find((l) => l.code === langCode)?.label ??
+									langCode}{" "}
+								under the chosen ecosystem’s rules.
+							</span>
+							{autoPublish && (
+								<select
+									value={autoEcoId}
+									onChange={(e) => setAutoEcoId(e.target.value)}
+									className="mt-1 block rounded-md border border-black/15 px-2.5 py-1.5 text-sm"
+								>
+									{ecosystems.map((e) => (
+										<option key={e.id} value={e.id}>
+											{e.teamName} › {e.name}
+										</option>
+									))}
+								</select>
+							)}
+						</span>
+					</label>
+				)}
 
 				<button
 					type="submit"

@@ -47,6 +47,48 @@ export async function getOwnedJob(
  * leaving its result/export blocked. Best-effort: an unreachable service is
  * ignored. Returns the number of rows updated.
  */
+/** Sync one running dub against the sidecar; archive on completion. Returns 1
+ * if a terminal transition was persisted. Time-bounded (getStatus has a 5s cap). */
+async function reconcileOneDub(job: DubJob): Promise<number> {
+	if (!job.dubberJobId) return 0;
+	try {
+		const remote = await dubber.getStatus(job.dubberJobId);
+		if (remote.status !== "done" && remote.status !== "failed") return 0;
+		let captions = job.captions;
+		if (remote.status === "done" && !captions) {
+			try {
+				captions = await dubber.getCaptions(job.dubberJobId);
+			} catch {
+				/* captions best-effort */
+			}
+		}
+		const [fresh] = await db
+			.update(dubJobs)
+			.set({
+				status: remote.status,
+				pct: remote.pct,
+				stage: remote.stage,
+				message: remote.message,
+				error: remote.error,
+				captions,
+				updatedAt: new Date(),
+			})
+			.where(eq(dubJobs.id, job.id))
+			.returning();
+		if (fresh?.status === "done") {
+			try {
+				await archiveDoneJob(fresh);
+			} catch {
+				/* storage hiccup — retried on next load */
+			}
+		}
+		return 1;
+	} catch {
+		/* unreachable/slow — leave for next load */
+		return 0;
+	}
+}
+
 export async function reconcileRunningJobs(userId: string): Promise<number> {
 	// Only "running" jobs can have finished while no tab was open. Skipping
 	// "queued" avoids hammering the sidecar with status calls for jobs that
@@ -58,47 +100,19 @@ export async function reconcileRunningJobs(userId: string): Promise<number> {
 		.where(and(eq(dubJobs.userId, userId), eq(dubJobs.status, "running")))
 		.orderBy(desc(dubJobs.createdAt))
 		.limit(40);
+	const results = await Promise.all(open.map(reconcileOneDub));
+	return results.filter(Boolean).length;
+}
 
-	const results = await Promise.all(
-		open.map(async (job) => {
-			if (!job.dubberJobId) return 0;
-			try {
-				const remote = await dubber.getStatus(job.dubberJobId);
-				if (remote.status !== "done" && remote.status !== "failed") return 0;
-				let captions = job.captions;
-				if (remote.status === "done" && !captions) {
-					try {
-						captions = await dubber.getCaptions(job.dubberJobId);
-					} catch {
-						/* captions best-effort */
-					}
-				}
-				const [fresh] = await db
-					.update(dubJobs)
-					.set({
-						status: remote.status,
-						pct: remote.pct,
-						stage: remote.stage,
-						message: remote.message,
-						error: remote.error,
-						captions,
-						updatedAt: new Date(),
-					})
-					.where(eq(dubJobs.id, job.id))
-					.returning();
-				if (fresh?.status === "done") {
-					try {
-						await archiveDoneJob(fresh);
-					} catch {
-						/* storage hiccup — retried on next load */
-					}
-				}
-				return 1;
-			} catch {
-				/* unreachable/slow — leave for next load */
-				return 0;
-			}
-		}),
-	);
+/** Global (all users) reconcile of running dubs — for the background cron, so
+ * unattended dubs reach "done" (and archive) without anyone opening /dub. */
+export async function reconcileAllRunningDubs(limit = 60): Promise<number> {
+	const open = await db
+		.select()
+		.from(dubJobs)
+		.where(eq(dubJobs.status, "running"))
+		.orderBy(desc(dubJobs.createdAt))
+		.limit(limit);
+	const results = await Promise.all(open.map(reconcileOneDub));
 	return results.filter(Boolean).length;
 }

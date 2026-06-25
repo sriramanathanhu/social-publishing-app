@@ -37,6 +37,8 @@ const createSchema = z.object({
 	sourceLibraryKind: z.enum(["upload", "short"]).optional(),
 	// Burn the translated captions (subtitles) into the dubbed video.
 	burnCaptions: z.boolean().default(false),
+	// Auto-publish: ecosystem whose language→account rules apply on completion.
+	autoPublishProfileId: z.string().uuid().optional(),
 });
 
 /**
@@ -75,6 +77,7 @@ export const POST = route(async (request: NextRequest) => {
 			voice: input.voice,
 			sourceLibraryId: input.sourceLibraryId ?? null,
 			sourceLibraryKind: input.sourceLibraryKind ?? null,
+			autoPublishProfileId: input.autoPublishProfileId ?? null,
 		})
 		.returning();
 

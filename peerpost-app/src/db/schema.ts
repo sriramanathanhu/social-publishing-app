@@ -428,6 +428,10 @@ export const dubJobs = pgTable(
 		sourceLibraryKind: text("source_library_kind"), // "upload" | "short"
 		// AI-generated per-platform captions: { instagram: {caption, title?}, ... }.
 		captions: jsonb("captions").$type<Record<string, DubCaption>>(),
+		// Auto-publish: when set, on completion the dub is scheduled to the
+		// accounts mapped for its targetLang under this ecosystem's rules.
+		autoPublishProfileId: uuid("auto_publish_profile_id"),
+		autoPublishedAt: timestamp("auto_published_at", { withTimezone: true }),
 		error: text("error"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
@@ -437,6 +441,34 @@ export const dubJobs = pgTable(
 			.notNull(),
 	},
 	(t) => [index("dub_jobs_user_idx").on(t.userId)],
+);
+
+/**
+ * Saved auto-publish routing: per ecosystem, which connected accounts a dub of a
+ * given target language should auto-schedule to when it finishes. Set up once;
+ * every opted-in dub of that language routes by it.
+ */
+export const dubAutopublishRules = pgTable(
+	"dub_autopublish_rules",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		profileId: uuid("profile_id")
+			.notNull()
+			.references(() => profiles.id, { onDelete: "cascade" }),
+		lang: text("lang").notNull(), // dub target code, e.g. "hi"
+		accountIds: jsonb("account_ids").$type<string[]>().notNull().default([]),
+		bufferMinutes: integer("buffer_minutes").notNull().default(30),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [
+		index("dub_autopublish_profile_idx").on(t.profileId),
+		uniqueIndex("dub_autopublish_profile_lang").on(t.profileId, t.lang),
+	],
 );
 
 /**
