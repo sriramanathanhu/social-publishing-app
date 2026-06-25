@@ -20,12 +20,14 @@ export default async function DubPage() {
 
 	await reconcileRunningJobs(user.id);
 
+	// Load a larger history (cheap single query); the table paginates it
+	// 5-per-page and only renders one page of heavy preview rows at a time.
 	const jobs = await db
 		.select()
 		.from(dubJobs)
 		.where(eq(dubJobs.userId, user.id))
 		.orderBy(desc(dubJobs.createdAt))
-		.limit(20);
+		.limit(50);
 
 	const rows = jobs.map((j) => {
 		const { title, caption } = dubPrefill(j.captions);

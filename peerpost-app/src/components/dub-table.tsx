@@ -43,6 +43,8 @@ type DubRowData = {
 	caption: string;
 };
 
+const PAGE_SIZE = 5;
+
 export function DubTable({
 	rows,
 	ecosystems,
@@ -50,6 +52,7 @@ export function DubTable({
 	rows: DubRowData[];
 	ecosystems: Ecosystem[];
 }) {
+	const [page, setPage] = useState(0);
 	if (rows.length === 0) {
 		return (
 			<p className="rounded-lg border border-black/10 p-4 text-sm opacity-60">
@@ -57,16 +60,50 @@ export function DubTable({
 			</p>
 		);
 	}
+	const pageCount = Math.ceil(rows.length / PAGE_SIZE);
+	const current = Math.min(page, pageCount - 1);
+	const visible = rows.slice(
+		current * PAGE_SIZE,
+		current * PAGE_SIZE + PAGE_SIZE,
+	);
 	return (
 		<div className="space-y-3">
-			<h2 className="text-sm font-semibold opacity-70">Dubbed videos</h2>
+			<div className="flex items-center justify-between gap-3">
+				<h2 className="text-sm font-semibold opacity-70">
+					Dubbed videos
+					<span className="ml-2 font-normal opacity-50">({rows.length})</span>
+				</h2>
+				{pageCount > 1 && (
+					<div className="flex items-center gap-2 text-sm">
+						<button
+							type="button"
+							onClick={() => setPage((p) => Math.max(0, p - 1))}
+							disabled={current === 0}
+							className="rounded-md border border-black/15 px-2.5 py-1 hover:bg-black/5 disabled:opacity-40"
+						>
+							‹ Prev
+						</button>
+						<span className="opacity-60">
+							Page {current + 1} of {pageCount}
+						</span>
+						<button
+							type="button"
+							onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+							disabled={current >= pageCount - 1}
+							className="rounded-md border border-black/15 px-2.5 py-1 hover:bg-black/5 disabled:opacity-40"
+						>
+							Next ›
+						</button>
+					</div>
+				)}
+			</div>
 			<div className="hidden gap-3 px-3 text-xs font-medium uppercase tracking-wide opacity-40 md:grid md:grid-cols-[96px_1fr_1.5fr_220px]">
 				<div>Video</div>
 				<div>Title</div>
 				<div>Description / Caption</div>
 				<div>Publish to</div>
 			</div>
-			{rows.map((r) =>
+			{visible.map((r) =>
 				r.status === "done" ? (
 					<PublishRow
 						key={r.id}
