@@ -72,6 +72,8 @@ export const dubber = {
 		const res = await fetch(`${BASE_URL}/jobs/${dubberJobId}`, {
 			headers: authHeaders(),
 			cache: "no-store",
+			// Don't let a busy/slow sidecar stall a page that polls many jobs.
+			signal: AbortSignal.timeout(5000),
 		});
 		return json<DubberStatus>(res);
 	},

@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { shortsClips, shortsJobs } from "@/db/schema";
 import { type AppUser, HttpError } from "@/lib/auth";
@@ -56,6 +56,8 @@ export async function persistClips(jobId: string, shortsJobId: string) {
  * open would otherwise stay "running". Best-effort. Returns rows updated.
  */
 export async function reconcileRunningShorts(userId: string): Promise<number> {
+	// Capped + parallel + time-bounded (shorts.getStatus has a 5s timeout) so a
+	// busy sidecar can't stall the page even with many open jobs.
 	const open = await db
 		.select()
 		.from(shortsJobs)
@@ -64,42 +66,46 @@ export async function reconcileRunningShorts(userId: string): Promise<number> {
 				eq(shortsJobs.userId, userId),
 				inArray(shortsJobs.status, ["queued", "running"]),
 			),
-		);
+		)
+		.orderBy(desc(shortsJobs.createdAt))
+		.limit(40);
 
-	let updated = 0;
-	for (const job of open) {
-		if (!job.shortsJobId) continue;
-		try {
-			const remote = await shorts.getStatus(job.shortsJobId);
-			// Reflect the sidecar's real state — including queued↔running, so a job
-			// parked in the pool shows "queued" instead of a misleading "running".
-			const status =
-				remote.status === "done"
-					? "done"
-					: remote.status === "failed"
-						? "failed"
-						: remote.status === "queued"
-							? "queued"
-							: "running";
-			const terminal = status === "done" || status === "failed";
-			if (status === job.status && !terminal) continue; // unchanged
-			if (status === "done") await persistClips(job.id, job.shortsJobId);
-			await db
-				.update(shortsJobs)
-				.set({
-					status,
-					pct: remote.pct,
-					stage: remote.stage,
-					message: remote.message,
-					error: remote.error,
-					...(terminal ? { completedAt: new Date() } : {}),
-					updatedAt: new Date(),
-				})
-				.where(eq(shortsJobs.id, job.id));
-			updated++;
-		} catch {
-			/* service unreachable — leave for next load */
-		}
-	}
-	return updated;
+	const results = await Promise.all(
+		open.map(async (job) => {
+			if (!job.shortsJobId) return 0;
+			try {
+				const remote = await shorts.getStatus(job.shortsJobId);
+				// Reflect the sidecar's real state — including queued↔running, so a
+				// parked job shows "queued" instead of a misleading "running".
+				const status =
+					remote.status === "done"
+						? "done"
+						: remote.status === "failed"
+							? "failed"
+							: remote.status === "queued"
+								? "queued"
+								: "running";
+				const terminal = status === "done" || status === "failed";
+				if (status === job.status && !terminal) return 0; // unchanged
+				if (status === "done") await persistClips(job.id, job.shortsJobId);
+				await db
+					.update(shortsJobs)
+					.set({
+						status,
+						pct: remote.pct,
+						stage: remote.stage,
+						message: remote.message,
+						error: remote.error,
+						...(terminal ? { completedAt: new Date() } : {}),
+						updatedAt: new Date(),
+					})
+					.where(eq(shortsJobs.id, job.id));
+				return 1;
+			} catch {
+				/* unreachable/slow — leave for next load */
+				return 0;
+			}
+		}),
+	);
+	return results.filter(Boolean).length;
 }

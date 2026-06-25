@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { dubJobs } from "@/db/schema";
 import { type AppUser, HttpError } from "@/lib/auth";
@@ -48,55 +48,57 @@ export async function getOwnedJob(
  * ignored. Returns the number of rows updated.
  */
 export async function reconcileRunningJobs(userId: string): Promise<number> {
+	// Only "running" jobs can have finished while no tab was open. Skipping
+	// "queued" avoids hammering the sidecar with status calls for jobs that
+	// aren't processing (e.g. a large paused batch), which used to hang the page.
+	// Capped + run in parallel + time-bounded so a busy sidecar can't stall it.
 	const open = await db
 		.select()
 		.from(dubJobs)
-		.where(
-			and(
-				eq(dubJobs.userId, userId),
-				inArray(dubJobs.status, ["queued", "running"]),
-			),
-		);
+		.where(and(eq(dubJobs.userId, userId), eq(dubJobs.status, "running")))
+		.orderBy(desc(dubJobs.createdAt))
+		.limit(40);
 
-	let updated = 0;
-	for (const job of open) {
-		if (!job.dubberJobId) continue;
-		try {
-			const remote = await dubber.getStatus(job.dubberJobId);
-			if (remote.status !== "done" && remote.status !== "failed") continue;
-			let captions = job.captions;
-			if (remote.status === "done" && !captions) {
-				try {
-					captions = await dubber.getCaptions(job.dubberJobId);
-				} catch {
-					/* captions best-effort */
+	const results = await Promise.all(
+		open.map(async (job) => {
+			if (!job.dubberJobId) return 0;
+			try {
+				const remote = await dubber.getStatus(job.dubberJobId);
+				if (remote.status !== "done" && remote.status !== "failed") return 0;
+				let captions = job.captions;
+				if (remote.status === "done" && !captions) {
+					try {
+						captions = await dubber.getCaptions(job.dubberJobId);
+					} catch {
+						/* captions best-effort */
+					}
 				}
-			}
-			const [fresh] = await db
-				.update(dubJobs)
-				.set({
-					status: remote.status,
-					pct: remote.pct,
-					stage: remote.stage,
-					message: remote.message,
-					error: remote.error,
-					captions,
-					updatedAt: new Date(),
-				})
-				.where(eq(dubJobs.id, job.id))
-				.returning();
-			updated++;
-			// Archive on completion (best-effort — never blocks reconciliation).
-			if (fresh?.status === "done") {
-				try {
-					await archiveDoneJob(fresh);
-				} catch {
-					/* storage hiccup — retried on next load */
+				const [fresh] = await db
+					.update(dubJobs)
+					.set({
+						status: remote.status,
+						pct: remote.pct,
+						stage: remote.stage,
+						message: remote.message,
+						error: remote.error,
+						captions,
+						updatedAt: new Date(),
+					})
+					.where(eq(dubJobs.id, job.id))
+					.returning();
+				if (fresh?.status === "done") {
+					try {
+						await archiveDoneJob(fresh);
+					} catch {
+						/* storage hiccup — retried on next load */
+					}
 				}
+				return 1;
+			} catch {
+				/* unreachable/slow — leave for next load */
+				return 0;
 			}
-		} catch {
-			/* service unreachable — leave the row as-is for the next load */
-		}
-	}
-	return updated;
+		}),
+	);
+	return results.filter(Boolean).length;
 }

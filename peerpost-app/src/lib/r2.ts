@@ -71,6 +71,8 @@ export async function uploadPublicObject(
 			Key: key,
 			Body: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes),
 			ContentType: contentType,
+			// Immutable, UUID-keyed objects → let Cloudflare edge-cache them.
+			CacheControl: "public, max-age=31536000, immutable",
 		}),
 	);
 	const url = r2PublicUrl(key);
@@ -97,6 +99,7 @@ export async function uploadStreamObject(
 			Key: key,
 			Body: body,
 			ContentType: contentType,
+			CacheControl: "public, max-age=31536000, immutable",
 		},
 		queueSize: 4,
 		partSize: 8 * 1024 * 1024,
@@ -167,6 +170,7 @@ export async function archiveDubVideo(
 			Key: key,
 			Body: new Uint8Array(bytes),
 			ContentType: "video/mp4",
+			CacheControl: "public, max-age=31536000, immutable",
 		}),
 	);
 	return key;
