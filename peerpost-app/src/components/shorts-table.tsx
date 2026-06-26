@@ -122,7 +122,11 @@ export function ShortsTable({
 								</a>
 								<div className="text-xs opacity-50">
 									{jobClips.length}/{job.numClips} clips ·{" "}
-									{new Date(job.createdAt).toLocaleString()}
+									{/* Local-time string differs between the server (UTC) and the
+									    browser; suppress the hydration mismatch (React #418). */}
+									<span suppressHydrationWarning>
+										{new Date(job.createdAt).toLocaleString()}
+									</span>
 									{timeTaken(job.createdAt, job.completedAt)
 										? ` · took ${timeTaken(job.createdAt, job.completedAt)}`
 										: ""}
