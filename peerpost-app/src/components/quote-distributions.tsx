@@ -72,8 +72,8 @@ const blankDraft = (): Draft => ({
 
 /**
  * Manage reusable "distribution lists": a named set of accounts spanning any
- * ecosystems, used to spread a freshly-generated card pool across many channels
- * (a distinct slice per account). Collapsed by default.
+ * ecosystems, used to spread a freshly-generated card pool — a distinct slice
+ * per ECOSYSTEM, broadcast to its selected platforms. Collapsed by default.
  */
 export function QuoteDistributions({
 	ecosystems,
@@ -176,6 +176,9 @@ export function QuoteDistributions({
 	}
 
 	const selCount = draft?.selected.size ?? 0;
+	const selEcos = draft
+		? new Set([...draft.selected].map((k) => k.split(":")[0])).size
+		: 0;
 
 	return (
 		<div className="rounded-lg border border-black/10 bg-black/[0.015] p-3">
@@ -191,9 +194,10 @@ export function QuoteDistributions({
 				<div className="mt-3 space-y-3 text-sm">
 					<p className="text-xs opacity-60">
 						A named set of accounts across any ecosystems. “Generate &amp;
-						distribute” spreads a fresh card pool over them — each account gets
-						a distinct slice of <b>cards per account</b>, drip-spaced. No card
-						repeats across channels.
+						distribute” spreads a fresh card pool so each <b>ecosystem</b> gets
+						a distinct slice of <b>cards per ecosystem</b> (no repeats across
+						ecosystems) — and every card in a slice is broadcast to all that
+						ecosystem’s selected platforms, drip-spaced.
 					</p>
 
 					{!draft && (
@@ -202,37 +206,41 @@ export function QuoteDistributions({
 								<p className="text-xs opacity-50">No lists yet.</p>
 							) : (
 								<div className="space-y-1.5">
-									{lists.map((d) => (
-										<div
-											key={d.id}
-											className="flex items-center justify-between rounded-md border border-black/10 bg-white px-2.5 py-1.5"
-										>
-											<div>
-												<span className="font-medium">{d.name}</span>
-												<span className="ml-2 text-xs opacity-50">
-													{d.lang} · {d.targets.length} accounts ·{" "}
-													{d.cardsPerTarget}/account · spreads{" "}
-													{d.targets.length * d.cardsPerTarget} cards
-												</span>
+									{lists.map((d) => {
+										const ecos = new Set(d.targets.map((t) => t.profileId))
+											.size;
+										return (
+											<div
+												key={d.id}
+												className="flex items-center justify-between rounded-md border border-black/10 bg-white px-2.5 py-1.5"
+											>
+												<div>
+													<span className="font-medium">{d.name}</span>
+													<span className="ml-2 text-xs opacity-50">
+														{d.lang} · {ecos} ecosystem{ecos === 1 ? "" : "s"} ·{" "}
+														{d.targets.length} accounts · {d.cardsPerTarget}
+														/ecosystem · spreads {ecos * d.cardsPerTarget} cards
+													</span>
+												</div>
+												<div className="flex gap-2">
+													<button
+														type="button"
+														onClick={() => editList(d)}
+														className="text-[11px] text-primary hover:underline"
+													>
+														Edit
+													</button>
+													<button
+														type="button"
+														onClick={() => remove(d.id)}
+														className="text-[11px] text-red-600 hover:underline"
+													>
+														Delete
+													</button>
+												</div>
 											</div>
-											<div className="flex gap-2">
-												<button
-													type="button"
-													onClick={() => editList(d)}
-													className="text-[11px] text-primary hover:underline"
-												>
-													Edit
-												</button>
-												<button
-													type="button"
-													onClick={() => remove(d.id)}
-													className="text-[11px] text-red-600 hover:underline"
-												>
-													Delete
-												</button>
-											</div>
-										</div>
-									))}
+										);
+									})}
 								</div>
 							)}
 							<button
@@ -276,7 +284,7 @@ export function QuoteDistributions({
 									</select>
 								</label>
 								<label className="text-xs font-medium opacity-60">
-									Cards / account
+									Cards / ecosystem
 									<input
 										type="number"
 										min={1}
@@ -327,8 +335,10 @@ export function QuoteDistributions({
 
 							<div className="space-y-2">
 								<div className="text-xs font-medium opacity-60">
-									Target accounts ({selCount} selected · spreads{" "}
-									{selCount * draft.cardsPerTarget} cards)
+									Target accounts ({selCount} selected across {selEcos}{" "}
+									ecosystem
+									{selEcos === 1 ? "" : "s"} · spreads{" "}
+									{selEcos * draft.cardsPerTarget} cards)
 								</div>
 								{ecosystems.map((eco) => {
 									const accs = (eco.accounts ?? []).filter((a) =>

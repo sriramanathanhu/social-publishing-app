@@ -27,10 +27,11 @@ export type DistributeInput = {
 
 /**
  * "Generate & distribute": generate a pool of `count` single-language cards,
- * render each, then SPREAD them across the saved list's target accounts — each
- * target gets a distinct slice of `cardsPerTarget` cards (no repeats), each
- * slice drip-scheduled (first at +buffer, then every +gap). Targets span any
- * ecosystems. One auth check (the route's requireUser). Returns a summary.
+ * render each, then SPREAD them across the saved list's ECOSYSTEMS — each
+ * ecosystem gets a distinct slice of `cardsPerTarget` cards (no repeats across
+ * ecosystems), and every card in a slice is broadcast to ALL that ecosystem's
+ * selected accounts, drip-spaced (first at +buffer, then every +gap). One auth
+ * check (the route's requireUser). Returns a summary.
  */
 export async function distributeQuotes(
 	user: AppUser,
@@ -39,7 +40,7 @@ export async function distributeQuotes(
 	generated: number;
 	rendered: number;
 	scheduled: number;
-	targets: number;
+	ecosystems: number;
 	failed: number;
 	items: SavedQuote[];
 	error?: string;
@@ -48,7 +49,7 @@ export async function distributeQuotes(
 		generated: 0,
 		rendered: 0,
 		scheduled: 0,
-		targets: 0,
+		ecosystems: 0,
 		failed: 0,
 		items: [] as SavedQuote[],
 	};
@@ -154,16 +155,31 @@ export async function distributeQuotes(
 		rendered.push({ item: q, cardUrl, bg });
 	}
 
-	// SPREAD: deal distinct slices of cardsPerTarget to each target in turn.
+	// Group the selected accounts BY ECOSYSTEM (preserving first-seen order).
+	const byEco = new Map<string, string[]>();
+	const ecoOrder: string[] = [];
+	for (const t of targets) {
+		if (!byEco.has(t.profileId)) {
+			byEco.set(t.profileId, []);
+			ecoOrder.push(t.profileId);
+		}
+		byEco.get(t.profileId)?.push(t.accountId);
+	}
+
+	// SPREAD per ECOSYSTEM: each ecosystem gets a distinct slice of cardsPerTarget
+	// cards (no repeats across ecosystems); every card in the slice is broadcast
+	// to ALL of that ecosystem's selected accounts, drip-spaced (card j at
+	// +buffer + j*gap).
 	const per = dist.cardsPerTarget;
 	let idx = 0;
 	let scheduled = 0;
-	let usedTargets = 0;
-	for (const target of targets) {
+	let usedEcosystems = 0;
+	for (const profileId of ecoOrder) {
 		if (idx >= rendered.length) break; // pool exhausted
+		const accountIds = byEco.get(profileId) ?? [];
 		const slice = rendered.slice(idx, idx + per);
 		idx += slice.length;
-		usedTargets++;
+		usedEcosystems++;
 		for (let j = 0; j < slice.length; j++) {
 			const card = slice[j];
 			const tags = card.item.hashtags ?? [];
@@ -174,11 +190,11 @@ export async function distributeQuotes(
 				Date.now() + (dist.bufferMinutes + j * dist.gapMinutes) * 60_000,
 			).toISOString();
 			const n = await scheduleImageToAccounts(
-				target.profileId,
+				profileId,
 				user.id,
 				caption,
 				card.cardUrl,
-				[target.accountId],
+				accountIds,
 				when,
 			);
 			scheduled += n;
@@ -203,7 +219,7 @@ export async function distributeQuotes(
 		generated: saved.length,
 		rendered: rendered.length,
 		scheduled,
-		targets: usedTargets,
+		ecosystems: usedEcosystems,
 		failed,
 		items,
 	};

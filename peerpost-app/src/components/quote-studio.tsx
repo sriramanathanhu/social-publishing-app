@@ -81,7 +81,12 @@ export function QuoteStudio({
 	const [autoMsg, setAutoMsg] = useState<string | null>(null);
 	// Saved distribution lists (for the "Generate & distribute" action).
 	const [distributions, setDistributions] = useState<
-		{ id: string; name: string; targets: unknown[]; cardsPerTarget: number }[]
+		{
+			id: string;
+			name: string;
+			targets: { profileId: string }[];
+			cardsPerTarget: number;
+		}[]
 	>([]);
 	const [distId, setDistId] = useState("");
 
@@ -280,9 +285,9 @@ export function QuoteStudio({
 				setPage(0);
 			}
 			setAutoMsg(
-				`Generated ${d.generated}, scheduled ${d.scheduled} card post(s) across ${d.targets} account(s)${
+				`Generated ${d.generated}, scheduled ${d.scheduled} card post(s) across ${d.ecosystems} ecosystem(s)${
 					d.failed ? ` · ${d.failed} failed` : ""
-				}. Each account got its own slice — see Scheduled.`,
+				}. Each ecosystem got its own slice (broadcast to its platforms) — see Scheduled.`,
 			);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Error");
@@ -519,11 +524,15 @@ export function QuoteStudio({
 							className="rounded-md border border-black/15 px-2.5 py-1.5 text-sm"
 						>
 							<option value="">Pick a distribution list…</option>
-							{distributions.map((d) => (
-								<option key={d.id} value={d.id}>
-									{d.name} ({d.targets.length} accounts · {d.cardsPerTarget}/ea)
-								</option>
-							))}
+							{distributions.map((d) => {
+								const ecos = new Set(d.targets.map((t) => t.profileId)).size;
+								return (
+									<option key={d.id} value={d.id}>
+										{d.name} ({ecos} ecosystem{ecos === 1 ? "" : "s"} ·{" "}
+										{d.cardsPerTarget}/ecosystem)
+									</option>
+								);
+							})}
 						</select>
 						<button
 							type="button"
@@ -535,7 +544,8 @@ export function QuoteStudio({
 							{busy ? (queueMsg ?? "Working…") : "⚡ Generate & distribute"}
 						</button>
 						<span className="text-xs opacity-50">
-							Spreads {count} cards · 10 per account, no repeats
+							Spreads {count} cards across ecosystems · broadcast to each
+							ecosystem’s platforms
 						</span>
 					</div>
 				)}
