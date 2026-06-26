@@ -480,6 +480,36 @@ export const dubAutopublishRules = pgTable(
 );
 
 /**
+ * Quote-card auto-publish rules. Separate from dub rules (quotes may target
+ * different accounts than dubbed reels). Per ecosystem: which image-capable
+ * accounts a quote of a given language ("Hindi", "Tamil", …) is scheduled to,
+ * with the same buffer (first-post delay) + gap (drip spacing) as dubs.
+ */
+export const quoteAutopublishRules = pgTable(
+	"quote_autopublish_rules",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		profileId: uuid("profile_id")
+			.notNull()
+			.references(() => profiles.id, { onDelete: "cascade" }),
+		lang: text("lang").notNull(), // quote output-language label, e.g. "Hindi"
+		accountIds: jsonb("account_ids").$type<string[]>().notNull().default([]),
+		bufferMinutes: integer("buffer_minutes").notNull().default(30),
+		gapMinutes: integer("gap_minutes").notNull().default(0),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [
+		index("quote_autopublish_profile_idx").on(t.profileId),
+		uniqueIndex("quote_autopublish_profile_lang").on(t.profileId, t.lang),
+	],
+);
+
+/**
  * A "long video → shorts" job run by the shorts pipeline in the dubber-service:
  * download → transcribe → AI clip-find → extract 9:16 → upload clips to R2.
  * Mirrors dub_jobs (status/pct/SSE) but yields MANY clips (shorts_clips).

@@ -4,11 +4,31 @@ import { useState } from "react";
 import type { Ecosystem } from "@/components/publish-row";
 import { QuoteBatchPanel } from "@/components/quote-batch-panel";
 import { QuoteRow } from "@/components/quote-row";
-import type {
-	QuoteBackground,
-	QuoteItem,
-	QuoteOverlay,
+import {
+	patchQuoteItem,
+	type QuoteBackground,
+	type QuoteItem,
+	type QuoteOverlay,
 } from "@/components/quote-types";
+
+/** Run `fn` over items with bounded concurrency; passes the stable index so
+ * drip schedule times don't depend on completion order. */
+async function runPool<T>(
+	items: T[],
+	concurrency: number,
+	fn: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+	let idx = 0;
+	async function worker() {
+		while (idx < items.length) {
+			const i = idx++;
+			await fn(items[i], i);
+		}
+	}
+	await Promise.all(
+		Array.from({ length: Math.min(concurrency, items.length) }, worker),
+	);
+}
 
 const TONES = [
 	"",
@@ -78,6 +98,7 @@ export function QuoteStudio({
 	const [items, setItems] = useState<QuoteItem[]>(initialItems);
 	const [view, setView] = useState<"single" | "batch">("single");
 	const [page, setPage] = useState(0);
+	const [autoMsg, setAutoMsg] = useState<string | null>(null);
 
 	async function fetchQuotes(
 		n: number,
@@ -148,6 +169,169 @@ export function QuoteStudio({
 			setPage(0); // newest (prepended) quotes are on the first page
 			if (total === 0) setError("No quotes were generated — try more content.");
 			else if (targets.length > 1) setView("batch");
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Error");
+		} finally {
+			setBusy(false);
+			setQueueMsg(null);
+		}
+	}
+
+	/**
+	 * One click: for each language that has a quote rule, generate `count` quotes,
+	 * render each into a card (rotating library backgrounds + the default overlay),
+	 * and schedule every card to that language's mapped accounts — first one
+	 * `buffer` min out, then one every `gap` min (drip). Reuses the same
+	 * generate / card-render / schedule endpoints as the manual flow.
+	 */
+	async function generateAndAutoSchedule() {
+		if (content.trim().length < 40) {
+			setError("Paste at least a paragraph of content to work from.");
+			return;
+		}
+		setBusy(true);
+		setError(null);
+		setAutoMsg(null);
+		try {
+			// Load quote rules across every accessible ecosystem → lang → routes.
+			const langRules = new Map<
+				string,
+				{ ecoId: string; accountIds: string[]; buffer: number; gap: number }[]
+			>();
+			await Promise.all(
+				ecosystems.map(async (eco) => {
+					const d = await fetch(
+						`/api/quotes/autopublish-rules?profileId=${eco.id}`,
+					)
+						.then((r) => r.json())
+						.catch(() => ({}) as { rules?: unknown[] });
+					for (const r of (d.rules ?? []) as {
+						lang: string;
+						accountIds?: string[];
+						bufferMinutes?: number;
+						gapMinutes?: number;
+					}[]) {
+						if (!r.accountIds?.length) continue;
+						const arr = langRules.get(r.lang) ?? [];
+						arr.push({
+							ecoId: eco.id,
+							accountIds: r.accountIds,
+							buffer: r.bufferMinutes ?? 30,
+							gap: r.gapMinutes ?? 0,
+						});
+						langRules.set(r.lang, arr);
+					}
+				}),
+			);
+			if (langRules.size === 0) {
+				setError(
+					"No quote auto-publish rules yet — open “⚙ Quote auto-publish rules” above and map a language to accounts first.",
+				);
+				return;
+			}
+			// Run the selected languages that have a rule; empty selection = all rule langs.
+			const targets = (langs.length ? langs : [...langRules.keys()]).filter(
+				(l) => langRules.has(l),
+			);
+			if (targets.length === 0) {
+				setError(
+					"None of the chosen languages have a rule. Add a rule or pick mapped languages.",
+				);
+				return;
+			}
+			const bgPool = backgrounds.map((b) => b.url).filter(Boolean);
+			if (bgPool.length === 0) {
+				setError(
+					"Add at least one Quote background to your library first — cards need a background image.",
+				);
+				return;
+			}
+			const overlayUrl = (overlays.find((o) => o.isDefault) ?? overlays[0])
+				?.url;
+
+			let scheduled = 0;
+			let failed = 0;
+			for (let li = 0; li < targets.length; li++) {
+				const lang = targets[li];
+				setQueueMsg(
+					`${lang}: generating ${count}… (${li + 1}/${targets.length})`,
+				);
+				const fresh = await fetchQuotes(count, [], undefined, lang);
+				setItems((prev) => [...fresh, ...prev]);
+				const routes = langRules.get(lang) ?? [];
+				let done = 0;
+				await runPool(fresh, 3, async (q, i) => {
+					setQueueMsg(`${lang}: card ${++done}/${fresh.length}…`);
+					const bg = bgPool[(li * 3 + i) % bgPool.length];
+					let cardUrl: string | null = null;
+					try {
+						const cr = await fetch("/api/quotes/card", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								photoUrl: bg,
+								quote: q.text,
+								overlayUrl: overlayUrl ?? undefined,
+								finalize: true,
+							}),
+						});
+						if (cr.ok) cardUrl = (await cr.json()).publicUrl ?? null;
+					} catch {
+						/* render failed — counted below */
+					}
+					if (!cardUrl) {
+						failed++;
+						return;
+					}
+					patchLocal(q.id, {
+						cardUrl,
+						bgUrl: bg,
+						overlayUrl: overlayUrl ?? null,
+					});
+					patchQuoteItem(q.id, {
+						cardUrl,
+						bgUrl: bg,
+						overlayUrl: overlayUrl ?? null,
+					});
+					const caption = q.hashtags.length
+						? `${q.text}\n\n${q.hashtags.map((h) => `#${h}`).join(" ")}`
+						: q.text;
+					for (const route of routes) {
+						const eco = ecosystems.find((e) => e.id === route.ecoId);
+						const accs = (eco?.accounts ?? [])
+							.filter((a) => route.accountIds.includes(a.accountId))
+							.map((a) => ({ platform: a.platform, accountId: a.accountId }));
+						if (accs.length === 0) continue;
+						const when = new Date(
+							Date.now() + (route.buffer + i * route.gap) * 60_000,
+						).toISOString();
+						try {
+							const pr = await fetch(`/api/profiles/${route.ecoId}/posts`, {
+								method: "POST",
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify({
+									content: caption,
+									platforms: accs,
+									mediaItems: [{ type: "image", url: cardUrl }],
+									scheduledFor: when,
+									source: "quote",
+								}),
+							});
+							if (pr.ok) scheduled++;
+							else failed++;
+						} catch {
+							failed++;
+						}
+					}
+				});
+			}
+			setView("batch");
+			setPage(0);
+			setAutoMsg(
+				`Auto-scheduled ${scheduled} card post(s) across ${targets.length} language(s)${
+					failed ? ` · ${failed} failed` : ""
+				}. They appear in Scheduled, spaced by each rule’s gap.`,
+			);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Error");
 		} finally {
@@ -348,19 +532,35 @@ export function QuoteStudio({
 							</select>
 						</div>
 					</div>
-					<button
-						type="button"
-						onClick={generate}
-						disabled={busy}
-						className="ml-auto h-10 rounded-md bg-primary px-5 text-sm font-medium text-white disabled:opacity-50"
-					>
-						{busy
-							? (queueMsg ?? "Generating…")
-							: langs.length > 1
-								? `Generate · ${langs.length} languages`
-								: "Generate quotes"}
-					</button>
+					<div className="ml-auto flex flex-wrap items-center gap-2">
+						<button
+							type="button"
+							onClick={generate}
+							disabled={busy}
+							className="h-10 rounded-md bg-primary px-5 text-sm font-medium text-white disabled:opacity-50"
+						>
+							{busy
+								? (queueMsg ?? "Generating…")
+								: langs.length > 1
+									? `Generate · ${langs.length} languages`
+									: "Generate quotes"}
+						</button>
+						<button
+							type="button"
+							onClick={generateAndAutoSchedule}
+							disabled={busy}
+							title="Generate, render cards, and schedule each language to its mapped accounts by your Quote auto-publish rules"
+							className="h-10 rounded-md border border-primary bg-primary/10 px-4 text-sm font-medium text-primary hover:bg-primary/15 disabled:opacity-50"
+						>
+							{busy ? (queueMsg ?? "Working…") : "⚡ Generate & auto-schedule"}
+						</button>
+					</div>
 				</div>
+				{autoMsg && (
+					<p className="rounded-md border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-800">
+						{autoMsg}
+					</p>
+				)}
 				{langs.length > 1 && (
 					<p className="text-xs opacity-50">
 						Generates {count} quotes in each of {langs.length} languages —
