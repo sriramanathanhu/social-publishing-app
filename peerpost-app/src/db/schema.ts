@@ -578,6 +578,41 @@ export const shortsDistributions = pgTable(
 );
 
 /**
+ * Language→accounts rules for long-form TEXT auto-publishing (articles &
+ * transcripts), keyed by `kind` so each page has its own separate rules. After
+ * generating, the user translates the piece into chosen languages and each
+ * translation is broadcast to that language's mapped accounts (text post).
+ */
+export const textAutopublishRules = pgTable(
+	"text_autopublish_rules",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		profileId: uuid("profile_id")
+			.notNull()
+			.references(() => profiles.id, { onDelete: "cascade" }),
+		kind: text("kind").notNull(), // "article" | "transcript"
+		lang: text("lang").notNull(), // language label, e.g. "Hindi"
+		accountIds: jsonb("account_ids").$type<string[]>().notNull().default([]),
+		bufferMinutes: integer("buffer_minutes").notNull().default(30),
+		gapMinutes: integer("gap_minutes").notNull().default(0),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [
+		index("text_autopublish_profile_idx").on(t.profileId),
+		uniqueIndex("text_autopublish_profile_kind_lang").on(
+			t.profileId,
+			t.kind,
+			t.lang,
+		),
+	],
+);
+
+/**
  * A "long video → shorts" job run by the shorts pipeline in the dubber-service:
  * download → transcribe → AI clip-find → extract 9:16 → upload clips to R2.
  * Mirrors dub_jobs (status/pct/SSE) but yields MANY clips (shorts_clips).

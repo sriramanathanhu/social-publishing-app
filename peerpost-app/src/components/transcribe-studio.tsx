@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { Ecosystem } from "@/components/publish-row";
 import { RichEditor } from "@/components/rich-editor";
+import { TextAutoSchedule } from "@/components/text-auto-schedule";
+import { TextAutopublishRules } from "@/components/text-autopublish-rules";
 import { DUB_LANGUAGES } from "@/lib/dub-options";
 
 const LANGS = ["Tamil", "English"] as const;
@@ -31,9 +34,11 @@ export type TranscriptJob = {
 
 export function TranscribeStudio({
 	initialJobs,
+	ecosystems,
 	corpusReady,
 }: {
 	initialJobs: TranscriptJob[];
+	ecosystems: Ecosystem[];
 	corpusReady: boolean;
 }) {
 	const [jobs, setJobs] = useState<TranscriptJob[]>(initialJobs);
@@ -259,6 +264,9 @@ export function TranscribeStudio({
 
 	return (
 		<div className="flex h-full flex-col">
+			<div className="border-slate-200 border-b px-6 py-2">
+				<TextAutopublishRules ecosystems={ecosystems} kind="transcript" />
+			</div>
 			{/* Header */}
 			<div className="flex items-center justify-between gap-4 border-slate-200 border-b px-6 py-3">
 				<div>
@@ -500,6 +508,11 @@ export function TranscribeStudio({
 				<main className="min-w-0 flex-1 overflow-y-auto">
 					{selected ? (
 						<div className="px-8 py-6">
+							{selected.status === "done" && selected.transcript && (
+								<div className="mb-4">
+									<TextAutoSchedule kind="transcript" itemId={selected.id} />
+								</div>
+							)}
 							<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
 								<input
 									value={selected.title}

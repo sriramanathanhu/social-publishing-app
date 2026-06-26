@@ -4,6 +4,8 @@ import { useRef, useState } from "react";
 import { ArticlePublish } from "@/components/article-publish";
 import type { Ecosystem } from "@/components/publish-row";
 import { RichEditor } from "@/components/rich-editor";
+import { TextAutoSchedule } from "@/components/text-auto-schedule";
+import { TextAutopublishRules } from "@/components/text-autopublish-rules";
 import { DUB_LANGUAGES } from "@/lib/dub-options";
 
 // Output languages — the same 15 as dubbing (plus the default/source language).
@@ -213,6 +215,9 @@ export function ArticleStudio({
 
 	return (
 		<div className="flex h-full flex-col">
+			<div className="border-slate-200 border-b px-6 py-2">
+				<TextAutopublishRules ecosystems={ecosystems} kind="article" />
+			</div>
 			{/* Header */}
 			<div className="flex items-center justify-between gap-4 border-slate-200 border-b px-6 py-3">
 				<div>
@@ -434,7 +439,8 @@ export function ArticleStudio({
 								</div>
 							)}
 
-							<div className="mt-6">
+							<div className="mt-6 space-y-4">
+								<TextAutoSchedule kind="article" itemId={selected.id} />
 								<ArticlePublish
 									key={selected.id}
 									article={selected}
