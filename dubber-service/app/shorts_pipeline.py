@@ -153,12 +153,81 @@ def _atempo(speed: float) -> str:
     return ",".join(parts)
 
 
+def _speech_spans(words, start, end, min_gap=0.7, pad=0.12):
+    """Clip-relative keep spans covering speech, dropping internal/edge silences
+    longer than ``min_gap``. Word times are on the source timeline; we shift to
+    clip-relative (0 = clip start). Returns ``[(s, e)]``."""
+    clip_len = end - start
+    ws = []
+    for w in words:
+        s = w.get("start", 0) - start
+        e = w.get("end", 0) - start
+        if e > 0 and s < clip_len and e > s:
+            ws.append((max(0.0, s), min(clip_len, e)))
+    if not ws:
+        return [(0.0, clip_len)]
+    ws.sort()
+    runs, cs, ce = [], ws[0][0], ws[0][1]
+    for s, e in ws[1:]:
+        if s - ce <= min_gap:        # keep natural short pauses
+            ce = max(ce, e)
+        else:                        # gap too long → cut it
+            runs.append((cs, ce))
+            cs, ce = s, e
+    runs.append((cs, ce))
+    out = []
+    for s, e in runs:                # pad + clamp + merge touching spans
+        s = max(0.0, s - pad)
+        e = min(clip_len, e + pad)
+        if out and s <= out[-1][1] + 0.02:
+            out[-1] = (out[-1][0], max(out[-1][1], e))
+        else:
+            out.append((s, e))
+    return out
+
+
+def _keep_expr(spans):
+    """ffmpeg select/aselect expression: keep any frame inside a span."""
+    return "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in spans)
+
+
+def _retime_words(words, start, end, spans):
+    """Map each word onto the silence-removed (compressed) timeline so burned
+    captions stay in sync after the cut."""
+    clip_len = end - start
+    lengths = [e - s for s, e in spans]
+    prior = [0.0]
+    for length in lengths[:-1]:
+        prior.append(prior[-1] + length)
+
+    def remap(t):
+        for i, (s, e) in enumerate(spans):
+            if t < s:
+                return prior[i]
+            if t <= e:
+                return prior[i] + (t - s)
+        return prior[-1] + (lengths[-1] if lengths else 0.0)
+
+    out = []
+    for w in words:
+        s = w.get("start", 0) - start
+        e = w.get("end", 0) - start
+        if e <= 0 or s >= clip_len:
+            continue
+        out.append({
+            "word": w.get("word", ""),
+            "start": remap(max(0.0, s)),
+            "end": remap(min(clip_len, e)),
+        })
+    return out
+
+
 def _render_single_pass(video, start, end, crop, overlay_png, ass_path, out,
-                        speed=1.0) -> bool:
-    """Extract [start,end], crop to aspect, overlay PNG, burn captions, and apply
-    the speed factor — all in ONE ffmpeg pass. setpts retimes the (already
-    caption-burned) frames and atempo speeds the audio by the same factor, so
-    they stay in sync."""
+                        speed=1.0, keep_expr=None) -> bool:
+    """Extract [start,end], crop to aspect, overlay PNG, (optionally) drop silent
+    spans via select/aselect, burn captions, and apply speed — all in ONE ffmpeg
+    pass. select removes dead air, setpts/atempo retime the result, and the ass
+    cues are already on the compressed timeline, so everything stays in sync."""
     args = ["ffmpeg", "-y", "-ss", str(start), "-t", str(end - start), "-i", video]
     if overlay_png:
         args += ["-i", overlay_png]
@@ -167,17 +236,27 @@ def _render_single_pass(video, start, end, crop, overlay_png, ass_path, out,
     if overlay_png:
         parts.append(f"[{last}][1:v]overlay=0:0:format=auto[s1]")
         last = "s1"
+    if keep_expr:
+        parts.append(f"[{last}]select='{keep_expr}',setpts=N/FRAME_RATE/TB[sk]")
+        last = "sk"
     if ass_path:
         parts.append(f"[{last}]ass={ass_path}[s2]")
         last = "s2"
     sped = speed and abs(speed - 1.0) > 0.01
+    parts.append(
+        f"[{last}]setpts=PTS/{speed:.4f}[v]" if sped else f"[{last}]null[v]"
+    )
+    afilters = []
+    if keep_expr:
+        afilters += [f"aselect='{keep_expr}'", "asetpts=N/SR/TB"]
     if sped:
-        parts.append(f"[{last}]setpts=PTS/{speed:.4f}[v]")
-        parts.append(f"[0:a]{_atempo(speed)}[a]")
-        vmap, amap = "[v]", "[a]"
+        afilters.append(_atempo(speed))
+    if afilters:
+        parts.append(f"[0:a]{','.join(afilters)}[a]")
+        amap = "[a]"
     else:
-        parts.append(f"[{last}]null[v]")
-        vmap, amap = "[v]", "0:a?"
+        amap = "0:a?"
+    vmap = "[v]"
     args += [
         "-filter_complex", ";".join(parts), "-map", vmap, "-map", amap,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
@@ -393,14 +472,31 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
                                     ref_feat=ref_feat)
             if auto:
                 clip_vf = auto
+        # Silence cut: drop internal/edge dead air using the word timings, and
+        # retime the captions onto the compressed timeline so they stay in sync.
+        keep_expr = None
+        cap_words, cap_start, cap_end = words, start, end
+        if req.settings.get("cut_silence", True) and words:
+            spans = _speech_spans(
+                words, start, end,
+                min_gap=float(req.settings.get("silence_gap", 0.7)),
+            )
+            removed = (end - start) - sum(e - s for s, e in spans)
+            if removed > 1.5:  # only bother for meaningful dead air
+                keep_expr = _keep_expr(spans)
+                cap_words = _retime_words(words, start, end, spans)
+                cap_start, cap_end = 0.0, sum(e - s for s, e in spans)
+                log("SHORTS", f"clip {i}: trimmed {removed:.1f}s silence")
         ass_path = None
-        if req.captions and words:
+        if req.captions and cap_words:
             ass_path = f"{base}.ass"
-            if not make_ass_file(words, start, end, rx, ry, req.settings, ass_path):
+            if not make_ass_file(cap_words, cap_start, cap_end, rx, ry,
+                                 req.settings, ass_path):
                 ass_path = None
         cur = f"{base}_a.mp4"
         if not _render_single_pass(video_path, start, end, clip_vf, overlay_png,
-                                   ass_path, cur, speed=req.speed):
+                                   ass_path, cur, speed=req.speed,
+                                   keep_expr=keep_expr):
             log("SHORTS", f"clip {i} render failed, skipping")
             return None
         if extras:
@@ -409,13 +505,15 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
                 cur = joined
         up = upload_clip(cur, f"shorts/{req.job_id}/{i}.mp4")
         sp = req.speed if req.speed and req.speed > 0 else 1.0
+        # Effective source length is the silence-trimmed span when we cut.
+        src_len = cap_end if keep_expr else (end - start)
         return {
             "idx": i, "title": c.get("title", f"Clip {i}"),
             "core_teaching": c.get("core_teaching", ""), "hook": c.get("hook", ""),
             "closing_line": c.get("closing_line", ""),
             "caption_text": c.get("caption_text", ""),
             "start_seconds": start, "end_seconds": end,
-            "duration": int(round((end - start) / sp)),
+            "duration": int(round(src_len / sp)),
             "viral_score": c.get("viral_score"),
             "r2_key": up["key"], "public_url": up["publicUrl"],
         }
