@@ -139,11 +139,22 @@ def _chunk(path: str, n: int, work: str) -> list[str]:
 _SCRIPT = {
     "tamil": "the Tamil script (தமிழ் எழுத்து)",
     "english": "the Latin alphabet (English script)",
+    "hindi": "Devanagari (देवनागरी)",
+    "sanskrit": "Devanagari (देवनागरी)",
 }
 
 
 def _script(lang: str) -> str:
     return _SCRIPT.get(lang.strip().lower(), f"the standard {lang} script")
+
+
+# Best model for multi-language audio — recognises Hindi/Tamil/Sanskrit/English
+# code-switching far better than flash (slower + pricier, by the user's choice).
+_MODEL = "gemini-2.5-pro"
+
+
+def _is_auto(lang: str) -> bool:
+    return lang.strip().lower() in ("auto", "auto-detect", "autodetect", "multi", "")
 
 
 def _transcribe_chunk(
@@ -169,39 +180,55 @@ def _transcribe_chunk(
         "anything not actually spoken. Ignore silence. If there is no intelligible "
         "speech, return an empty response."
     )
-    if translate and output_lang.lower() != source_lang.lower():
-        # The caller asserts the source language; do not auto-detect it.
+    if translate:
+        src = (
+            "the speech (in whatever language it is spoken)"
+            if _is_auto(source_lang)
+            else f"the {source_lang} speech"
+        )
         instruction = (
-            f"This audio is spoken in {source_lang} (the entire recording — do "
-            f"NOT auto-detect or switch the language based on the first few "
-            f"seconds). Translate the speech into {output_lang}, written in "
+            f"Translate {src} into {output_lang}, written in "
             f"{_script(output_lang)}. Output ONLY the {output_lang} translation "
             f"as clean prose — no timestamps, no speaker labels, no commentary."
             + no_speech
         )
     else:
+        # Faithful, multi-language transcription. The speaker may switch between
+        # languages — transcribe each part in its OWN language and native script,
+        # never flattening everything to one language.
+        hint = (
+            ""
+            if _is_auto(source_lang)
+            else f" The audio is primarily in {source_lang}, but the speaker may "
+            "switch to other languages at any time."
+        )
         instruction = (
-            f"This audio is spoken ENTIRELY in {source_lang} — treat that as a "
-            f"fact; do NOT auto-detect the language or change it based on the "
-            f"opening seconds. Transcribe it faithfully and verbatim in "
-            f"{source_lang}, written in {_script(source_lang)}. Do NOT translate, "
-            f"romanise, transliterate, or switch to any other language at any "
-            f"point — keep every word in {source_lang}. Output ONLY the "
-            f"{source_lang} transcript as clean prose — no timestamps, no speaker "
-            f"labels, no commentary." + no_speech
+            "Transcribe this audio EXACTLY as spoken, word for word." + hint +
+            " The speaker may mix languages (for example Hindi, Sanskrit, Tamil, "
+            "English). Transcribe each portion in the SAME language it is spoken "
+            "in, using that language's NATIVE script: Hindi and Sanskrit in "
+            "Devanagari (देवनागरी), Tamil in the Tamil script (தமிழ்), English in "
+            "the Latin alphabet, and any other language in its own native script. "
+            "Do NOT translate, romanise, or transliterate; do NOT normalise the "
+            "text into a single language. Output ONLY the verbatim transcript as "
+            "clean prose — no timestamps, no speaker labels, no commentary."
+            + no_speech
         )
 
+    # gemini-2.5-pro requires thinking mode (it rejects a budget of 0), so leave
+    # thinking at the model default; give a generous output budget so dense
+    # multi-script transcripts aren't truncated.
     resp = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model=_MODEL,
         contents=[f, instruction],
         config={
             "temperature": 0.1,
-            "thinking_config": {"thinking_budget": 0},
-            "max_output_tokens": 8192,
+            "max_output_tokens": 32768,
             "system_instruction": (
-                "You are a precise audio transcriptionist. You always honour the "
-                "language explicitly specified by the user and never auto-detect "
-                "or change the transcription/output language."
+                "You are a precise, multilingual audio transcriptionist. You "
+                "transcribe every word faithfully in the exact language it is "
+                "spoken, in that language's native script, and never translate or "
+                "transliterate unless explicitly asked to translate."
             ),
         },
     )
@@ -210,6 +237,46 @@ def _transcribe_chunk(
     except Exception:
         pass
     return (resp.text or "").strip()
+
+
+def _format_paragraphs(client: "genai.Client", text: str) -> str:
+    """Re-flow the transcript into readable paragraphs WITHOUT changing content.
+
+    Asks the model to only insert paragraph breaks, then verifies the result is
+    character-for-character identical to the input once whitespace is ignored —
+    if the model altered, corrected, translated or dropped anything, we discard
+    its output and keep the original. So this can only ever change whitespace.
+    """
+    instruction = (
+        "Reformat the transcript below into clean, readable paragraphs by "
+        "inserting paragraph breaks (blank lines) at natural pauses / topic "
+        "shifts.\n\n"
+        "ABSOLUTE RULES — the wording must stay 100% unchanged:\n"
+        "- Do NOT add, remove, reorder, correct, rephrase, translate, "
+        "transliterate, or re-spell ANY word or character.\n"
+        "- Do NOT fix grammar, punctuation, or capitalisation.\n"
+        "- Keep every language and script exactly as written.\n"
+        "- The only thing you may change is where line breaks / blank lines go.\n"
+        "Output ONLY the reformatted transcript.\n\n"
+        "TRANSCRIPT:\n" + text
+    )
+    try:
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[instruction],
+            config={
+                "temperature": 0,
+                "thinking_config": {"thinking_budget": 0},
+                "max_output_tokens": 65536,
+            },
+        )
+        formatted = (resp.text or "").strip()
+    except Exception:
+        return text
+    # Accept only if nothing but whitespace changed (content is preserved).
+    if formatted and "".join(formatted.split()) == "".join(text.split()):
+        return formatted
+    return text
 
 
 def run_transcribe(
@@ -243,10 +310,12 @@ def run_transcribe(
             texts.append(
                 _transcribe_chunk(client, ch, source_lang, output_lang, translate)
             )
-        on_progress(98, "finalize", "Assembling transcript…")
+        on_progress(95, "finalize", "Assembling transcript…")
         transcript = "\n\n".join(t for t in texts if t).strip()
         if not transcript:
             raise RuntimeError("Transcription produced no text.")
+        on_progress(97, "format", "Formatting into paragraphs…")
+        transcript = _format_paragraphs(client, transcript)
         on_progress(100, "done", "Done")
         return transcript
     finally:

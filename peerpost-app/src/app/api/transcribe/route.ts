@@ -11,13 +11,15 @@ import { route } from "@/lib/http";
 export const runtime = "nodejs";
 
 const LANGS = ["Tamil", "English"] as const;
+// Source can be auto (multi-language, as-spoken); translation target stays LANGS.
+const SOURCE_LANGS = ["Auto-detect", "English", "Tamil"] as const;
 
 const schema = z.object({
 	title: z.string().max(200).optional(),
 	sourceType: z.enum(["upload", "drive"]),
 	sourceInput: z.string().min(4).max(2000),
 	chunks: z.number().int().min(1).max(50),
-	sourceLang: z.enum(LANGS),
+	sourceLang: z.enum(SOURCE_LANGS),
 	outputLang: z.enum(LANGS),
 	translate: z.boolean(),
 });

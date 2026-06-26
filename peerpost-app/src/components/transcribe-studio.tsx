@@ -9,6 +9,10 @@ import { DUB_LANGUAGES } from "@/lib/dub-options";
 
 const LANGS = ["Tamil", "English"] as const;
 type Lang = (typeof LANGS)[number];
+// Source language: "Auto-detect" transcribes every language as spoken (native
+// script); a specific language is just a hint (code-switching still preserved).
+const SOURCE_LANGS = ["Auto-detect", "English", "Tamil"] as const;
+type SourceLang = (typeof SOURCE_LANGS)[number];
 
 // Translate a finished transcript into any of these (the same 15 as dubbing).
 const TRANSLATE_LANGS = DUB_LANGUAGES.map((l) => l.label);
@@ -54,7 +58,7 @@ export function TranscribeStudio({
 	const [audioName, setAudioName] = useState("");
 	const [driveLink, setDriveLink] = useState("");
 	const [chunks, setChunks] = useState(1);
-	const [sourceLang, setSourceLang] = useState<Lang>("English");
+	const [sourceLang, setSourceLang] = useState<SourceLang>("Auto-detect");
 	const [translate, setTranslate] = useState(false);
 	const [outputLang, setOutputLang] = useState<Lang>("English");
 
@@ -138,7 +142,9 @@ export function TranscribeStudio({
 					sourceInput,
 					chunks,
 					sourceLang,
-					outputLang: translate ? outputLang : sourceLang,
+					// outputLang only matters when translating; otherwise send a
+					// valid LANGS value (the sidecar ignores it for transcription).
+					outputLang: translate ? outputLang : "English",
 					translate,
 				}),
 			});
@@ -370,12 +376,12 @@ export function TranscribeStudio({
 							</span>
 							<select
 								value={sourceLang}
-								onChange={(e) => setSourceLang(e.target.value as Lang)}
+								onChange={(e) => setSourceLang(e.target.value as SourceLang)}
 								className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
 							>
-								{LANGS.map((l) => (
+								{SOURCE_LANGS.map((l) => (
 									<option key={l} value={l}>
-										{l}
+										{l === "Auto-detect" ? "Auto-detect (multi-language)" : l}
 									</option>
 								))}
 							</select>
