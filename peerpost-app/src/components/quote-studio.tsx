@@ -226,15 +226,11 @@ export function QuoteStudio({
 				setError(d.error);
 				return;
 			}
-			if (d.items?.length) {
-				setItems((prev) => [...(d.items as QuoteItem[]), ...prev]);
-				setView("batch");
-				setPage(0);
-			}
+			// Runs in the background (a multi-language batch exceeds the ~100s edge
+			// request limit), so we only get a "started" ack.
 			setAutoMsg(
-				`Scheduled ${d.scheduled} card post(s) across ${d.languages.length} language(s)${
-					d.failed ? ` · ${d.failed} failed` : ""
-				}. They appear in Scheduled, spaced by each rule's gap.`,
+				"Started — generating, rendering and scheduling in the background. " +
+					"Cards appear in your library and posts in Scheduled as they render (a few minutes for a big batch); refresh to see them.",
 			);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Error");
@@ -279,15 +275,11 @@ export function QuoteStudio({
 				setError(d.error);
 				return;
 			}
-			if (d.items?.length) {
-				setItems((prev) => [...(d.items as QuoteItem[]), ...prev]);
-				setView("batch");
-				setPage(0);
-			}
+			// The work runs in the background (a large batch exceeds the ~100s
+			// edge request limit), so we only get a "started" ack here.
 			setAutoMsg(
-				`Generated ${d.generated}, scheduled ${d.scheduled} card post(s) across ${d.ecosystems} ecosystem(s)${
-					d.failed ? ` · ${d.failed} failed` : ""
-				}. Each ecosystem got its own slice (broadcast to its platforms) — see Scheduled.`,
+				`Started — generating ${count} cards and distributing across ${d.ecosystems} ecosystem(s) in the background. ` +
+					"They appear in your library and in Scheduled as they render (a large batch takes a few minutes); refresh the page to see the cards.",
 			);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Error");

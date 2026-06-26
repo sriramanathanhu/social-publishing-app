@@ -69,10 +69,10 @@ export function TextAutoSchedule({
 				setMsg(d.error);
 				return;
 			}
+			// Runs in the background (translating long text into several languages
+			// exceeds the ~100s edge request limit).
 			setMsg(
-				`Translated + scheduled ${d.scheduled} post(s) across ${d.languages} language(s)${
-					d.failed ? ` · ${d.failed} failed` : ""
-				}. See Scheduled.`,
+				`Started — translating into ${picked.size} language(s) and scheduling in the background. Posts appear in Scheduled as each finishes (a few minutes).`,
 			);
 		} catch (e) {
 			setMsg(e instanceof Error ? e.message : "Error");

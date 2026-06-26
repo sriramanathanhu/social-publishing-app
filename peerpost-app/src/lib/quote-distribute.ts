@@ -26,6 +26,43 @@ export type DistributeInput = {
 };
 
 /**
+ * Cheap up-front validation (no Gemini / no rendering) so the route can return
+ * obvious config errors synchronously before backgrounding the slow work.
+ * Returns the number of distinct reachable ecosystems on success.
+ */
+export async function preflightDistribute(
+	user: AppUser,
+	input: { distributionId: string },
+): Promise<{ error?: string; ecosystems?: number }> {
+	const dist = await db.query.quoteDistributions.findFirst({
+		where: and(
+			eq(quoteDistributions.id, input.distributionId),
+			eq(quoteDistributions.userId, user.id),
+		),
+	});
+	if (!dist) return { error: "Distribution list not found." };
+
+	const accessible = new Set(
+		(await getAccessibleProfiles(user)).map((p) => p.id),
+	);
+	const ecos = new Set(
+		dist.targets
+			.filter((t) => accessible.has(t.profileId))
+			.map((t) => t.profileId),
+	);
+	if (ecos.size === 0) return { error: "No reachable targets in this list." };
+
+	const [bg] = await db
+		.select({ url: quoteBackgrounds.url })
+		.from(quoteBackgrounds)
+		.limit(1);
+	if (!bg?.url)
+		return { error: "Add at least one Quote background to the library first." };
+
+	return { ecosystems: ecos.size };
+}
+
+/**
  * "Generate & distribute": generate a pool of `count` single-language cards,
  * render each, then SPREAD them across the saved list's ECOSYSTEMS — each
  * ecosystem gets a distinct slice of `cardsPerTarget` cards (no repeats across

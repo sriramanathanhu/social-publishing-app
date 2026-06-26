@@ -1,11 +1,11 @@
-import type { NextRequest } from "next/server";
+import { after, type NextRequest } from "next/server";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { route } from "@/lib/http";
 import { autoPublishQuotes } from "@/lib/quote-autopublish";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 const schema = z.object({
 	content: z.string().min(40),
@@ -15,13 +15,22 @@ const schema = z.object({
 });
 
 /**
- * POST /api/quotes/auto-publish — one call does the whole "Generate &
- * auto-schedule" flow server-side (one auth check). For each language with a
- * quote rule: generate, render cards, schedule to the mapped accounts (drip).
+ * POST /api/quotes/auto-publish — generate + render + schedule per language.
+ * Rendering many languages can exceed the ~100s edge request limit, so the work
+ * runs in the BACKGROUND (after the response) and we return immediately; the
+ * cards + scheduled posts appear in the library / Scheduled as it progresses.
  */
 export const POST = route(async (req: NextRequest) => {
 	const user = await requireUser();
 	const input = schema.parse(await req.json());
-	const result = await autoPublishQuotes(user, input);
-	return Response.json(result);
+
+	after(async () => {
+		try {
+			await autoPublishQuotes(user, input);
+		} catch (err) {
+			console.error("[quotes/auto-publish background]", err);
+		}
+	});
+
+	return Response.json({ started: true });
 });
