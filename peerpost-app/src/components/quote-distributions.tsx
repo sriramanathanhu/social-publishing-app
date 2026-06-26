@@ -158,6 +158,7 @@ export function QuoteDistributions({
 			setDraft(null);
 			await load();
 			onChange?.();
+			window.dispatchEvent(new Event("quotes:distributions-changed"));
 		} catch (e) {
 			setMsg(e instanceof Error ? e.message : "Save failed");
 		} finally {
@@ -171,6 +172,7 @@ export function QuoteDistributions({
 		);
 		await load();
 		onChange?.();
+		window.dispatchEvent(new Event("quotes:distributions-changed"));
 	}
 
 	const selCount = draft?.selected.size ?? 0;

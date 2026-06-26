@@ -85,12 +85,22 @@ export function QuoteStudio({
 	>([]);
 	const [distId, setDistId] = useState("");
 
-	// Load the user's distribution lists once (single request — no auth burst).
+	// Load the user's distribution lists, and refresh when one is saved in the
+	// panel (custom event) or the tab regains focus — so a newly-created list
+	// shows up here without a page reload.
 	useEffect(() => {
-		fetch("/api/quotes/distributions")
-			.then((r) => r.json())
-			.then((d) => setDistributions(d.distributions ?? []))
-			.catch(() => setDistributions([]));
+		const load = () =>
+			fetch("/api/quotes/distributions")
+				.then((r) => r.json())
+				.then((d) => setDistributions(d.distributions ?? []))
+				.catch(() => {});
+		load();
+		window.addEventListener("focus", load);
+		window.addEventListener("quotes:distributions-changed", load);
+		return () => {
+			window.removeEventListener("focus", load);
+			window.removeEventListener("quotes:distributions-changed", load);
+		};
 	}, []);
 
 	async function fetchQuotes(
