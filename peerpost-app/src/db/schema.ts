@@ -613,6 +613,37 @@ export const textAutopublishRules = pgTable(
 );
 
 /**
+ * Durable queue for long generate/render/schedule batches (quote distribute,
+ * quote auto-publish, text auto-publish). The HTTP request only enqueues a row
+ * (those batches run for minutes — far past the ~100s edge request cap); a
+ * minute-ly cron claims pending rows and runs them in a normal request scope.
+ */
+export const backgroundJobs = pgTable(
+	"background_jobs",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		// "quote-distribute" | "quote-autopublish" | "text-autopublish"
+		kind: text("kind").notNull(),
+		payload: jsonb("payload")
+			.$type<Record<string, unknown>>()
+			.notNull()
+			.default({}),
+		status: text("status").notNull().default("pending"), // pending|running|done|failed
+		result: jsonb("result").$type<Record<string, unknown>>(),
+		error: text("error"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		startedAt: timestamp("started_at", { withTimezone: true }),
+		finishedAt: timestamp("finished_at", { withTimezone: true }),
+	},
+	(t) => [index("background_jobs_status_idx").on(t.status, t.createdAt)],
+);
+
+/**
  * A "long video → shorts" job run by the shorts pipeline in the dubber-service:
  * download → transcribe → AI clip-find → extract 9:16 → upload clips to R2.
  * Mirrors dub_jobs (status/pct/SSE) but yields MANY clips (shorts_clips).
