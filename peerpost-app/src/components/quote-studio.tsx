@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Ecosystem } from "@/components/publish-row";
 import { QuoteBatchPanel } from "@/components/quote-batch-panel";
 import { QuoteRow } from "@/components/quote-row";
@@ -79,6 +79,19 @@ export function QuoteStudio({
 	const [view, setView] = useState<"single" | "batch">("single");
 	const [page, setPage] = useState(0);
 	const [autoMsg, setAutoMsg] = useState<string | null>(null);
+	// Saved distribution lists (for the "Generate & distribute" action).
+	const [distributions, setDistributions] = useState<
+		{ id: string; name: string; targets: unknown[]; cardsPerTarget: number }[]
+	>([]);
+	const [distId, setDistId] = useState("");
+
+	// Load the user's distribution lists once (single request — no auth burst).
+	useEffect(() => {
+		fetch("/api/quotes/distributions")
+			.then((r) => r.json())
+			.then((d) => setDistributions(d.distributions ?? []))
+			.catch(() => setDistributions([]));
+	}, []);
 
 	async function fetchQuotes(
 		n: number,
@@ -207,6 +220,59 @@ export function QuoteStudio({
 				`Scheduled ${d.scheduled} card post(s) across ${d.languages.length} language(s)${
 					d.failed ? ` · ${d.failed} failed` : ""
 				}. They appear in Scheduled, spaced by each rule's gap.`,
+			);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Error");
+		} finally {
+			setBusy(false);
+			setQueueMsg(null);
+		}
+	}
+
+	/**
+	 * Generate a pool of `count` cards and SPREAD them across a saved
+	 * distribution list — a distinct slice per target account (no repeats),
+	 * drip-spaced. One server call.
+	 */
+	async function generateAndDistribute() {
+		if (content.trim().length < 40) {
+			setError("Paste at least a paragraph of content to work from.");
+			return;
+		}
+		if (!distId) {
+			setError("Pick a distribution list (or create one above).");
+			return;
+		}
+		setBusy(true);
+		setError(null);
+		setAutoMsg(null);
+		setQueueMsg(`Generating ${count} & distributing…`);
+		try {
+			const res = await fetch("/api/quotes/distribute", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					content,
+					count,
+					tone: tone || undefined,
+					distributionId: distId,
+				}),
+			});
+			const d = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(d.error ?? "Distribute failed");
+			if (d.error) {
+				setError(d.error);
+				return;
+			}
+			if (d.items?.length) {
+				setItems((prev) => [...(d.items as QuoteItem[]), ...prev]);
+				setView("batch");
+				setPage(0);
+			}
+			setAutoMsg(
+				`Generated ${d.generated}, scheduled ${d.scheduled} card post(s) across ${d.targets} account(s)${
+					d.failed ? ` · ${d.failed} failed` : ""
+				}. Each account got its own slice — see Scheduled.`,
 			);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Error");
@@ -432,6 +498,37 @@ export function QuoteStudio({
 						</button>
 					</div>
 				</div>
+				{distributions.length > 0 && (
+					<div className="flex flex-wrap items-center gap-2 border-t border-black/10 pt-3">
+						<span className="text-xs font-medium opacity-60">
+							Distribute mode:
+						</span>
+						<select
+							value={distId}
+							onChange={(e) => setDistId(e.target.value)}
+							className="rounded-md border border-black/15 px-2.5 py-1.5 text-sm"
+						>
+							<option value="">Pick a distribution list…</option>
+							{distributions.map((d) => (
+								<option key={d.id} value={d.id}>
+									{d.name} ({d.targets.length} accounts · {d.cardsPerTarget}/ea)
+								</option>
+							))}
+						</select>
+						<button
+							type="button"
+							onClick={generateAndDistribute}
+							disabled={busy || !distId}
+							title="Generate a pool of cards and spread a distinct slice to each account in the list (no repeats)"
+							className="h-9 rounded-md border border-primary bg-primary/10 px-4 text-sm font-medium text-primary hover:bg-primary/15 disabled:opacity-50"
+						>
+							{busy ? (queueMsg ?? "Working…") : "⚡ Generate & distribute"}
+						</button>
+						<span className="text-xs opacity-50">
+							Spreads {count} cards · 10 per account, no repeats
+						</span>
+					</div>
+				)}
 				{autoMsg && (
 					<p className="rounded-md border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-800">
 						{autoMsg}

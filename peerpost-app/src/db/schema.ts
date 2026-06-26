@@ -510,6 +510,41 @@ export const quoteAutopublishRules = pgTable(
 );
 
 /**
+ * A reusable "distribution list": a named set of target accounts spanning ANY
+ * ecosystems. Used to SPREAD a freshly-generated pool of single-language cards
+ * across many channels — each target gets a distinct slice of `cardsPerTarget`
+ * cards (no repeats), drip-scheduled by buffer + gap. Distinct from the
+ * broadcast rules, which send the same card to all of a language's accounts.
+ */
+export const quoteDistributions = pgTable(
+	"quote_distributions",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		lang: text("lang").notNull().default("English"),
+		// How many distinct cards each target account receives.
+		cardsPerTarget: integer("cards_per_target").notNull().default(10),
+		bufferMinutes: integer("buffer_minutes").notNull().default(30),
+		gapMinutes: integer("gap_minutes").notNull().default(60),
+		// The target accounts (across ecosystems): [{profileId, accountId}].
+		targets: jsonb("targets")
+			.$type<{ profileId: string; accountId: string }[]>()
+			.notNull()
+			.default([]),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [index("quote_distributions_user_idx").on(t.userId)],
+);
+
+/**
  * A "long video → shorts" job run by the shorts pipeline in the dubber-service:
  * download → transcribe → AI clip-find → extract 9:16 → upload clips to R2.
  * Mirrors dub_jobs (status/pct/SSE) but yields MANY clips (shorts_clips).

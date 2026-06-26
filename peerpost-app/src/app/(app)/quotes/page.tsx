@@ -1,5 +1,6 @@
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { QuoteAutopublishRules } from "@/components/quote-autopublish-rules";
+import { QuoteDistributions } from "@/components/quote-distributions";
 import { QuoteStudio } from "@/components/quote-studio";
 import { db } from "@/db";
 import {
@@ -84,6 +85,7 @@ export default async function QuotesPage() {
 				</p>
 			</div>
 			<QuoteAutopublishRules ecosystems={ecosystems} />
+			<QuoteDistributions ecosystems={ecosystems} />
 			<QuoteStudio
 				ecosystems={ecosystems}
 				backgrounds={backgrounds}

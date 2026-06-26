@@ -24,7 +24,7 @@ import { generateQuotes } from "@/lib/quotes";
 
 /** Schedule one rendered card image to a set of accounts under a profile (each
  * provider call independent; recorded in posts_log). Returns # scheduled ok. */
-async function scheduleImageToAccounts(
+export async function scheduleImageToAccounts(
 	profileId: string,
 	userId: string,
 	content: string,
@@ -150,7 +150,13 @@ export async function autoPublishQuotes(
 	items: SavedQuote[];
 	error?: string;
 }> {
-	const empty = { languages: [], rendered: 0, scheduled: 0, failed: 0, items: [] };
+	const empty = {
+		languages: [],
+		rendered: 0,
+		scheduled: 0,
+		failed: 0,
+		items: [],
+	};
 
 	const profiles = await getAccessibleProfiles(user);
 	const profileIds = profiles.map((p) => p.id);
