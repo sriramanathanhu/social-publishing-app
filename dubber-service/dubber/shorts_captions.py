@@ -55,7 +55,10 @@ def _make_ass(words, rx, ry, style, color, font_size, max_words) -> str:
         # soft shadow gives the box depth. Positioned near the vertical centre.
         ol, sd, bd, bs = max(12, fs // 6), 2, 1, 3
         primary, boxcol = black, white
-        align, marginv = 2, int(ry * 0.40)
+        # Alignment 2 = bottom-anchored, so MarginV is the gap from the BOTTOM
+        # edge. 0.20 → box bottom at 80% from the top (lower-third), leaving the
+        # bottom 20% clear for the platform's own UI.
+        align, marginv = 2, int(ry * 0.20)
     else:
         ol, sd, bd, bs = {
             "pop": (3, 2, 1, 1), "karaoke": (2, 1, 1, 1), "boxed": (0, 0, 1, 3),
