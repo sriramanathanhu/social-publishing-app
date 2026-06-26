@@ -26,6 +26,24 @@ TAGS2 = "#KAILASA"
 BULLET = "•"
 TARGET_TOTAL_HASHTAGS = 4
 
+# The only hashtags the user wants on every caption — no generated/extra tags,
+# no @mentions. Enforced as a post-process so it holds regardless of the model.
+FIXED_HASHTAGS = "#nithyananda #kailasa"
+
+
+def _force_two_hashtags(text: str, append: bool = True) -> str:
+    """Remove every hashtag and @mention the model produced; optionally append
+    exactly the two fixed tags. Unicode-aware so language hashtags are stripped."""
+    if not text:
+        return text
+    # A hashtag/mention = # or @ (not mid-word, so emails / C# survive) followed
+    # by the whole non-space token — works for any script incl. Devanagari/Tamil.
+    t = re.sub(r"(?<!\w)[#@]\S+", "", text)
+    t = re.sub(r"[ \t]+", " ", t)
+    t = re.sub(r" *\n", "\n", t)
+    t = re.sub(r"\n{3,}", "\n\n", t).strip()
+    return f"{t}\n\n{FIXED_HASHTAGS}" if append else t
+
 MAX_TRANSCRIPT_CHARS = 3000
 SAFE_CAPTION_LIMITS = {
     "twitter": 250,
@@ -2053,12 +2071,17 @@ def generate_all_captions(
             _extract_str(data.get("caption", "")), newline_before_tags=True
         )
         cleaned_caption = _strip_source_video_url(cleaned_caption, source_metadata)
-        data["caption"] = cleaned_caption
+        # Override any generated/extra hashtags + @mentions with exactly the two
+        # fixed tags the user wants.
+        data["caption"] = _force_two_hashtags(cleaned_caption)
         if p == "youtube":
             title = _sanitize_caption_text(
                 _extract_str(data.get("title", "")), newline_before_tags=False
             )
-            data["title"] = _strip_source_video_url(title, source_metadata)
+            # Titles carry no hashtags/handles.
+            data["title"] = _force_two_hashtags(
+                _strip_source_video_url(title, source_metadata), append=False
+            )
 
     _write_caption_files(output_dir, captions, target_platforms, basename="captions.json")
 

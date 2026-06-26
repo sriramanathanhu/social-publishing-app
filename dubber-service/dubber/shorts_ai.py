@@ -27,8 +27,36 @@ DEFAULT_SPEAKER = (
     "The Supreme Pontiff of Hinduism Bhagavan Sri Nithyananda Paramashivam"
 )
 DEFAULT_CHANNEL = "SPH Nithyananda"
-DEFAULT_BASE_TAGS = "#kailasa #nithyananda"
-DEFAULT_MENTION = "@srinithyananda"
+# Exactly the two fixed tags the user wants — no extra/auto hashtags, no @mention.
+DEFAULT_BASE_TAGS = "#nithyananda #kailasa"
+DEFAULT_MENTION = ""
+
+
+def _clean_gist(gist: str, speaker: str) -> str:
+    """Make the AI gist read cleanly as the object of '<speaker> reveals ___':
+    drop any restatement of the speaker's name + verb (the cause of "… reveals
+    Bhagavan … reveals …"), drop @handles, and tidy the casing."""
+    g = re.sub(r"@\w+", "", gist or "").strip()
+    names = (
+        r"(?:the\s+supreme\s+pontiff(?:\s+of\s+hinduism)?,?\s*)?"
+        r"(?:bhagavan\s+)?(?:sri\s+)?(?:sph\s+)?nithyananda(?:\s+paramashivam)?"
+        r"|paramashivam|bhagavan|sph|he|she|it|this"
+    )
+    verbs = (
+        r"reveals?|explains?|teaches?|describes?|shares?|discusses?|shows?"
+        r"|unveils?|expounds?|reflects?(?:\s+on)?|talks?\s+about|speaks?\s+about"
+    )
+    # Leading "<name> <verb>" or a bare leading "<verb>".
+    g = re.sub(rf"^\s*(?:{names})\s+(?:{verbs})\s+", "", g, flags=re.IGNORECASE)
+    g = re.sub(rf"^\s*(?:{verbs})\s+", "", g, flags=re.IGNORECASE)
+    # Mid-text restatements: "… tapestry. He explains the role …" → "… tapestry, and the role …"
+    g = re.sub(
+        rf"[.;,]\s+(?:{names})\s+(?:{verbs})\s+", ", and ", g, flags=re.IGNORECASE
+    )
+    g = re.sub(r"\s{2,}", " ", g).strip().rstrip(".")
+    if g and g[:1].isupper() and not g.split(" ", 1)[0].isupper():
+        g = g[0].lower() + g[1:]  # flow after "reveals"
+    return g
 
 BATCH_CHARS = 6000
 OVERLAP_CHARS = 800
@@ -468,11 +496,15 @@ Closing line: {clip.get('closing_line', '')}
 Transcript excerpt: {clip_text}
 
 Return ONLY valid JSON:
-{{"youtube_title":"...","gist":"...","relevant_hashtags":["tag1","tag2"]}}
+{{"youtube_title":"...","gist":"..."}}
 Rules:
-- youtube_title: max 60 chars, punchy, captures the core teaching, no clickbait
-- gist: 1-2 sentences, specific to THIS clip, what exactly is revealed/taught
-- relevant_hashtags: exactly 2 strings (no #) relevant to this clip's topic"""
+- youtube_title: max 60 chars, punchy, captures the core teaching, no clickbait,
+  no hashtags, no "@" handles, do NOT include the speaker's name or titles.
+- gist: completes the phrase "{ctx['speaker']} reveals ___" — write ONLY the
+  substance (1-2 ideas, specific to THIS clip). Do NOT repeat the speaker's name
+  or titles, do NOT start with a verb like "reveals/explains", no "@" handles,
+  no hashtags. Example: "how consciousness becomes the universe through the
+  analogy of a thread and tapestry, and the role of pure sound and mantra"."""
 
 
 def generate_titles(clips, segments, *, api_url, api_key, model, settings,
@@ -491,7 +523,6 @@ def generate_titles(clips, segments, *, api_url, api_key, model, settings,
         )[:500]
         title = c.get("title", f"Clip {c.get('rank')}")
         gist = c.get("core_teaching", "")
-        tags = []
         for attempt in range(3):
             try:
                 raw = _call_nim_fast(api_url, api_key, model,
@@ -507,18 +538,18 @@ def generate_titles(clips, segments, *, api_url, api_key, model, settings,
                     td = json.loads(m.group())
                 title = td.get("youtube_title", title)
                 gist = (td.get("gist") or gist or "").strip().rstrip(".")
-                tags = [t.strip("#").strip() for t in td.get("relevant_hashtags", [])][:2]
                 break
             except Exception as exc:  # noqa: BLE001
                 on_log(f"title clip {c.get('rank')} attempt {attempt + 1}: {str(exc)[:120]}")
                 if attempt < 2:
                     time.sleep(5 * (attempt + 1))
 
-        while len(tags) < 2:
-            tags.append("spirituality" if not tags else "consciousness")
-        hashtags = f"#{tags[0]} #{tags[1]}"
+        gist = _clean_gist(gist, ctx["speaker"])
+        # Title shouldn't carry the name/handles/hashtags either.
+        title = re.sub(r"\s*[#@]\w+", "", title).strip()
+        desc = f"{ctx['speaker']} reveals {gist}.".replace(" .", ".")
+        tail = " ".join(t for t in (base_tags, mention) if t).strip()
         c["youtube_title"] = title
-        c["youtube_description"] = (
-            f"{ctx['speaker']} reveals {gist}. {base_tags} {hashtags} {mention}"
-        )
-        c["hashtags"] = tags
+        c["youtube_description"] = f"{desc} {tail}".strip()
+        # Exactly the two fixed tags (no #), for the clip's stored hashtags.
+        c["hashtags"] = [t.strip("#") for t in base_tags.split()]
