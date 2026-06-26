@@ -1,6 +1,7 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { ShortsAssets } from "@/components/shorts-assets";
+import { ShortsDistributions } from "@/components/shorts-distributions";
 import { ShortsStudio } from "@/components/shorts-studio";
 import { ShortsTable } from "@/components/shorts-table";
 import { db } from "@/db";
@@ -102,6 +103,7 @@ export default async function ShortsPage() {
 			) : (
 				<>
 					<ShortsAssets assets={assets} />
+					<ShortsDistributions ecosystems={ecosystems} />
 					<ShortsStudio />
 					<ShortsTable
 						jobs={jobRows}

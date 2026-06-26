@@ -545,6 +545,39 @@ export const quoteDistributions = pgTable(
 );
 
 /**
+ * Reusable distribution list for SHORTS (videos). Mirrors quote_distributions:
+ * a named set of target accounts spanning any ecosystems; "Auto-publish" a
+ * shorts job into it spreads the generated clips so each ecosystem gets a
+ * distinct slice of `shortsPerTarget` clips, broadcast to its selected
+ * accounts, drip-scheduled by buffer + gap.
+ */
+export const shortsDistributions = pgTable(
+	"shorts_distributions",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		// How many distinct clips each ecosystem receives.
+		shortsPerTarget: integer("shorts_per_target").notNull().default(10),
+		bufferMinutes: integer("buffer_minutes").notNull().default(30),
+		gapMinutes: integer("gap_minutes").notNull().default(60),
+		targets: jsonb("targets")
+			.$type<{ profileId: string; accountId: string }[]>()
+			.notNull()
+			.default([]),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(t) => [index("shorts_distributions_user_idx").on(t.userId)],
+);
+
+/**
  * A "long video → shorts" job run by the shorts pipeline in the dubber-service:
  * download → transcribe → AI clip-find → extract 9:16 → upload clips to R2.
  * Mirrors dub_jobs (status/pct/SSE) but yields MANY clips (shorts_clips).
@@ -569,6 +602,14 @@ export const shortsJobs = pgTable(
 		// Requested clip count + render settings (aspect, min/max seconds, language).
 		numClips: integer("num_clips").notNull().default(15),
 		settings: jsonb("settings").$type<Record<string, unknown>>(),
+		// Opt-in: spread this job's finished clips into a shorts distribution list.
+		autoPublishDistributionId: uuid("auto_publish_distribution_id"),
+		// Clip idxs already auto-published — kept on the JOB (not the clips, which
+		// the sync cron deletes + re-inserts every run) so we never double-post.
+		autoPublishedIdxs: jsonb("auto_published_idxs")
+			.$type<number[]>()
+			.notNull()
+			.default([]),
 		error: text("error"),
 		// Set when the job reaches a terminal state (for "time taken").
 		completedAt: timestamp("completed_at", { withTimezone: true }),

@@ -25,6 +25,31 @@ export function ShortsStudio() {
 	const [speed, setSpeed] = useState(1);
 	const [captions, setCaptions] = useState(true);
 	const [selector, setSelector] = useState<"gemini" | "nim">("nim");
+	// Optional: spread the finished clips into a saved shorts target list.
+	const [distributions, setDistributions] = useState<
+		{
+			id: string;
+			name: string;
+			shortsPerTarget: number;
+			targets: { profileId: string }[];
+		}[]
+	>([]);
+	const [distId, setDistId] = useState("");
+
+	useEffect(() => {
+		const load = () =>
+			fetch("/api/shorts/distributions")
+				.then((r) => r.json())
+				.then((d) => setDistributions(d.distributions ?? []))
+				.catch(() => {});
+		load();
+		window.addEventListener("focus", load);
+		window.addEventListener("shorts:distributions-changed", load);
+		return () => {
+			window.removeEventListener("focus", load);
+			window.removeEventListener("shorts:distributions-changed", load);
+		};
+	}, []);
 
 	const [progress, setProgress] = useState<Progress | null>(null);
 	const [phase, setPhase] = useState<"idle" | "running" | "done" | "failed">(
@@ -137,6 +162,7 @@ export function ShortsStudio() {
 					speed,
 					captions,
 					selector,
+					autoPublishDistributionId: distId || undefined,
 				}),
 			});
 			const d = await res.json();
@@ -299,6 +325,28 @@ export function ShortsStudio() {
 							/>
 							Burn captions
 						</label>
+						{distributions.length > 0 && (
+							<label className="flex items-center gap-2 text-xs opacity-80">
+								Auto-publish:
+								<select
+									value={distId}
+									onChange={(e) => setDistId(e.target.value)}
+									title="Spread the finished clips into this list — a slice per ecosystem, drip-scheduled"
+									className="rounded-md border border-black/15 px-2 py-1 text-xs"
+								>
+									<option value="">Off (just generate)</option>
+									{distributions.map((d) => {
+										const ecos = new Set(d.targets.map((t) => t.profileId))
+											.size;
+										return (
+											<option key={d.id} value={d.id}>
+												{d.name} ({ecos} eco · {d.shortsPerTarget}/eco)
+											</option>
+										);
+									})}
+								</select>
+							</label>
+						)}
 					</div>
 
 					<button

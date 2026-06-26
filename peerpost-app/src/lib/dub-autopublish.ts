@@ -21,13 +21,14 @@ import { r2PublicUrl } from "@/lib/r2";
 
 /** Schedule one video to a set of accounts under a profile (each provider call
  * is independent; results recorded in posts_log). Returns # scheduled ok. */
-async function scheduleVideoToAccounts(
+export async function scheduleVideoToAccounts(
 	profileId: string,
 	userId: string,
 	content: string,
 	videoUrl: string,
 	accountIds: string[],
 	scheduledFor: string,
+	source = "dub-auto",
 ): Promise<number> {
 	const accounts = await db
 		.select()
@@ -60,7 +61,7 @@ async function scheduleVideoToAccounts(
 				authorUserId: userId,
 				provider,
 				status: "publishing",
-				source: "dub-auto",
+				source,
 				content,
 				platforms: [{ platform: a.platform, accountId: a.postpeerAccountId }],
 				scheduledFor: new Date(scheduledFor),
