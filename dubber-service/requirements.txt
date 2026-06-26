@@ -19,6 +19,8 @@ python-dotenv
 
 # System requirement (not pip): FFmpeg + FFprobe must be on PATH.
 boto3
-opencv-python-headless
+# >=4.8 for the FaceDetectorYN (YuNet) / FaceRecognizerSF (SFace) re-ID APIs and
+# the 2023mar YuNet model used by dubber/shorts_reframe.py.
+opencv-python-headless>=4.8
 Pillow
 gdown

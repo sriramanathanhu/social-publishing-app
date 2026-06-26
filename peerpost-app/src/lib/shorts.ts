@@ -38,6 +38,9 @@ export type ShortsCreateInput = {
 	overlay_url?: string;
 	transition_url?: string;
 	endcard_url?: string;
+	// Optional reference-face image. With crop_focus="auto", the reframer tracks
+	// the person matching this face instead of the largest face.
+	reference_face_url?: string;
 	settings?: Record<string, unknown>;
 };
 

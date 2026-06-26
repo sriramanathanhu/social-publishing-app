@@ -1,0 +1,12 @@
+# Keep the build context small and, crucially, prevent the host's (macOS)
+# node_modules / .next from overwriting the Linux ones installed in the image.
+node_modules
+.next
+.git
+.env
+.env.*
+*.log
+.DS_Store
+tsconfig.tsbuildinfo
+Dockerfile.dev
+.dockerignore

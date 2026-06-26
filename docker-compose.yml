@@ -1,0 +1,80 @@
+# Local development stack for PeerPost — NO Nandi SSO required.
+# The app runs with DEV_AUTH_BYPASS=true and logs you in as a local admin.
+#
+#   docker compose up --build           # db + app  → http://localhost:3009
+#   docker compose --profile dub up     # also start the Python dubber sidecar
+#   docker compose down                 # stop      (add -v to also wipe the DB)
+#
+# Real credentials are OPTIONAL — needed only for features that call external
+# services (PostPeer publishing, Zernio import, R2 archiving, dubbing). Put them
+# in peerpost-app/.env.docker (gitignored); see peerpost-app/.env.docker.example.
+
+name: peerpost-dev
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: peerpost
+    ports:
+      - "5433:5432" # host 5433 (project convention) → container 5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d peerpost"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build:
+      context: ./peerpost-app
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # Optional real creds (PostPeer, Zernio, R2, dubber). Boot + login need none.
+    env_file:
+      - ./peerpost-app/.env.docker
+    environment:
+      NODE_ENV: development
+      # ── Local-dev login (no Nandi) ──
+      DEV_AUTH_BYPASS: "true"
+      DEV_AUTH_EMAIL: dev@localhost
+      # ── Wiring (overrides anything in .env.docker) ──
+      DATABASE_URL: postgres://postgres:postgres@db:5432/peerpost
+      NEXT_BASE_URL: http://localhost:3009
+      # Reliable hot reload across the macOS/Windows bind mount.
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "3009:3009"
+    volumes:
+      - ./peerpost-app:/app # source → hot reload
+      - app_node_modules:/app/node_modules # keep container's Linux node_modules
+      - app_next:/app/.next # don't share host build cache
+
+  # Optional Python dubbing sidecar. Enable with: docker compose --profile dub up
+  # Then set in .env.docker:  DUBBER_SERVICE_URL=http://dubber:8800
+  #                           DUBBER_SERVICE_TOKEN=dev-dubber-token
+  dubber:
+    profiles: ["dub"]
+    build:
+      context: ./dubber-service
+    restart: unless-stopped
+    environment:
+      DUBBER_SERVICE_TOKEN: dev-dubber-token
+      DUBBER_OUTPUT_DIR: /srv/outputs
+    ports:
+      - "8800:8800"
+    volumes:
+      - dubber_outputs:/srv/outputs
+
+volumes:
+  pgdata:
+  app_node_modules:
+  app_next:
+  dubber_outputs:

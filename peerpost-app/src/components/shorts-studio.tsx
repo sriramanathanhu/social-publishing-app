@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { uploadMedia } from "@/lib/upload-media";
 
 type Progress = { pct: number; stage: string; message: string };
 
@@ -35,6 +36,11 @@ export function ShortsStudio() {
 		}[]
 	>([]);
 	const [distId, setDistId] = useState("");
+	// Optional reference face: when set (and Focus = Auto), the reframer tracks
+	// this specific person across clips instead of whoever's face is largest.
+	const [referenceFaceUrl, setReferenceFaceUrl] = useState<string | null>(null);
+	const [uploadingFace, setUploadingFace] = useState(false);
+	const [faceError, setFaceError] = useState<string | null>(null);
 
 	useEffect(() => {
 		const load = () =>
@@ -141,6 +147,20 @@ export function ShortsStudio() {
 		startPolling(id);
 	}
 
+	// Upload a reference face to object storage (same path as overlay assets) and
+	// keep the returned public URL to send with the job.
+	async function uploadFace(file: File) {
+		setFaceError(null);
+		setUploadingFace(true);
+		try {
+			setReferenceFaceUrl(await uploadMedia(file));
+		} catch (err) {
+			setFaceError(err instanceof Error ? err.message : "Upload failed");
+		} finally {
+			setUploadingFace(false);
+		}
+	}
+
 	async function submit(e: React.FormEvent) {
 		e.preventDefault();
 		setError(null);
@@ -159,6 +179,8 @@ export function ShortsStudio() {
 					maxSeconds,
 					aspect,
 					cropFocus,
+					referenceFaceUrl:
+						cropFocus === "auto" ? (referenceFaceUrl ?? undefined) : undefined,
 					speed,
 					captions,
 					selector,
@@ -295,6 +317,54 @@ export function ShortsStudio() {
 						</select>
 					</label>
 				</div>
+
+				{cropFocus === "auto" && (
+					<div className="border-t border-black/5 pt-4">
+						<span className={LBL}>Reference face (optional)</span>
+						<p className="mt-0.5 mb-2 text-xs opacity-50">
+							Upload a clear, front-facing photo of one person. When set, every
+							clip stays centered on that person — even if other faces appear.
+							Leave empty to track the largest face.
+						</p>
+						{referenceFaceUrl ? (
+							<div className="flex items-center gap-3">
+								{/* biome-ignore lint/performance/noImgElement: small external preview */}
+								<img
+									src={referenceFaceUrl}
+									alt="Reference face"
+									className="h-14 w-14 rounded-md border border-black/15 object-cover"
+								/>
+								<button
+									type="button"
+									onClick={() => {
+										setReferenceFaceUrl(null);
+										setFaceError(null);
+									}}
+									className="text-xs text-red-600 hover:underline"
+								>
+									Remove
+								</button>
+							</div>
+						) : (
+							<input
+								type="file"
+								accept="image/*"
+								disabled={uploadingFace}
+								onChange={(e) => {
+									const f = e.target.files?.[0];
+									if (f) uploadFace(f);
+								}}
+								className="text-xs"
+							/>
+						)}
+						{uploadingFace && (
+							<span className="ml-2 text-xs opacity-60">Uploading…</span>
+						)}
+						{faceError && (
+							<p className="mt-1 text-xs text-red-600">{faceError}</p>
+						)}
+					</div>
+				)}
 
 				<div className="flex flex-wrap items-center justify-between gap-4 border-t border-black/5 pt-4">
 					<div className="flex flex-wrap items-center gap-4">

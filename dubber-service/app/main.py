@@ -352,6 +352,7 @@ class CreateShorts(BaseModel):
     overlay_url: Optional[str] = None
     transition_url: Optional[str] = None
     endcard_url: Optional[str] = None
+    reference_face_url: Optional[str] = None
     settings: Optional[dict] = None
 
 
@@ -400,6 +401,7 @@ def _run_shorts(job: ShortsJob, body: CreateShorts) -> None:
                 overlay_url=body.overlay_url,
                 transition_url=body.transition_url,
                 endcard_url=body.endcard_url,
+                reference_face_url=body.reference_face_url,
                 settings=body.settings or {},
                 workspace=os.path.join("workspace", job.id),
                 job_id=job.id,

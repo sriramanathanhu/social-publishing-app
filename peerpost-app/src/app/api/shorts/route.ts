@@ -35,6 +35,9 @@ const createSchema = z.object({
 	aspect: z.enum(["9:16", "1:1", "16:9"]).default("9:16"),
 	// "auto" = face-centered crop (default). center/left/right are manual biases.
 	cropFocus: z.enum(["auto", "center", "left", "right"]).default("auto"),
+	// Optional reference-face image (a public URL from /api/media/upload). When
+	// set with cropFocus="auto", the reframer locks onto this specific person.
+	referenceFaceUrl: z.string().url().optional(),
 	// Final playback speed of each clip (e.g. 1.4 = 1.4x faster).
 	speed: z.number().min(0.5).max(3).default(1),
 	language: z.string().min(2).max(8).default("en"),
@@ -84,6 +87,8 @@ export const POST = route(async (request: NextRequest) => {
 				maxSeconds: input.maxSeconds,
 				aspect: input.aspect,
 				language: input.language,
+				// Audit only — the live value travels as a top-level field below.
+				referenceFaceUrl: input.referenceFaceUrl ?? null,
 			},
 		})
 		.returning();
@@ -100,6 +105,8 @@ export const POST = route(async (request: NextRequest) => {
 			max_seconds: input.maxSeconds,
 			aspect: input.aspect,
 			crop_focus: input.cropFocus,
+			reference_face_url:
+				input.cropFocus === "auto" ? input.referenceFaceUrl : undefined,
 			speed: input.speed,
 			language: input.language,
 			captions: input.captions,

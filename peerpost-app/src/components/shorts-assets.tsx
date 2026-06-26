@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { uploadMedia } from "@/lib/upload-media";
 
 type Assets = {
 	overlay: string | null;
@@ -41,15 +42,11 @@ export function ShortsAssets({ assets }: { assets: Assets }) {
 		setBusy(kind);
 		setError(null);
 		try {
-			const fd = new FormData();
-			fd.append("file", file);
-			const up = await fetch("/api/media/upload", { method: "POST", body: fd });
-			const upd = await up.json();
-			if (!up.ok) throw new Error(upd.error ?? "Upload failed");
+			const publicUrl = await uploadMedia(file);
 			const res = await fetch("/api/shorts/assets", {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ kind, url: upd.publicUrl }),
+				body: JSON.stringify({ kind, url: publicUrl }),
 			});
 			if (!res.ok) {
 				const d = await res.json().catch(() => ({}));
