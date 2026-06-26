@@ -4,31 +4,11 @@ import { useState } from "react";
 import type { Ecosystem } from "@/components/publish-row";
 import { QuoteBatchPanel } from "@/components/quote-batch-panel";
 import { QuoteRow } from "@/components/quote-row";
-import {
-	patchQuoteItem,
-	type QuoteBackground,
-	type QuoteItem,
-	type QuoteOverlay,
+import type {
+	QuoteBackground,
+	QuoteItem,
+	QuoteOverlay,
 } from "@/components/quote-types";
-
-/** Run `fn` over items with bounded concurrency; passes the stable index so
- * drip schedule times don't depend on completion order. */
-async function runPool<T>(
-	items: T[],
-	concurrency: number,
-	fn: (item: T, index: number) => Promise<void>,
-): Promise<void> {
-	let idx = 0;
-	async function worker() {
-		while (idx < items.length) {
-			const i = idx++;
-			await fn(items[i], i);
-		}
-	}
-	await Promise.all(
-		Array.from({ length: Math.min(concurrency, items.length) }, worker),
-	);
-}
 
 const TONES = [
 	"",
@@ -192,145 +172,41 @@ export function QuoteStudio({
 		setBusy(true);
 		setError(null);
 		setAutoMsg(null);
+		setQueueMsg(
+			langs.length
+				? `Generating & scheduling · ${langs.length} language(s)…`
+				: "Generating & scheduling all mapped languages…",
+		);
 		try {
-			// Load quote rules across every accessible ecosystem → lang → routes.
-			const langRules = new Map<
-				string,
-				{ ecoId: string; accountIds: string[]; buffer: number; gap: number }[]
-			>();
-			await Promise.all(
-				ecosystems.map(async (eco) => {
-					const d = await fetch(
-						`/api/quotes/autopublish-rules?profileId=${eco.id}`,
-					)
-						.then((r) => r.json())
-						.catch(() => ({}) as { rules?: unknown[] });
-					for (const r of (d.rules ?? []) as {
-						lang: string;
-						accountIds?: string[];
-						bufferMinutes?: number;
-						gapMinutes?: number;
-					}[]) {
-						if (!r.accountIds?.length) continue;
-						const arr = langRules.get(r.lang) ?? [];
-						arr.push({
-							ecoId: eco.id,
-							accountIds: r.accountIds,
-							buffer: r.bufferMinutes ?? 30,
-							gap: r.gapMinutes ?? 0,
-						});
-						langRules.set(r.lang, arr);
-					}
+			// ONE server call does generate + render + schedule for every language
+			// that has a rule — a single auth check. (The old client flow fired a
+			// burst of authenticated requests, each re-validating the SSO session
+			// over the network, which Nandi rate-limited → "Not authenticated".)
+			const res = await fetch("/api/quotes/auto-publish", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					content,
+					count,
+					tone: tone || undefined,
+					languages: langs.length ? langs : undefined,
 				}),
-			);
-			if (langRules.size === 0) {
-				setError(
-					"No quote auto-publish rules yet — open “⚙ Quote auto-publish rules” above and map a language to accounts first.",
-				);
+			});
+			const d = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(d.error ?? "Auto-schedule failed");
+			if (d.error) {
+				setError(d.error);
 				return;
 			}
-			// Run the selected languages that have a rule; empty selection = all rule langs.
-			const targets = (langs.length ? langs : [...langRules.keys()]).filter(
-				(l) => langRules.has(l),
-			);
-			if (targets.length === 0) {
-				setError(
-					"None of the chosen languages have a rule. Add a rule or pick mapped languages.",
-				);
-				return;
+			if (d.items?.length) {
+				setItems((prev) => [...(d.items as QuoteItem[]), ...prev]);
+				setView("batch");
+				setPage(0);
 			}
-			const bgPool = backgrounds.map((b) => b.url).filter(Boolean);
-			if (bgPool.length === 0) {
-				setError(
-					"Add at least one Quote background to your library first — cards need a background image.",
-				);
-				return;
-			}
-			const overlayUrl = (overlays.find((o) => o.isDefault) ?? overlays[0])
-				?.url;
-
-			let scheduled = 0;
-			let failed = 0;
-			for (let li = 0; li < targets.length; li++) {
-				const lang = targets[li];
-				setQueueMsg(
-					`${lang}: generating ${count}… (${li + 1}/${targets.length})`,
-				);
-				const fresh = await fetchQuotes(count, [], undefined, lang);
-				setItems((prev) => [...fresh, ...prev]);
-				const routes = langRules.get(lang) ?? [];
-				let done = 0;
-				await runPool(fresh, 3, async (q, i) => {
-					setQueueMsg(`${lang}: card ${++done}/${fresh.length}…`);
-					const bg = bgPool[(li * 3 + i) % bgPool.length];
-					let cardUrl: string | null = null;
-					try {
-						const cr = await fetch("/api/quotes/card", {
-							method: "POST",
-							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({
-								photoUrl: bg,
-								quote: q.text,
-								overlayUrl: overlayUrl ?? undefined,
-								finalize: true,
-							}),
-						});
-						if (cr.ok) cardUrl = (await cr.json()).publicUrl ?? null;
-					} catch {
-						/* render failed — counted below */
-					}
-					if (!cardUrl) {
-						failed++;
-						return;
-					}
-					patchLocal(q.id, {
-						cardUrl,
-						bgUrl: bg,
-						overlayUrl: overlayUrl ?? null,
-					});
-					patchQuoteItem(q.id, {
-						cardUrl,
-						bgUrl: bg,
-						overlayUrl: overlayUrl ?? null,
-					});
-					const caption = q.hashtags.length
-						? `${q.text}\n\n${q.hashtags.map((h) => `#${h}`).join(" ")}`
-						: q.text;
-					for (const route of routes) {
-						const eco = ecosystems.find((e) => e.id === route.ecoId);
-						const accs = (eco?.accounts ?? [])
-							.filter((a) => route.accountIds.includes(a.accountId))
-							.map((a) => ({ platform: a.platform, accountId: a.accountId }));
-						if (accs.length === 0) continue;
-						const when = new Date(
-							Date.now() + (route.buffer + i * route.gap) * 60_000,
-						).toISOString();
-						try {
-							const pr = await fetch(`/api/profiles/${route.ecoId}/posts`, {
-								method: "POST",
-								headers: { "Content-Type": "application/json" },
-								body: JSON.stringify({
-									content: caption,
-									platforms: accs,
-									mediaItems: [{ type: "image", url: cardUrl }],
-									scheduledFor: when,
-									source: "quote",
-								}),
-							});
-							if (pr.ok) scheduled++;
-							else failed++;
-						} catch {
-							failed++;
-						}
-					}
-				});
-			}
-			setView("batch");
-			setPage(0);
 			setAutoMsg(
-				`Auto-scheduled ${scheduled} card post(s) across ${targets.length} language(s)${
-					failed ? ` · ${failed} failed` : ""
-				}. They appear in Scheduled, spaced by each rule’s gap.`,
+				`Scheduled ${d.scheduled} card post(s) across ${d.languages.length} language(s)${
+					d.failed ? ` · ${d.failed} failed` : ""
+				}. They appear in Scheduled, spaced by each rule's gap.`,
 			);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Error");
