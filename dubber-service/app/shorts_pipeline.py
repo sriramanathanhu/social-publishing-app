@@ -229,16 +229,38 @@ def _find_candidates(req, video_path, segments, words, duration, candidate_n, em
         except Exception as e:  # noqa: BLE001
             emit("analyze", 38, f"Gemini failed ({str(e)[:80]}); using fallback")
     # The text model needs a transcript; a song has none.
+    # Text selection (needs a transcript; a song has none). Prefer Gemini TEXT
+    # (whole transcript → complete jokes/stories), then fall back to NVIDIA NIM.
     if segments:
-        emit("analyze", 42, "Finding clips (text model) ...")
-        clips = find_clips(
-            segments, words=words, num_clips=candidate_n, min_sec=req.min_seconds,
-            max_sec=req.max_seconds, duration=duration, api_url=req.nvidia_url,
-            api_key=req.nvidia_key, model=req.clip_model, settings=req.settings,
-            on_log=lambda m: emit("analyze", 44, m),
-        )
-        if clips:
-            return clips
+        if req.gemini_key:
+            try:
+                from dubber.shorts_gemini import select_clips_gemini_text
+
+                emit("analyze", 35, "Finding clips (Gemini text) ...")
+                clips = select_clips_gemini_text(
+                    words, segments, num_clips=candidate_n,
+                    min_sec=req.min_seconds, max_sec=req.max_seconds,
+                    duration=duration, api_key=req.gemini_key,
+                    settings=req.settings,
+                    on_log=lambda m: emit("analyze", 40, m),
+                )
+                if clips:
+                    return clips
+            except Exception as e:  # noqa: BLE001
+                emit("analyze", 41,
+                     f"Gemini text failed ({str(e)[:60]}); trying NVIDIA")
+        if req.nvidia_key:
+            emit("analyze", 42, "Finding clips (NVIDIA text) ...")
+            clips = find_clips(
+                segments, words=words, num_clips=candidate_n,
+                min_sec=req.min_seconds, max_sec=req.max_seconds,
+                duration=duration, api_url=req.nvidia_url,
+                api_key=req.nvidia_key, model=req.clip_model,
+                settings=req.settings,
+                on_log=lambda m: emit("analyze", 44, m),
+            )
+            if clips:
+                return clips
     emit("analyze", 44, "No speech transcript — selecting evenly-spaced clips")
     return _even_clips(duration, candidate_n, req.min_seconds, req.max_seconds)
 
@@ -247,7 +269,9 @@ def _select_clips(req, video_path, segments, words, duration, emit):
     """Find candidates, then (optionally) judge them on a standalone/hook/
     completeness rubric and keep the best num_clips. Judging needs a transcript,
     so it's skipped for speechless sources."""
-    use_judge = req.judge and bool(segments)
+    # The judge runs on the NIM model, so it needs an NVIDIA key. With Gemini
+    # selection (which already ranks), it's fine to skip it.
+    use_judge = req.judge and bool(segments) and bool(req.nvidia_key)
     candidate_n = req.num_clips + 5 if use_judge else req.num_clips
     clips = _find_candidates(req, video_path, segments, words, duration,
                              candidate_n, emit)
@@ -418,6 +442,7 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
         generate_titles(
             out_clips, segments, api_url=req.nvidia_url, api_key=req.nvidia_key,
             model=req.title_model, settings=req.settings,
+            gemini_key=req.gemini_key,
             on_log=lambda m: emit("titles", 92, m),
         )
     else:

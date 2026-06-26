@@ -136,3 +136,109 @@ def find_clips_gemini(video_path, words, *, num_clips, min_sec, max_sec, duratio
         c["rank"] = i
     log("SHORTS", f"Gemini selected {len(clips)} clips")
     return clips
+
+
+# ─── Gemini TEXT selection (reads the transcript, not the video) ──────────────
+# Preferred over the NIM text model: the WHOLE transcript goes in one call, so
+# the model sees complete jokes/stories and never grabs half of one.
+
+# Try the best model first (paid keys land on pro); fall back to flash (free
+# keys / quota). If both fail the caller falls back to the NVIDIA selector.
+SELECT_MODELS = ("gemini-2.5-pro", "gemini-2.5-flash")
+
+
+def _timestamped_text(words, segments) -> str:
+    """Full transcript as '[start-end] sentence' lines for the model to reason
+    over (sentence units so boundaries land on whole thoughts)."""
+    units = build_sentences(words) if words else (segments or [])
+    lines = []
+    for u in units:
+        t = (u.get("text") or "").strip()
+        if t:
+            lines.append(f"[{int(u.get('start', 0))}-{int(u.get('end', 0))}] {t}")
+    return "\n".join(lines)
+
+
+def _text_prompt(num_clips, min_sec, max_sec, flex_cap, duration, ctx) -> str:
+    return f"""You are a world-class short-form video editor for content by {ctx['speaker']} ({ctx['channel']}).
+
+Below is the FULL timestamped transcript of a {int(duration)}-second video. Each line is "[start-end] text" (seconds on the video timeline).
+
+Choose the {num_clips} STRONGEST standalone clips for social reels, best first.
+
+CRITICAL — every clip MUST be a COMPLETE, self-contained unit:
+- A full JOKE: include the ENTIRE setup AND the punchline. Never cut before the punchline; never start mid-setup.
+- A full STORY / anecdote: from its opening to its resolution.
+- A complete TEACHING / point: the whole idea, not a fragment.
+- It must make sense on its own to someone who hasn't seen the rest of the video.
+- NEVER start or end mid-sentence or mid-thought, and NEVER take only "half from the beginning" or "half from the end" of a unit.
+
+Length: aim for {min_sec}-{max_sec} seconds. But COMPLETENESS WINS over length — if a joke or story needs longer to stay whole, you MAY extend a clip up to {flex_cap} seconds. Do not pad; cut exactly at the natural start and end of the unit.
+
+For each clip return: start_seconds and end_seconds (integers, at the natural boundaries of the complete unit), a short title, the hook (first sentence verbatim), the closing_line (last sentence verbatim), a one-sentence core_teaching, and a viral_score 0-100."""
+
+
+def find_clips_gemini_text(words, segments, *, num_clips, min_sec, max_sec,
+                           duration, api_key, model, settings, on_log=print):
+    """Text-only Gemini clip selection. Sends the whole transcript, asks for
+    complete self-contained units (jokes/stories/teachings), snaps to sentence
+    boundaries, and allows clips to flex up to 1.5x max to keep a unit whole.
+    Raises on any failure so the caller can fall back."""
+    transcript = _timestamped_text(words, segments)
+    if not transcript:
+        raise RuntimeError("no transcript for Gemini text selection")
+    flex_cap = int(max_sec * 1.5)
+    ctx = {
+        "speaker": settings.get("speaker", DEFAULT_SPEAKER),
+        "channel": settings.get("channel", DEFAULT_CHANNEL),
+    }
+    client = genai.Client(api_key=api_key)
+    resp = client.models.generate_content(
+        model=model,
+        contents=[
+            transcript
+            + "\n\n"
+            + _text_prompt(num_clips, min_sec, max_sec, flex_cap, duration, ctx)
+        ],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=CLIP_SCHEMA,
+            temperature=0.6,
+        ),
+    )
+    clips = (json.loads(resp.text) or {}).get("clips", [])
+    if not clips:
+        raise RuntimeError("Gemini text returned no clips")
+
+    # Snap to sentence boundaries; enforce the min floor but allow the flex cap
+    # as the ceiling so complete jokes/stories aren't truncated back to max.
+    units = build_sentences(words) if words else (segments or [])
+    bounds = _parse_boundaries(units)
+    if bounds:
+        clips = _snap(clips, bounds, min_sec, flex_cap)
+        clips = enforce_duration(clips, min_sec, flex_cap)
+    clips = _dedup(clips)[:num_clips]
+    for i, c in enumerate(clips, 1):
+        c["rank"] = i
+    log("SHORTS", f"Gemini text ({model}) selected {len(clips)} clips")
+    return clips
+
+
+def select_clips_gemini_text(words, segments, *, num_clips, min_sec, max_sec,
+                             duration, api_key, settings, on_log=print):
+    """Cascade: gemini-2.5-pro → gemini-2.5-flash. Raises if both fail."""
+    err = None
+    for m in SELECT_MODELS:
+        try:
+            on_log(f"Gemini text selection ({m}) …")
+            clips = find_clips_gemini_text(
+                words, segments, num_clips=num_clips, min_sec=min_sec,
+                max_sec=max_sec, duration=duration, api_key=api_key, model=m,
+                settings=settings, on_log=on_log,
+            )
+            if clips:
+                return clips
+        except Exception as e:  # noqa: BLE001
+            err = e
+            on_log(f"Gemini {m} failed: {str(e)[:100]}")
+    raise err or RuntimeError("Gemini text selection failed")

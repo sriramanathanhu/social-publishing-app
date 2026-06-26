@@ -215,6 +215,38 @@ def _call_nim_fast(api_url, api_key, model, prompt, system=None) -> str:
     return content
 
 
+def _call_gemini_fast(api_key, model, prompt) -> str:
+    """Short Gemini call for titles/descriptions (flash, thinking off)."""
+    from google import genai
+
+    client = genai.Client(api_key=api_key)
+    resp = client.models.generate_content(
+        model=model,
+        contents=[prompt],
+        config={
+            "temperature": 0.7,
+            "max_output_tokens": 2048,
+            "thinking_config": {"thinking_budget": 0},
+        },
+    )
+    content = (resp.text or "").strip()
+    if not content:
+        raise ValueError("Empty content from Gemini")
+    return content
+
+
+def _title_call(prompt, *, gemini_key, api_url, nvidia_key, nim_model) -> str:
+    """Titles/descriptions via Gemini flash (preferred) → NVIDIA NIM fallback."""
+    if gemini_key:
+        try:
+            return _call_gemini_fast(gemini_key, "gemini-2.5-flash", prompt)
+        except Exception:  # noqa: BLE001 — fall through to NIM
+            pass
+    if nvidia_key:
+        return _call_nim_fast(api_url, nvidia_key, nim_model, prompt)
+    raise RuntimeError("no title provider (need a Gemini or NVIDIA key)")
+
+
 def _build_batch_prompt(batch, idx, total, clips_needed, ctx) -> str:
     return f"""You are a world-class short-form video editor for content by {ctx['speaker']}.
 Find up to {clips_needed} clips. Each clip must convey ONE complete, powerful, standalone teaching.
@@ -508,9 +540,10 @@ Rules:
 
 
 def generate_titles(clips, segments, *, api_url, api_key, model, settings,
-                    on_log=print) -> None:
+                    gemini_key="", on_log=print) -> None:
     """Enrich each clip in-place with youtube_title / youtube_description /
-    hashtags via the fast NIM model, with the user's fixed description format."""
+    hashtags. Uses Gemini flash when a key is present (per the user's request),
+    falling back to the NVIDIA NIM model, with the fixed description format."""
     ctx = {"speaker": settings.get("speaker", DEFAULT_SPEAKER)}
     base_tags = settings.get("base_tags", DEFAULT_BASE_TAGS)
     mention = settings.get("mention", DEFAULT_MENTION)
@@ -525,8 +558,10 @@ def generate_titles(clips, segments, *, api_url, api_key, model, settings,
         gist = c.get("core_teaching", "")
         for attempt in range(3):
             try:
-                raw = _call_nim_fast(api_url, api_key, model,
-                                     _title_prompt(c, text or c.get("caption_text", ""), ctx))
+                raw = _title_call(
+                    _title_prompt(c, text or c.get("caption_text", ""), ctx),
+                    gemini_key=gemini_key, api_url=api_url, nvidia_key=api_key,
+                    nim_model=model)
                 raw = re.sub(r"^```json\s*|^```\s*|\s*```$", "", raw,
                              flags=re.MULTILINE).strip()
                 try:

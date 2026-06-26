@@ -63,8 +63,13 @@ export const POST = route(async (request: NextRequest) => {
 	const keys = await getUserKeys(user.id);
 	if (!keys.deepgram)
 		throw new HttpError(400, "Add your Deepgram API key in Settings first");
-	if (!keys.nvidia)
-		throw new HttpError(400, "Add your NVIDIA API key in Settings first");
+	// Clip selection + titles use Gemini (preferred) OR NVIDIA NIM as fallback —
+	// at least one is required.
+	if (!keys.gemini && !keys.nvidia)
+		throw new HttpError(
+			400,
+			"Add a Gemini API key (recommended) or an NVIDIA API key in Settings first",
+		);
 
 	const cookies =
 		input.sourceType === "url"
@@ -97,7 +102,7 @@ export const POST = route(async (request: NextRequest) => {
 		const { job_id } = await shorts.createJob({
 			video_input: input.sourceInput,
 			deepgram_key: keys.deepgram,
-			nvidia_key: keys.nvidia,
+			nvidia_key: keys.nvidia ?? "",
 			source_type: input.sourceType,
 			cookies,
 			num_clips: input.numClips,
