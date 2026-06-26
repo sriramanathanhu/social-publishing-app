@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { dubJobs } from "@/db/schema";
 import { type AppUser, HttpError } from "@/lib/auth";
@@ -98,7 +98,10 @@ export async function reconcileRunningJobs(userId: string): Promise<number> {
 		.select()
 		.from(dubJobs)
 		.where(and(eq(dubJobs.userId, userId), eq(dubJobs.status, "running")))
-		.orderBy(desc(dubJobs.createdAt))
+		// Oldest-first: in a big FIFO batch the FINISHED jobs are the oldest, so
+		// they must be polled first — newest-first would only ever check the
+		// still-queued tail and never record the completed head.
+		.orderBy(asc(dubJobs.createdAt))
 		.limit(40);
 	const results = await Promise.all(open.map(reconcileOneDub));
 	return results.filter(Boolean).length;
@@ -111,7 +114,9 @@ export async function reconcileAllRunningDubs(limit = 60): Promise<number> {
 		.select()
 		.from(dubJobs)
 		.where(eq(dubJobs.status, "running"))
-		.orderBy(desc(dubJobs.createdAt))
+		// Oldest-first — the finished head of a FIFO batch must be reconciled
+		// before the still-queued tail (see reconcileRunningJobs).
+		.orderBy(asc(dubJobs.createdAt))
 		.limit(limit);
 	const results = await Promise.all(open.map(reconcileOneDub));
 	return results.filter(Boolean).length;
