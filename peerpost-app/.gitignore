@@ -2,6 +2,7 @@ node_modules
 .next
 .env
 .env.local
+.env.docker
 *.log
 .DS_Store
 next-env.d.ts

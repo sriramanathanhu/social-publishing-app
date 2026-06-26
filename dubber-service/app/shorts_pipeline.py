@@ -32,7 +32,11 @@ from dubber.shorts_ai import (
     judge_clips,
 )
 from dubber.shorts_captions import make_ass_file
-from dubber.shorts_reframe import auto_crop_filter
+from dubber.shorts_reframe import (
+    auto_crop_filter,
+    compute_reference_embedding,
+    models_available,
+)
 from dubber.shorts_render import concat_with, download_url, normalize_asset, scale_png
 from dubber.utils import log
 
@@ -72,6 +76,9 @@ class ShortsRequest:
     overlay_url: Optional[str] = None
     transition_url: Optional[str] = None
     endcard_url: Optional[str] = None
+    # Optional reference-face image URL. When set (with crop_focus="auto"), the
+    # reframer tracks the person matching this face instead of the largest face.
+    reference_face_url: Optional[str] = None
     settings: dict = field(default_factory=dict)
     workspace: str = "workspace"
     job_id: str = "job"
@@ -267,6 +274,32 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
     os.makedirs(req.workspace, exist_ok=True)
     vf, rx, ry = _dims(req.aspect, req.crop_focus)
 
+    # 0) Reference face: validate + embed UP FRONT, before the expensive source
+    # download / transcription / clip-selection, so a missing model, undownloadable
+    # URL, or faceless photo fails fast instead of after billed AI work. The user
+    # explicitly asked to track this person, so any failure to lock is fatal.
+    # Computed once and reused for every clip's reframing.
+    ref_feat = None
+    if req.crop_focus == "auto" and req.reference_face_url:
+        if not models_available():
+            raise RuntimeError(
+                "Face re-identification is unavailable — detector models are "
+                "missing from this build."
+            )
+        raw_ref = download_url(
+            req.reference_face_url,
+            os.path.join(req.workspace, "reference_face.jpg"),
+        )
+        if not raw_ref:
+            raise RuntimeError("Could not download the reference face image.")
+        ref_feat = compute_reference_embedding(raw_ref)
+        if ref_feat is None:
+            raise RuntimeError(
+                "No face detected in the reference image — please upload a clear, "
+                "front-facing photo of the person to track."
+            )
+        emit("download", 3, "Reference face locked — tracking this person")
+
     # 1) Source
     emit("download", 5, "Downloading video ...")
     if is_url(req.video_input):
@@ -332,7 +365,8 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
         clip_vf = vf
         if req.crop_focus == "auto" and src_w and src_h:
             auto = auto_crop_filter(video_path, start, end, clips_dir,
-                                    req.aspect, src_w, src_h, rx, ry)
+                                    req.aspect, src_w, src_h, rx, ry,
+                                    ref_feat=ref_feat)
             if auto:
                 clip_vf = auto
         ass_path = None

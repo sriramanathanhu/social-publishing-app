@@ -9,6 +9,45 @@ export { SESSION_COOKIE };
 export type AppUser = typeof users.$inferSelect;
 
 /**
+ * Local-development auth bypass. When enabled, the app skips Nandi SSO entirely
+ * and acts as a single local **admin** user (admins bypass the approval gate and
+ * see everything — see lib/rbac.ts).
+ *
+ * Double-gated: honoured ONLY when DEV_AUTH_BYPASS=true AND NODE_ENV is exactly
+ * "development". We require `=== "development"` (not `!== "production"`) so the
+ * bypass stays OFF when NODE_ENV is unset/blank — e.g. a misconfigured staging
+ * deploy that forgot to set NODE_ENV — not just when it equals "production".
+ * `next dev` and our docker-compose set NODE_ENV=development; `next start`
+ * (the production path) sets "production". See docker-compose.yml / .env.docker.
+ */
+export const DEV_AUTH_BYPASS =
+	process.env.NODE_ENV === "development" &&
+	process.env.DEV_AUTH_BYPASS === "true";
+
+const DEV_USER_SUB = "dev:local-admin";
+
+/** Get (or lazily create) the local-dev admin user. */
+async function getOrCreateDevUser(): Promise<AppUser> {
+	const existing = await db.query.users.findFirst({
+		where: eq(users.nandiSub, DEV_USER_SUB),
+	});
+	if (existing) return existing;
+
+	const [created] = await db
+		.insert(users)
+		.values({
+			nandiSub: DEV_USER_SUB,
+			email: process.env.DEV_AUTH_EMAIL ?? "dev@localhost",
+			name: "Local Dev Admin",
+			role: "admin",
+			approved: true,
+			lastLoginAt: new Date(),
+		})
+		.returning();
+	return created;
+}
+
+/**
  * Validate the Nandi session and return our local user, provisioning a row on
  * first login (JIT). Returns null when unauthenticated — the single entry point
  * every protected route/server-component should call.
@@ -17,6 +56,9 @@ export type AppUser = typeof users.$inferSelect;
  * data (name/email) comes from POST /auth/me.
  */
 export async function getCurrentUser(): Promise<AppUser | null> {
+	// Local dev: short-circuit Nandi and act as the local admin (no cookie needed).
+	if (DEV_AUTH_BYPASS) return getOrCreateDevUser();
+
 	const cookieStore = await cookies();
 	const token = cookieStore.get(SESSION_COOKIE)?.value;
 	if (!token) return null;

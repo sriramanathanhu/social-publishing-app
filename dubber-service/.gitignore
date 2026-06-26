@@ -11,3 +11,5 @@ venv/
 *.wav
 workspace/
 cookies/
+# Face re-ID models are fetched at build time (scripts/fetch_models.sh), not committed.
+assets/models/

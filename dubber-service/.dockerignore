@@ -1,0 +1,15 @@
+# Keep the build context small and make builds reproducible regardless of local
+# state. The re-ID models are fetched at build time (scripts/fetch_models.sh),
+# so never copy a local copy in — always download + checksum-verify.
+assets/models/
+workspace/
+outputs/
+cookies/
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.mp4
+*.wav
+.env
+.env.*
