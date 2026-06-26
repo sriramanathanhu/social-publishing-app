@@ -17,6 +17,8 @@ export function ShortsStudio() {
 	const [name, setName] = useState("");
 	const [url, setUrl] = useState("");
 	const [numClips, setNumClips] = useState(3);
+	// Auto = let the AI decide how many complete clips the video yields (sends 0).
+	const [autoClips, setAutoClips] = useState(false);
 	const [minSeconds, setMinSeconds] = useState(90);
 	const [maxSeconds, setMaxSeconds] = useState(120);
 	const [aspect, setAspect] = useState("9:16");
@@ -174,7 +176,7 @@ export function ShortsStudio() {
 					name: name.trim() || undefined,
 					sourceType: "url",
 					sourceInput: url,
-					numClips,
+					numClips: autoClips ? 0 : numClips,
 					minSeconds,
 					maxSeconds,
 					aspect,
@@ -239,14 +241,30 @@ export function ShortsStudio() {
 
 				<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
 					<label className={LBL}>
-						Clips
+						<span className="flex items-center justify-between gap-1">
+							Clips
+							<span className="flex items-center gap-1 font-normal normal-case opacity-80">
+								<input
+									type="checkbox"
+									checked={autoClips}
+									onChange={(e) => setAutoClips(e.target.checked)}
+								/>
+								Auto
+							</span>
+						</span>
 						<input
 							type="number"
 							min={1}
-							max={30}
+							max={50}
 							value={numClips}
+							disabled={autoClips}
 							onChange={(e) => setNumClips(Number(e.target.value))}
-							className={NUM}
+							className={`${NUM} disabled:opacity-40`}
+							title={
+								autoClips
+									? "Auto: the AI returns as many complete, self-contained clips as the video genuinely has"
+									: undefined
+							}
 						/>
 					</label>
 					<label className={LBL}>

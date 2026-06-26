@@ -27,7 +27,8 @@ const createSchema = z.object({
 	name: z.string().max(120).optional(),
 	sourceType: z.enum(["url", "upload"]).default("url"),
 	sourceInput: z.string().url(),
-	numClips: z.number().int().min(1).max(50).default(3),
+	// 0 = AUTO (let the AI decide how many complete clips the video yields).
+	numClips: z.number().int().min(0).max(50).default(3),
 	// Opt-in: spread this job's clips into a saved shorts distribution list.
 	autoPublishDistributionId: z.string().uuid().optional(),
 	minSeconds: z.number().int().min(10).max(600).default(90),

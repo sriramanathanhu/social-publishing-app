@@ -286,7 +286,8 @@ def _even_clips(duration, num_clips, min_sec, max_sec):
     return clips
 
 
-def _find_candidates(req, video_path, segments, words, duration, candidate_n, emit):
+def _find_candidates(req, video_path, segments, words, duration, candidate_n,
+                     emit, auto=False):
     """Get candidate clips: Gemini visual (if chosen + keyed) → NIM text (needs a
     transcript) → evenly-spaced (no transcript, e.g. a song). Asks for a few
     extra so the judge can filter down."""
@@ -320,7 +321,7 @@ def _find_candidates(req, video_path, segments, words, duration, candidate_n, em
                     words, segments, num_clips=candidate_n,
                     min_sec=req.min_seconds, max_sec=req.max_seconds,
                     duration=duration, api_key=req.gemini_key,
-                    settings=req.settings,
+                    settings=req.settings, auto=auto,
                     on_log=lambda m: emit("analyze", 40, m),
                 )
                 if clips:
@@ -344,16 +345,26 @@ def _find_candidates(req, video_path, segments, words, duration, candidate_n, em
     return _even_clips(duration, candidate_n, req.min_seconds, req.max_seconds)
 
 
+def _auto_cap(duration) -> int:
+    """Safety ceiling for AUTO mode (num_clips<=0): roughly one clip per minute
+    of source + a little headroom, clamped to [3, 50]. It's a guardrail against
+    runaway compute — NOT a target; the model returns far fewer based on quality."""
+    return max(3, min(50, int(duration // 60) + 3))
+
+
 def _select_clips(req, video_path, segments, words, duration, emit):
     """Find candidates, then (optionally) judge them on a standalone/hook/
-    completeness rubric and keep the best num_clips. Judging needs a transcript,
-    so it's skipped for speechless sources."""
-    # The judge runs on the NIM model, so it needs an NVIDIA key. With Gemini
-    # selection (which already ranks), it's fine to skip it.
-    use_judge = req.judge and bool(segments) and bool(req.nvidia_key)
-    candidate_n = req.num_clips + 5 if use_judge else req.num_clips
+    completeness rubric. In AUTO mode (num_clips<=0) the model returns as many
+    genuinely-strong complete units as the video has (up to a safety cap, no
+    forced count); otherwise it returns the top num_clips."""
+    auto = (req.num_clips or 0) <= 0
+    target = _auto_cap(duration) if auto else req.num_clips
+    # Judge runs on the NIM model (needs an NVIDIA key). In auto mode the Gemini
+    # selector already quality-filters, so skip the extra judge there.
+    use_judge = req.judge and bool(segments) and bool(req.nvidia_key) and not auto
+    candidate_n = target + 5 if use_judge else target
     clips = _find_candidates(req, video_path, segments, words, duration,
-                             candidate_n, emit)
+                             candidate_n, emit, auto=auto)
     if not clips:
         return []
     if use_judge:
@@ -361,10 +372,10 @@ def _select_clips(req, video_path, segments, words, duration, emit):
         units = build_sentences(words) if words else segments
         clips = judge_clips(
             clips, units, api_url=req.nvidia_url, api_key=req.nvidia_key,
-            model=req.title_model, num_keep=req.num_clips,
+            model=req.title_model, num_keep=target,
             on_log=lambda m: emit("analyze", 48, m),
         )
-    return clips[:req.num_clips]
+    return clips[:target]
 
 
 def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> ShortsResult:
