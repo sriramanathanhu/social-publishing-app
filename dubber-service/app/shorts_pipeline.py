@@ -153,161 +153,12 @@ def _atempo(speed: float) -> str:
     return ",".join(parts)
 
 
-def _speech_spans(words, start, end, min_gap=1.2, pad=0.1, max_cuts=8):
-    """Clip-relative keep spans covering speech, dropping internal/edge silences
-    longer than ``min_gap``. Word times are on the source timeline; we shift to
-    clip-relative (0 = clip start). ``max_cuts`` bounds how many silences we cut
-    (keeping only the longest dead-air): this caps the crossfade chain depth and
-    keeps the reel watchable on sparse, pause-heavy speech. Returns ``[(s, e)]``."""
-    clip_len = end - start
-    ws = []
-    for w in words:
-        s = w.get("start", 0) - start
-        e = w.get("end", 0) - start
-        if e > 0 and s < clip_len and e > s:
-            ws.append((max(0.0, s), min(clip_len, e)))
-    if not ws:
-        return [(0.0, clip_len)]
-    ws.sort()
-    runs, cs, ce = [], ws[0][0], ws[0][1]
-    for s, e in ws[1:]:
-        if s - ce <= min_gap:        # keep natural short pauses
-            ce = max(ce, e)
-        else:                        # gap too long → cut it
-            runs.append((cs, ce))
-            cs, ce = s, e
-    runs.append((cs, ce))
-    out = []
-    for s, e in runs:                # pad + clamp + merge touching spans
-        s = max(0.0, s - pad)
-        e = min(clip_len, e + pad)
-        if out and s <= out[-1][1] + 0.02:
-            out[-1] = (out[-1][0], max(out[-1][1], e))
-        else:
-            out.append((s, e))
-    # Bound the cut count: re-absorb the SHORTEST silent gaps (leave those pauses
-    # in) until at most ``max_cuts`` cuts remain — so we only ever remove the
-    # biggest dead-air, never fragment into dozens of micro-cuts.
-    while len(out) - 1 > max_cuts:
-        gi = min(range(len(out) - 1), key=lambda i: out[i + 1][0] - out[i][1])
-        out[gi] = (out[gi][0], out[gi + 1][1])
-        del out[gi + 1]
-    return out
-
-
-def _retime_words(words, start, end, spans, xfade=0.0):
-    """Map each word onto the silence-removed (compressed) timeline so burned
-    captions stay in sync. Each crossfade overlaps consecutive spans by ``xfade``
-    seconds, so span i starts ``i*xfade`` earlier than a plain concat would put it."""
-    clip_len = end - start
-    lengths = [e - s for s, e in spans]
-    prior = [0.0]
-    for length in lengths[:-1]:
-        prior.append(prior[-1] + length)
-
-    def remap(t):
-        for i, (s, e) in enumerate(spans):
-            if t < s:
-                return max(0.0, prior[i] - i * xfade)
-            if t <= e:
-                return max(0.0, prior[i] - i * xfade + (t - s))
-        last = len(spans) - 1
-        return max(0.0, prior[last] - last * xfade
-                   + (lengths[last] if lengths else 0.0))
-
-    out = []
-    for w in words:
-        s = w.get("start", 0) - start
-        e = w.get("end", 0) - start
-        if e <= 0 or s >= clip_len:
-            continue
-        out.append({
-            "word": w.get("word", ""),
-            "start": remap(max(0.0, s)),
-            "end": remap(min(clip_len, e)),
-        })
-    return out
-
-
-def _silence_xfade(video, start, end, spans, d, out) -> bool:
-    """Build a silence-removed clip: keep only the speech `spans` (clip-relative)
-    and join consecutive ones with a short crossfade (video xfade + audio
-    acrossfade) so the cuts aren't jarring. Done before crop/caption so face
-    tracking re-measures on the trimmed timeline. Caller must keep the span count
-    small (see ``_speech_spans`` max_cuts) — a deep xfade chain is pathologically
-    slow. Returns True only if the output is a valid, correctly-sized clip; on any
-    doubt returns False so the caller falls back to the un-trimmed (playable) clip."""
-    enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-           "-c:a", "aac", "-b:a", "160k", "-ar", "44100",
-           "-movflags", "+faststart", out]
-    # xfade needs BOTH inputs to be at least `d` long; clamp to the shortest span.
-    shortest = min(e - s for s, e in spans)
-    d = max(0.04, min(d, shortest * 0.4))
-    # Extract each span to its own small file (cheap seek+encode). Crossfading the
-    # extracted files is fast and robust; a `split` of the whole clip re-decodes
-    # the full source once per span and is pathologically slow on long clips.
-    segdir = out + "_segs"
-    shutil.rmtree(segdir, ignore_errors=True)
-    os.makedirs(segdir, exist_ok=True)
-    try:
-        segs, durs = [], []
-        for i, (s, e) in enumerate(spans):
-            seg = os.path.join(segdir, f"s{i}.mp4")
-            subprocess.run(
-                ["ffmpeg", "-y", "-ss", f"{start + s:.3f}", "-t", f"{e - s:.3f}",
-                 "-i", video, "-c:v", "libx264", "-preset", "veryfast",
-                 "-crf", "20", "-c:a", "aac", "-b:a", "160k", "-ar", "44100", seg],
-                capture_output=True)
-            if not (os.path.exists(seg) and os.path.getsize(seg) > 2000):
-                return False
-            segs.append(seg)
-            durs.append(_probe_duration(seg))
-        expected = sum(durs) - (len(segs) - 1) * d
-        if len(segs) == 1:
-            shutil.copy(segs[0], out)
-            return _valid_clip(out, expected)
-        inputs = []
-        for seg in segs:
-            inputs += ["-i", seg]
-        vp = [f"[{i}:v]setpts=PTS-STARTPTS[v{i}]" for i in range(len(segs))]
-        ap = [f"[{i}:a]asetpts=PTS-STARTPTS[a{i}]" for i in range(len(segs))]
-        acc, vlast, alast, xf = durs[0], "v0", "a0", []
-        for i in range(1, len(segs)):
-            off = max(0.0, acc - d)
-            xf.append(f"[{vlast}][v{i}]xfade=transition=fade:duration={d:.3f}:offset={off:.3f}[vx{i}]")
-            xf.append(f"[{alast}][a{i}]acrossfade=d={d:.3f}[ax{i}]")
-            vlast, alast = f"vx{i}", f"ax{i}"
-            acc += durs[i] - d
-        fc = ";".join(vp + ap + xf)
-        subprocess.run(
-            ["ffmpeg", "-y", *inputs, "-filter_complex", fc,
-             "-map", f"[{vlast}]", "-map", f"[{alast}]", *enc],
-            capture_output=True)
-        return _valid_clip(out, expected)
-    finally:
-        shutil.rmtree(segdir, ignore_errors=True)
-
-
-def _valid_clip(path, expected_dur) -> bool:
-    """True iff `path` is a non-trivial clip whose duration matches `expected_dur`
-    (guards against ffmpeg writing a broken/empty file that still passes a size
-    check). On failure removes the file so a stale path can't be reused."""
-    if not (os.path.exists(path) and os.path.getsize(path) > 10000):
-        return False
-    actual = _probe_duration(path)
-    if actual < 1.0 or abs(actual - expected_dur) > 1.5:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-        return False
-    return True
-
-
 def _render_single_pass(video, start, end, crop, overlay_png, ass_path, out,
                         speed=1.0) -> bool:
     """Extract [start,end], crop to aspect, overlay PNG, burn captions, and apply
-    the speed factor — all in ONE ffmpeg pass."""
+    the speed factor — all in ONE ffmpeg pass. setpts retimes the (already
+    caption-burned) frames and atempo speeds the audio by the same factor, so
+    they stay in sync."""
     args = ["ffmpeg", "-y", "-ss", str(start), "-t", str(end - start), "-i", video]
     if overlay_png:
         args += ["-i", overlay_png]
@@ -356,8 +207,7 @@ def _even_clips(duration, num_clips, min_sec, max_sec):
     return clips
 
 
-def _find_candidates(req, video_path, segments, words, duration, candidate_n,
-                     emit, auto=False):
+def _find_candidates(req, video_path, segments, words, duration, candidate_n, emit):
     """Get candidate clips: Gemini visual (if chosen + keyed) → NIM text (needs a
     transcript) → evenly-spaced (no transcript, e.g. a song). Asks for a few
     extra so the judge can filter down."""
@@ -391,7 +241,7 @@ def _find_candidates(req, video_path, segments, words, duration, candidate_n,
                     words, segments, num_clips=candidate_n,
                     min_sec=req.min_seconds, max_sec=req.max_seconds,
                     duration=duration, api_key=req.gemini_key,
-                    settings=req.settings, auto=auto,
+                    settings=req.settings,
                     on_log=lambda m: emit("analyze", 40, m),
                 )
                 if clips:
@@ -415,26 +265,16 @@ def _find_candidates(req, video_path, segments, words, duration, candidate_n,
     return _even_clips(duration, candidate_n, req.min_seconds, req.max_seconds)
 
 
-def _auto_cap(duration) -> int:
-    """Safety ceiling for AUTO mode (num_clips<=0): roughly one clip per minute
-    of source + a little headroom, clamped to [3, 50]. It's a guardrail against
-    runaway compute — NOT a target; the model returns far fewer based on quality."""
-    return max(3, min(50, int(duration // 60) + 3))
-
-
 def _select_clips(req, video_path, segments, words, duration, emit):
     """Find candidates, then (optionally) judge them on a standalone/hook/
-    completeness rubric. In AUTO mode (num_clips<=0) the model returns as many
-    genuinely-strong complete units as the video has (up to a safety cap, no
-    forced count); otherwise it returns the top num_clips."""
-    auto = (req.num_clips or 0) <= 0
-    target = _auto_cap(duration) if auto else req.num_clips
-    # Judge runs on the NIM model (needs an NVIDIA key). In auto mode the Gemini
-    # selector already quality-filters, so skip the extra judge there.
-    use_judge = req.judge and bool(segments) and bool(req.nvidia_key) and not auto
-    candidate_n = target + 5 if use_judge else target
+    completeness rubric and keep the best num_clips. Judging needs a transcript,
+    so it's skipped for speechless sources."""
+    # The judge runs on the NIM model, so it needs an NVIDIA key. With Gemini
+    # selection (which already ranks), it's fine to skip it.
+    use_judge = req.judge and bool(segments) and bool(req.nvidia_key)
+    candidate_n = req.num_clips + 5 if use_judge else req.num_clips
     clips = _find_candidates(req, video_path, segments, words, duration,
-                             candidate_n, emit, auto=auto)
+                             candidate_n, emit)
     if not clips:
         return []
     if use_judge:
@@ -442,10 +282,10 @@ def _select_clips(req, video_path, segments, words, duration, emit):
         units = build_sentences(words) if words else segments
         clips = judge_clips(
             clips, units, api_url=req.nvidia_url, api_key=req.nvidia_key,
-            model=req.title_model, num_keep=target,
+            model=req.title_model, num_keep=req.num_clips,
             on_log=lambda m: emit("analyze", 48, m),
         )
-    return clips[:target]
+    return clips[:req.num_clips]
 
 
 def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> ShortsResult:
@@ -544,84 +384,38 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
         i, c = item
         start, end = c.get("start_seconds", 0), c.get("end_seconds", 0)
         base = os.path.join(clips_dir, f"{req.job_id}_{i}")
-        # Silence cut FIRST: build a silence-removed clip whose speech spans are
-        # joined by a short crossfade (no jarring jump cuts). The face-crop and
-        # captions then measure on this trimmed timeline. src_* is what the
-        # renderer reads; cap_* times the captions; cut_len is the kept length.
-        src_video, src_start, src_end = video_path, start, end
-        cap_words, cap_start, cap_end = words, start, end
-        cut_len = end - start
-        if req.settings.get("cut_silence", True) and words:
-            spans = _speech_spans(
-                words, start, end,
-                min_gap=float(req.settings.get("silence_gap", 1.2)),
-                max_cuts=int(req.settings.get("silence_max_cuts", 8)),
-            )
-            removed = (end - start) - sum(e - s for s, e in spans)
-            if removed > 1.5 and len(spans) >= 1:  # meaningful dead air only
-                d = float(req.settings.get("silence_xfade", 0.12))
-                inter = f"{base}_sil.mp4"
-                if _silence_xfade(video_path, start, end, spans, d, inter):
-                    # Use the intermediate's true duration (xfade may have been
-                    # clamped for short spans) so render/captions stay in sync.
-                    kept = _probe_duration(inter)
-                    src_video, src_start, src_end = inter, 0.0, kept
-                    cap_words = _retime_words(words, start, end, spans, xfade=d)
-                    cap_start, cap_end, cut_len = 0.0, kept, kept
-                    log("SHORTS", f"clip {i}: trimmed {removed:.1f}s silence "
-                        f"({len(spans) - 1} cuts)")
-
-        # Auto reframing: centre the crop on the speaker's face for this clip
-        # (measured on src_video, already silence-trimmed); fall back to the fixed
-        # (center/left/right) crop if no face is found.
+        # Auto reframing: centre the crop on the speaker's face for this clip;
+        # fall back to the fixed (center/left/right) crop if no face is found.
         clip_vf = vf
         if req.crop_focus == "auto" and src_w and src_h:
-            auto = auto_crop_filter(src_video, src_start, src_end, clips_dir,
+            auto = auto_crop_filter(video_path, start, end, clips_dir,
                                     req.aspect, src_w, src_h, rx, ry,
                                     ref_feat=ref_feat)
             if auto:
                 clip_vf = auto
         ass_path = None
-        if req.captions and cap_words:
+        if req.captions and words:
             ass_path = f"{base}.ass"
-            if not make_ass_file(cap_words, cap_start, cap_end, rx, ry,
-                                 req.settings, ass_path):
+            if not make_ass_file(words, start, end, rx, ry, req.settings, ass_path):
                 ass_path = None
         cur = f"{base}_a.mp4"
-        if not _render_single_pass(src_video, src_start, src_end, clip_vf,
-                                   overlay_png, ass_path, cur, speed=req.speed):
-            # Defensive retry: drop the fancy auto-crop expression and re-render the
-            # ORIGINAL (un-trimmed) span with the plain fixed crop + captions on the
-            # source timeline. Guards against a single bad filtergraph (e.g. an
-            # over-long crop path) silently wiping out an entire job's clips.
-            log("SHORTS", f"clip {i} render failed — retrying with fixed crop")
-            fb_words = words if req.captions else None
-            fb_ass = None
-            if fb_words:
-                fb_ass = f"{base}_fb.ass"
-                if not make_ass_file(fb_words, start, end, rx, ry,
-                                     req.settings, fb_ass):
-                    fb_ass = None
-            if not _render_single_pass(video_path, start, end, vf, overlay_png,
-                                       fb_ass, cur, speed=req.speed):
-                log("SHORTS", f"clip {i} render failed, skipping")
-                return None
-            cut_len = end - start  # fallback used the full, un-trimmed span
+        if not _render_single_pass(video_path, start, end, clip_vf, overlay_png,
+                                   ass_path, cur, speed=req.speed):
+            log("SHORTS", f"clip {i} render failed, skipping")
+            return None
         if extras:
             joined = f"{base}_final.mp4"
             if concat_with(cur, extras, joined, rx, ry):
                 cur = joined
         up = upload_clip(cur, f"shorts/{req.job_id}/{i}.mp4")
         sp = req.speed if req.speed and req.speed > 0 else 1.0
-        # cut_len is the silence-trimmed source length (or the full span).
-        src_len = cut_len
         return {
             "idx": i, "title": c.get("title", f"Clip {i}"),
             "core_teaching": c.get("core_teaching", ""), "hook": c.get("hook", ""),
             "closing_line": c.get("closing_line", ""),
             "caption_text": c.get("caption_text", ""),
             "start_seconds": start, "end_seconds": end,
-            "duration": int(round(src_len / sp)),
+            "duration": int(round((end - start) / sp)),
             "viral_score": c.get("viral_score"),
             "r2_key": up["key"], "public_url": up["publicUrl"],
         }

@@ -159,22 +159,12 @@ def _timestamped_text(words, segments) -> str:
     return "\n".join(lines)
 
 
-def _text_prompt(num_clips, min_sec, max_sec, flex_cap, duration, ctx,
-                 auto=False) -> str:
-    how_many = (
-        "Return EVERY clip that is genuinely worth posting as a standalone reel — "
-        f"as many as this video truly contains and no more (could be 2, could be 15). "
-        f"Do NOT pad to a number; quality over quantity. Only include a clip if you "
-        f"would actually publish it. (Hard safety limit: at most {num_clips} — but "
-        f"return far fewer unless the video really has that many strong moments.)"
-        if auto
-        else f"Choose the {num_clips} STRONGEST standalone clips for social reels, best first."
-    )
+def _text_prompt(num_clips, min_sec, max_sec, flex_cap, duration, ctx) -> str:
     return f"""You are a world-class short-form video editor for content by {ctx['speaker']} ({ctx['channel']}).
 
 Below is the FULL timestamped transcript of a {int(duration)}-second video. Each line is "[start-end] text" (seconds on the video timeline).
 
-{how_many}
+Choose the {num_clips} STRONGEST standalone clips for social reels, best first.
 
 CRITICAL — every clip MUST be a COMPLETE, self-contained unit:
 - A full JOKE: include the ENTIRE setup AND the punchline. Never cut before the punchline; never start mid-setup.
@@ -183,14 +173,13 @@ CRITICAL — every clip MUST be a COMPLETE, self-contained unit:
 - It must make sense on its own to someone who hasn't seen the rest of the video.
 - NEVER start or end mid-sentence or mid-thought, and NEVER take only "half from the beginning" or "half from the end" of a unit.
 
-Length — STRICT: every clip MUST be at least {min_sec} seconds long. This is a HARD MINIMUM. Aim for {min_sec}-{max_sec} seconds; you may extend up to {flex_cap} seconds ONLY to finish a complete joke or story. If a complete thought is SHORTER than {min_sec} seconds, DO NOT return it — skip short soundbites entirely. Only pick substantial segments that genuinely run {min_sec}+ seconds as ONE coherent idea (do not stitch together unrelated parts to reach the length). Cut exactly at the natural start and end of the unit.
+Length: aim for {min_sec}-{max_sec} seconds. But COMPLETENESS WINS over length — if a joke or story needs longer to stay whole, you MAY extend a clip up to {flex_cap} seconds. Do not pad; cut exactly at the natural start and end of the unit.
 
-For each clip return: start_seconds and end_seconds (integers, at the natural boundaries of the complete unit, at least {min_sec}s apart), a short title, the hook (first sentence verbatim), the closing_line (last sentence verbatim), a one-sentence core_teaching, and a viral_score 0-100."""
+For each clip return: start_seconds and end_seconds (integers, at the natural boundaries of the complete unit), a short title, the hook (first sentence verbatim), the closing_line (last sentence verbatim), a one-sentence core_teaching, and a viral_score 0-100."""
 
 
 def find_clips_gemini_text(words, segments, *, num_clips, min_sec, max_sec,
-                           duration, api_key, model, settings, auto=False,
-                           on_log=print):
+                           duration, api_key, model, settings, on_log=print):
     """Text-only Gemini clip selection. Sends the whole transcript, asks for
     complete self-contained units (jokes/stories/teachings), snaps to sentence
     boundaries, and allows clips to flex up to 1.5x max to keep a unit whole.
@@ -209,8 +198,7 @@ def find_clips_gemini_text(words, segments, *, num_clips, min_sec, max_sec,
         contents=[
             transcript
             + "\n\n"
-            + _text_prompt(num_clips, min_sec, max_sec, flex_cap, duration, ctx,
-                           auto=auto)
+            + _text_prompt(num_clips, min_sec, max_sec, flex_cap, duration, ctx)
         ],
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -237,8 +225,7 @@ def find_clips_gemini_text(words, segments, *, num_clips, min_sec, max_sec,
 
 
 def select_clips_gemini_text(words, segments, *, num_clips, min_sec, max_sec,
-                             duration, api_key, settings, auto=False,
-                             on_log=print):
+                             duration, api_key, settings, on_log=print):
     """Cascade: gemini-2.5-pro → gemini-2.5-flash. Raises if both fail."""
     err = None
     for m in SELECT_MODELS:
@@ -247,7 +234,7 @@ def select_clips_gemini_text(words, segments, *, num_clips, min_sec, max_sec,
             clips = find_clips_gemini_text(
                 words, segments, num_clips=num_clips, min_sec=min_sec,
                 max_sec=max_sec, duration=duration, api_key=api_key, model=m,
-                settings=settings, auto=auto, on_log=on_log,
+                settings=settings, on_log=on_log,
             )
             if clips:
                 return clips
