@@ -1,11 +1,57 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { dubJobs } from "@/db/schema";
+import { getUserCookies, getUserKeys } from "@/lib/api-keys";
 import { type AppUser, HttpError } from "@/lib/auth";
 import { dubber } from "@/lib/dubber";
 import { archiveDubVideo, r2Enabled } from "@/lib/r2";
 
 export type DubJob = typeof dubJobs.$inferSelect;
+
+/**
+ * Re-dispatch a dub to the sidecar, reusing the row's stored parameters (source,
+ * languages, voice). Powers the retry endpoint and recovery of orphaned jobs
+ * after a sidecar restart. Resets progress and assigns a fresh sidecar job id;
+ * the row goes back to "running". Throws if the owner's keys are missing or the
+ * sidecar rejects the job (caller marks it failed).
+ */
+export async function redispatchDub(job: DubJob): Promise<DubJob> {
+	const keys = await getUserKeys(job.userId);
+	if (!keys.deepgram)
+		throw new HttpError(400, "Owner has no Deepgram API key — cannot re-run");
+	if (!keys.gemini)
+		throw new HttpError(400, "Owner has no Gemini API key — cannot re-run");
+	const cookies =
+		job.sourceType === "url"
+			? ((await getUserCookies(job.userId)) ?? undefined)
+			: undefined;
+	const { job_id } = await dubber.createJob({
+		video_input: job.sourceInput,
+		source_lang: job.sourceLang,
+		target_lang: job.targetLang,
+		voice: job.voice,
+		source_type: job.sourceType === "upload" ? "upload" : "url",
+		cookies,
+		burn_captions: false,
+		deepgram_key: keys.deepgram,
+		gemini_key: keys.gemini,
+		nvidia_key: keys.nvidia,
+	});
+	const [updated] = await db
+		.update(dubJobs)
+		.set({
+			dubberJobId: job_id,
+			status: "running",
+			pct: 0,
+			stage: "",
+			message: "",
+			error: null,
+			updatedAt: new Date(),
+		})
+		.where(eq(dubJobs.id, job.id))
+		.returning();
+	return updated;
+}
 
 /**
  * Durably archive a finished dub to R2 (backup only — does not affect
@@ -51,8 +97,31 @@ export async function getOwnedJob(
  * if a terminal transition was persisted. Time-bounded (getStatus has a 5s cap). */
 async function reconcileOneDub(job: DubJob): Promise<number> {
 	if (!job.dubberJobId) return 0;
+	let remote: Awaited<ReturnType<typeof dubber.getStatus>>;
 	try {
-		const remote = await dubber.getStatus(job.dubberJobId);
+		remote = await dubber.getStatus(job.dubberJobId);
+	} catch (err) {
+		// The sidecar holds job state IN MEMORY, so a service restart drops every
+		// in-flight job and then answers 404 "Unknown job" for it forever. That is
+		// NOT a transient blip — the work is gone and will never resume. Mark such
+		// orphans failed (only while still "running", so we never clobber a row a
+		// live status call updated in parallel) so the user can re-run them. Any
+		// other error (timeout, 5xx, network) is left for the next pass.
+		if (err instanceof HttpError && err.status === 404) {
+			const [fresh] = await db
+				.update(dubJobs)
+				.set({
+					status: "failed",
+					error: "Dub worker lost this job (service restarted) — please re-run.",
+					updatedAt: new Date(),
+				})
+				.where(and(eq(dubJobs.id, job.id), eq(dubJobs.status, "running")))
+				.returning();
+			return fresh ? 1 : 0;
+		}
+		return 0;
+	}
+	try {
 		if (remote.status !== "done" && remote.status !== "failed") return 0;
 		let captions = job.captions;
 		if (remote.status === "done" && !captions) {

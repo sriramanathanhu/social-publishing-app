@@ -10,6 +10,8 @@ export function PostRow({
 	action,
 	metrics,
 	publishedUrl,
+	tag,
+	note,
 }: {
 	content: string | null;
 	platforms: PostPlatformTarget[] | null;
@@ -19,6 +21,10 @@ export function PostRow({
 	action?: React.ReactNode;
 	metrics?: { likes: number | null; views: number | null } | null;
 	publishedUrl?: string | null;
+	/** Content-type label (e.g. "Shorts", "Dubbed"). */
+	tag?: string;
+	/** Secondary line, e.g. the failure reason for a failed post. */
+	note?: string | null;
 }) {
 	const statusColor =
 		status === "published"
@@ -33,6 +39,11 @@ export function PostRow({
 		<li className="flex items-center gap-3 rounded-lg border border-black/10 px-4 py-3">
 			<div className="min-w-0 flex-1">
 				<div className="flex items-center gap-2">
+					{tag && (
+						<span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-primary">
+							{tag}
+						</span>
+					)}
 					<span className="text-xs font-medium opacity-60">{profileName}</span>
 					<span className="flex gap-1">
 						{(platforms ?? []).map((p) => (
@@ -46,6 +57,7 @@ export function PostRow({
 					</span>
 				</div>
 				<p className="truncate text-sm">{content ?? "—"}</p>
+				{note && <p className="truncate text-xs text-red-600">{note}</p>}
 				{publishedUrl && (
 					<a
 						href={publishedUrl}

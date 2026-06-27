@@ -233,3 +233,55 @@ export const zernioProvider: PublishProvider = {
 		return match?.platformPostUrl || null;
 	},
 };
+
+/** Full status of a post from GET /posts/:id, normalised for our reconcile.
+ * Returns null when Zernio no longer has the post (404 — e.g. it expired or was
+ * deleted there). The post-level `status` is one of
+ * published | failed | publishing | scheduled | partial. Standalone (not on the
+ * PublishProvider interface) since only our own reconcile uses it. */
+export async function getZernioPostStatus(
+	postId: string,
+): Promise<ZernioPostStatus | null> {
+	let res: { post?: ZernioRawPost } & ZernioRawPost;
+	try {
+		res = await request(`/posts/${postId}`, { method: "GET" });
+	} catch (err) {
+		if (err instanceof HttpError && err.status === 404) return null;
+		throw err;
+	}
+	const p = res.post ?? res;
+	const platforms = (p.platforms ?? []).map((x) => ({
+		platform: x.platform ?? "",
+		status: x.status ?? null,
+		url: x.platformPostUrl || null,
+		error: x.error || x.errorMessage || null,
+	}));
+	return {
+		status: p.status ?? null,
+		platforms,
+		error: p.error || platforms.find((x) => x.error)?.error || null,
+	};
+}
+
+type ZernioRawPost = {
+	status?: string;
+	error?: string;
+	platforms?: {
+		platform?: string;
+		status?: string;
+		platformPostUrl?: string;
+		error?: string;
+		errorMessage?: string;
+	}[];
+};
+
+export type ZernioPostStatus = {
+	status: string | null;
+	platforms: {
+		platform: string;
+		status: string | null;
+		url: string | null;
+		error: string | null;
+	}[];
+	error: string | null;
+};

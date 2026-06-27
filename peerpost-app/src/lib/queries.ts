@@ -1,4 +1,17 @@
-import { and, count, desc, eq, gte, inArray } from "drizzle-orm";
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	gte,
+	inArray,
+	isNull,
+	lt,
+	lte,
+	or,
+	type SQL,
+} from "drizzle-orm";
 import { cache } from "react";
 import { db } from "@/db";
 import {
@@ -12,6 +25,11 @@ import {
 } from "@/db/schema";
 import type { AppUser } from "@/lib/auth";
 import { PLATFORMS } from "@/lib/postpeer";
+import {
+	categorizePostError,
+	type PostTypeKey,
+	sourcesForType,
+} from "@/lib/post-types";
 import { isAdmin } from "@/lib/rbac";
 
 /**
@@ -207,6 +225,154 @@ export async function getPostsForUser(
 		...r,
 		profileName: nameById.get(r.profileId) ?? "—",
 	}));
+}
+
+export type PostRange = "all" | "overdue" | "today" | "next7" | "upcoming";
+
+/** Time-window predicate on scheduledFor for the queue filters. */
+function rangeCondition(range: PostRange): SQL | undefined {
+	const now = new Date();
+	if (range === "overdue") return lt(postsLog.scheduledFor, now);
+	if (range === "upcoming") return gte(postsLog.scheduledFor, now);
+	if (range === "today") {
+		const start = new Date(now);
+		start.setHours(0, 0, 0, 0);
+		const end = new Date(now);
+		end.setHours(23, 59, 59, 999);
+		return and(
+			gte(postsLog.scheduledFor, start),
+			lte(postsLog.scheduledFor, end),
+		);
+	}
+	if (range === "next7") {
+		const end = new Date(now.getTime() + 7 * 86_400_000);
+		return and(gte(postsLog.scheduledFor, now), lte(postsLog.scheduledFor, end));
+	}
+	return undefined;
+}
+
+/** Content-type predicate on the `source` column (manual also matches NULL). */
+function typeCondition(types: PostTypeKey[]): SQL | undefined {
+	if (!types.length) return undefined;
+	const sources = [...new Set(types.flatMap(sourcesForType))];
+	const parts: SQL[] = [];
+	if (sources.length) parts.push(inArray(postsLog.source, sources));
+	if (types.includes("manual")) parts.push(isNull(postsLog.source));
+	if (parts.length === 0) return undefined;
+	return parts.length === 1 ? parts[0] : or(...parts);
+}
+
+export type PostsPageOpts = {
+	statuses?: PostStatus[];
+	types?: PostTypeKey[];
+	range?: PostRange;
+	page?: number;
+	pageSize?: number;
+	/** "sched-asc" = soonest-first queue order; default newest-created first. */
+	order?: "sched-asc" | "created-desc";
+};
+
+/** A filtered, paginated slice of the user's posts (+ total for page controls). */
+export async function getPostsPage(user: AppUser, opts: PostsPageOpts) {
+	const pageSize = Math.min(Math.max(opts.pageSize ?? 25, 1), 100);
+	const page = Math.max(opts.page ?? 1, 1);
+	const accessible = await getAccessibleProfiles(user);
+	if (accessible.length === 0)
+		return { rows: [], total: 0, page, pageSize, pages: 0 };
+	const profileIds = accessible.map((p) => p.id);
+	const nameById = new Map(accessible.map((p) => [p.id, p.name]));
+
+	const conds: SQL[] = [inArray(postsLog.profileId, profileIds)];
+	if (opts.statuses?.length)
+		conds.push(inArray(postsLog.status, opts.statuses));
+	const tc = typeCondition(opts.types ?? []);
+	if (tc) conds.push(tc);
+	const rc = rangeCondition(opts.range ?? "all");
+	if (rc) conds.push(rc);
+	const where = and(...conds);
+
+	const [{ total = 0 } = { total: 0 }] = await db
+		.select({ total: count() })
+		.from(postsLog)
+		.where(where);
+
+	const orderBy =
+		opts.order === "sched-asc"
+			? [asc(postsLog.scheduledFor), desc(postsLog.createdAt)]
+			: [desc(postsLog.createdAt)];
+
+	const rows = await db
+		.select()
+		.from(postsLog)
+		.where(where)
+		.orderBy(...orderBy)
+		.limit(pageSize)
+		.offset((page - 1) * pageSize);
+
+	return {
+		rows: rows.map((r) => ({
+			...r,
+			profileName: nameById.get(r.profileId) ?? "—",
+		})),
+		total: Number(total),
+		page,
+		pageSize,
+		pages: Math.max(1, Math.ceil(Number(total) / pageSize)),
+	};
+}
+
+export type PublishSummary = {
+	byStatus: Record<string, number>;
+	failures: { error: string; count: number }[];
+	total: number;
+};
+
+/** Status counts (+ categorised failure reasons) across the user's posts for the
+ * given content-type / time filters — powers the queue's status summary. */
+export async function getPublishSummary(
+	user: AppUser,
+	opts: { types?: PostTypeKey[]; range?: PostRange } = {},
+): Promise<PublishSummary> {
+	const accessible = await getAccessibleProfiles(user);
+	if (accessible.length === 0)
+		return { byStatus: {}, failures: [], total: 0 };
+	const profileIds = accessible.map((p) => p.id);
+
+	const conds: SQL[] = [inArray(postsLog.profileId, profileIds)];
+	const tc = typeCondition(opts.types ?? []);
+	if (tc) conds.push(tc);
+	const rc = rangeCondition(opts.range ?? "all");
+	if (rc) conds.push(rc);
+	const where = and(...conds);
+
+	const statusRows = await db
+		.select({ status: postsLog.status, c: count() })
+		.from(postsLog)
+		.where(where)
+		.groupBy(postsLog.status);
+	const byStatus: Record<string, number> = {};
+	let total = 0;
+	for (const r of statusRows) {
+		byStatus[r.status] = Number(r.c);
+		total += Number(r.c);
+	}
+
+	// Group failures by raw error, then re-bucket into stable categories.
+	const failRows = await db
+		.select({ error: postsLog.error, c: count() })
+		.from(postsLog)
+		.where(and(where, eq(postsLog.status, "failed")))
+		.groupBy(postsLog.error);
+	const buckets = new Map<string, number>();
+	for (const r of failRows) {
+		const key = categorizePostError(r.error);
+		buckets.set(key, (buckets.get(key) ?? 0) + Number(r.c));
+	}
+	const failures = [...buckets.entries()]
+		.map(([error, c]) => ({ error, count: c }))
+		.sort((a, b) => b.count - a.count);
+
+	return { byStatus, failures, total };
 }
 
 // ── Admin queries ───────────────────────────────────────────────────────────
