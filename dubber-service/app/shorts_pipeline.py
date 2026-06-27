@@ -590,8 +590,23 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
         cur = f"{base}_a.mp4"
         if not _render_single_pass(src_video, src_start, src_end, clip_vf,
                                    overlay_png, ass_path, cur, speed=req.speed):
-            log("SHORTS", f"clip {i} render failed, skipping")
-            return None
+            # Defensive retry: drop the fancy auto-crop expression and re-render the
+            # ORIGINAL (un-trimmed) span with the plain fixed crop + captions on the
+            # source timeline. Guards against a single bad filtergraph (e.g. an
+            # over-long crop path) silently wiping out an entire job's clips.
+            log("SHORTS", f"clip {i} render failed — retrying with fixed crop")
+            fb_words = words if req.captions else None
+            fb_ass = None
+            if fb_words:
+                fb_ass = f"{base}_fb.ass"
+                if not make_ass_file(fb_words, start, end, rx, ry,
+                                     req.settings, fb_ass):
+                    fb_ass = None
+            if not _render_single_pass(video_path, start, end, vf, overlay_png,
+                                       fb_ass, cur, speed=req.speed):
+                log("SHORTS", f"clip {i} render failed, skipping")
+                return None
+            cut_len = end - start  # fallback used the full, un-trimmed span
         if extras:
             joined = f"{base}_final.mp4"
             if concat_with(cur, extras, joined, rx, ry):
