@@ -153,10 +153,12 @@ def _atempo(speed: float) -> str:
     return ",".join(parts)
 
 
-def _speech_spans(words, start, end, min_gap=0.7, pad=0.12):
+def _speech_spans(words, start, end, min_gap=1.2, pad=0.1, max_cuts=8):
     """Clip-relative keep spans covering speech, dropping internal/edge silences
     longer than ``min_gap``. Word times are on the source timeline; we shift to
-    clip-relative (0 = clip start). Returns ``[(s, e)]``."""
+    clip-relative (0 = clip start). ``max_cuts`` bounds how many silences we cut
+    (keeping only the longest dead-air): this caps the crossfade chain depth and
+    keeps the reel watchable on sparse, pause-heavy speech. Returns ``[(s, e)]``."""
     clip_len = end - start
     ws = []
     for w in words:
@@ -183,6 +185,13 @@ def _speech_spans(words, start, end, min_gap=0.7, pad=0.12):
             out[-1] = (out[-1][0], max(out[-1][1], e))
         else:
             out.append((s, e))
+    # Bound the cut count: re-absorb the SHORTEST silent gaps (leave those pauses
+    # in) until at most ``max_cuts`` cuts remain — so we only ever remove the
+    # biggest dead-air, never fragment into dozens of micro-cuts.
+    while len(out) - 1 > max_cuts:
+        gi = min(range(len(out) - 1), key=lambda i: out[i + 1][0] - out[i][1])
+        out[gi] = (out[gi][0], out[gi + 1][1])
+        del out[gi + 1]
     return out
 
 
@@ -224,39 +233,75 @@ def _silence_xfade(video, start, end, spans, d, out) -> bool:
     """Build a silence-removed clip: keep only the speech `spans` (clip-relative)
     and join consecutive ones with a short crossfade (video xfade + audio
     acrossfade) so the cuts aren't jarring. Done before crop/caption so face
-    tracking re-measures on the trimmed timeline. Returns True on success."""
-    clip_len = end - start
-    base_in = ["-ss", f"{start:.3f}", "-t", f"{clip_len:.3f}", "-i", video]
+    tracking re-measures on the trimmed timeline. Caller must keep the span count
+    small (see ``_speech_spans`` max_cuts) — a deep xfade chain is pathologically
+    slow. Returns True only if the output is a valid, correctly-sized clip; on any
+    doubt returns False so the caller falls back to the un-trimmed (playable) clip."""
     enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-           "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", out]
-    if len(spans) == 1:
-        s, e = spans[0]
+           "-c:a", "aac", "-b:a", "160k", "-ar", "44100",
+           "-movflags", "+faststart", out]
+    # xfade needs BOTH inputs to be at least `d` long; clamp to the shortest span.
+    shortest = min(e - s for s, e in spans)
+    d = max(0.04, min(d, shortest * 0.4))
+    # Extract each span to its own small file (cheap seek+encode). Crossfading the
+    # extracted files is fast and robust; a `split` of the whole clip re-decodes
+    # the full source once per span and is pathologically slow on long clips.
+    segdir = out + "_segs"
+    shutil.rmtree(segdir, ignore_errors=True)
+    os.makedirs(segdir, exist_ok=True)
+    try:
+        segs, durs = [], []
+        for i, (s, e) in enumerate(spans):
+            seg = os.path.join(segdir, f"s{i}.mp4")
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", f"{start + s:.3f}", "-t", f"{e - s:.3f}",
+                 "-i", video, "-c:v", "libx264", "-preset", "veryfast",
+                 "-crf", "20", "-c:a", "aac", "-b:a", "160k", "-ar", "44100", seg],
+                capture_output=True)
+            if not (os.path.exists(seg) and os.path.getsize(seg) > 2000):
+                return False
+            segs.append(seg)
+            durs.append(_probe_duration(seg))
+        expected = sum(durs) - (len(segs) - 1) * d
+        if len(segs) == 1:
+            shutil.copy(segs[0], out)
+            return _valid_clip(out, expected)
+        inputs = []
+        for seg in segs:
+            inputs += ["-i", seg]
+        vp = [f"[{i}:v]setpts=PTS-STARTPTS[v{i}]" for i in range(len(segs))]
+        ap = [f"[{i}:a]asetpts=PTS-STARTPTS[a{i}]" for i in range(len(segs))]
+        acc, vlast, alast, xf = durs[0], "v0", "a0", []
+        for i in range(1, len(segs)):
+            off = max(0.0, acc - d)
+            xf.append(f"[{vlast}][v{i}]xfade=transition=fade:duration={d:.3f}:offset={off:.3f}[vx{i}]")
+            xf.append(f"[{alast}][a{i}]acrossfade=d={d:.3f}[ax{i}]")
+            vlast, alast = f"vx{i}", f"ax{i}"
+            acc += durs[i] - d
+        fc = ";".join(vp + ap + xf)
         subprocess.run(
-            ["ffmpeg", "-y", *base_in,
-             "-vf", f"trim={s:.3f}:{e:.3f},setpts=PTS-STARTPTS",
-             "-af", f"atrim={s:.3f}:{e:.3f},asetpts=PTS-STARTPTS", *enc],
+            ["ffmpeg", "-y", *inputs, "-filter_complex", fc,
+             "-map", f"[{vlast}]", "-map", f"[{alast}]", *enc],
             capture_output=True)
-        return os.path.exists(out) and os.path.getsize(out) > 10000
-    n = len(spans)
-    vp = [f"[0:v]split={n}{''.join(f'[sv{i}]' for i in range(n))}"]
-    ap = [f"[0:a]asplit={n}{''.join(f'[sa{i}]' for i in range(n))}"]
-    for i, (s, e) in enumerate(spans):
-        vp.append(f"[sv{i}]trim={s:.3f}:{e:.3f},setpts=PTS-STARTPTS[v{i}]")
-        ap.append(f"[sa{i}]atrim={s:.3f}:{e:.3f},asetpts=PTS-STARTPTS[a{i}]")
-    acc = spans[0][1] - spans[0][0]
-    vlast, alast = "v0", "a0"
-    for i in range(1, n):
-        off = max(0.0, acc - d)
-        vp.append(f"[{vlast}][v{i}]xfade=transition=fade:duration={d}:offset={off:.3f}[vx{i}]")
-        ap.append(f"[{alast}][a{i}]acrossfade=d={d}[ax{i}]")
-        vlast, alast = f"vx{i}", f"ax{i}"
-        acc += (spans[i][1] - spans[i][0]) - d
-    fc = ";".join(vp + ap)
-    subprocess.run(
-        ["ffmpeg", "-y", *base_in, "-filter_complex", fc,
-         "-map", f"[{vlast}]", "-map", f"[{alast}]", *enc],
-        capture_output=True)
-    return os.path.exists(out) and os.path.getsize(out) > 10000
+        return _valid_clip(out, expected)
+    finally:
+        shutil.rmtree(segdir, ignore_errors=True)
+
+
+def _valid_clip(path, expected_dur) -> bool:
+    """True iff `path` is a non-trivial clip whose duration matches `expected_dur`
+    (guards against ffmpeg writing a broken/empty file that still passes a size
+    check). On failure removes the file so a stale path can't be reused."""
+    if not (os.path.exists(path) and os.path.getsize(path) > 10000):
+        return False
+    actual = _probe_duration(path)
+    if actual < 1.0 or abs(actual - expected_dur) > 1.5:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return False
+    return True
 
 
 def _render_single_pass(video, start, end, crop, overlay_png, ass_path, out,
@@ -509,19 +554,22 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
         if req.settings.get("cut_silence", True) and words:
             spans = _speech_spans(
                 words, start, end,
-                min_gap=float(req.settings.get("silence_gap", 0.7)),
+                min_gap=float(req.settings.get("silence_gap", 1.2)),
+                max_cuts=int(req.settings.get("silence_max_cuts", 8)),
             )
             removed = (end - start) - sum(e - s for s, e in spans)
-            if removed > 1.5:  # only bother for meaningful dead air
+            if removed > 1.5 and len(spans) >= 1:  # meaningful dead air only
                 d = float(req.settings.get("silence_xfade", 0.12))
                 inter = f"{base}_sil.mp4"
                 if _silence_xfade(video_path, start, end, spans, d, inter):
-                    kept = sum(e - s for s, e in spans) - (len(spans) - 1) * d
+                    # Use the intermediate's true duration (xfade may have been
+                    # clamped for short spans) so render/captions stay in sync.
+                    kept = _probe_duration(inter)
                     src_video, src_start, src_end = inter, 0.0, kept
                     cap_words = _retime_words(words, start, end, spans, xfade=d)
                     cap_start, cap_end, cut_len = 0.0, kept, kept
                     log("SHORTS", f"clip {i}: trimmed {removed:.1f}s silence "
-                        f"({len(spans)} spans, xfade {d}s)")
+                        f"({len(spans) - 1} cuts)")
 
         # Auto reframing: centre the crop on the speaker's face for this clip
         # (measured on src_video, already silence-trimmed); fall back to the fixed
