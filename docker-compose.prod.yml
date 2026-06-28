@@ -1,0 +1,111 @@
+# Production-style stack for PeerPost — the scalable deployment shape.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml up -d --scale worker=N   # Phase 2+
+#
+# Services:
+#   db      — Postgres (the single source of truth: state, jobs, usage)
+#   migrate — one-shot schema sync (drizzle-kit push) before the app starts
+#   app     — Next.js (frontend + API); stateless → replica-friendly
+#   worker  — Python video/AI sidecar; the unit you scale for throughput
+#   caddy   — TLS + reverse proxy
+#
+# Real credentials come from peerpost-app/.env (gitignored). Compose only
+# OVERRIDES the wiring (DB host, worker URL) so the same .env works in or out of
+# containers.
+name: peerpost
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: peerpost
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d peerpost"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # One-shot: create/update tables, then exit. The app waits for this to finish.
+  migrate:
+    build:
+      context: ./peerpost-app
+      dockerfile: Dockerfile
+    command: ["pnpm", "db:push"]
+    env_file:
+      - ./peerpost-app/.env
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/peerpost
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: ./peerpost-app
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./peerpost-app/.env
+    environment:
+      NODE_ENV: production
+      # Wiring overrides — point at the in-network db + worker.
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/peerpost
+      DUBBER_SERVICE_URL: http://worker:8800
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "3009"
+
+  # The video/AI worker — the throughput unit you scale.
+  #
+  # ⚠️ replicas=1 today. Scaling to N needs the durable job queue (roadmap
+  # Phase 2): the current sidecar holds job state IN MEMORY, so round-robin DNS
+  # across replicas would split a job's create-call and its status-poll onto
+  # different workers (the "unknown job" / orphan failure). Once Phase 2 lands
+  # (Postgres LISTEN/NOTIFY + SKIP LOCKED claim), `--scale worker=N` is safe.
+  worker:
+    build:
+      context: ./dubber-service
+    restart: unless-stopped
+    env_file:
+      - ./dubber-service/.env
+    environment:
+      DUBBER_OUTPUT_DIR: /srv/outputs
+      # Tune per box: how many concurrent jobs one worker runs.
+      SHORTS_MAX_WORKERS: ${SHORTS_MAX_WORKERS:-2}
+    volumes:
+      - worker_outputs:/srv/outputs
+    deploy:
+      replicas: 1
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    # Set DOMAIN to your hostname for automatic HTTPS; defaults to :80 locally.
+    environment:
+      DOMAIN: ${DOMAIN:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  worker_outputs:
+  caddy_data:
+  caddy_config:

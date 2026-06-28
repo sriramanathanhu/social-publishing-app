@@ -1,0 +1,22 @@
+# Container reverse proxy for the production compose stack.
+#
+# Set DOMAIN (compose env) to your hostname (e.g. post.example.com) for automatic
+# HTTPS via Let's Encrypt; it defaults to ":80" for local/no-TLS use.
+#
+# NOTE: the MCP server (:3010) is not yet containerized — when it is, add a
+# matching `handle /mcp* { reverse_proxy mcp:3010 }` block here (mirrors the
+# host Caddyfile's /mcp, /oauth/*, /.well-known routing).
+
+{$DOMAIN} {
+	encode gzip
+
+	# App HTML must not be cached by the CDN (fresh UI on deploy); /api and the
+	# Next.js static chunks are fine to cache.
+	@html {
+		not path /_next/static/*
+		not path /api/*
+	}
+	header @html Cache-Control "no-store, no-cache, must-revalidate"
+
+	reverse_proxy app:3009
+}
