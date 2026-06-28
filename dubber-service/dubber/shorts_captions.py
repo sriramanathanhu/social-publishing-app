@@ -29,6 +29,21 @@ def _ft(s: float) -> str:
     return f"{int(s // 3600)}:{int((s % 3600) // 60):02d}:{int(s % 60):02d}.{int((s % 1) * 100):02d}"
 
 
+def _font_for_text(text: str) -> str:
+    """Pick a font that actually has the glyphs for this line's script. Needed for
+    multilingual captions (Sanskrit/Hindi → Devanagari, Tamil) — Latin-only fonts
+    render those as boxes. libass also falls back per-glyph via fontconfig, but
+    choosing the right PRIMARY per line avoids any fallback gaps. Requires the
+    Noto Indic fonts (fonts-noto-core) to be installed in the worker."""
+    for ch in text:
+        o = ord(ch)
+        if 0x0B80 <= o <= 0x0BFF:           # Tamil
+            return "Noto Sans Tamil"
+        if 0x0900 <= o <= 0x097F:           # Devanagari (Hindi + Sanskrit)
+            return "Noto Sans Devanagari"
+    return "Noto Sans"
+
+
 def _clip_words(words, start_s, end_s):
     """Words within [start_s, end_s], re-timed to clip-relative seconds."""
     out = []
@@ -74,7 +89,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: D,Liberation Sans,{fs},{primary},{hl},{boxcol},{shadow},{bd},0,0,0,100,100,0,0,{bs},{ol},{sd},{align},60,60,{marginv},1
+Style: D,Noto Sans,{fs},{primary},{hl},{boxcol},{shadow},{bd},0,0,0,100,100,0,0,{bs},{ol},{sd},{align},60,60,{marginv},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -95,7 +110,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 if gi + 1 < len(groups)
                 else grp[-1]["end"] + 0.3
             )
-            txt = " ".join(w["word"] for w in grp).upper()
+            raw = " ".join(w["word"] for w in grp)
+            # Per-line font override so Tamil/Devanagari render as real glyphs.
+            txt = "{\\fn" + _font_for_text(raw) + "}" + raw.upper()
             body += f"Dialogue: 0,{_ft(gs)},{_ft(ge)},D,,0,0,0,,{txt}\n"
         return head + body
 

@@ -173,7 +173,9 @@ CRITICAL — every clip MUST be a COMPLETE, self-contained unit, and it MUST END
 - It must make sense on its own to someone who hasn't seen the rest of the video.
 - NEVER start or end mid-sentence or mid-thought, and NEVER take only "half from the beginning" or "half from the end" of a unit.
 
-BEFORE you finalize each clip, VERIFY: does end_seconds fall AFTER the punchline / resolution / conclusion is fully spoken? If the payoff lands later in the transcript, EXTEND end_seconds to include it. A clip that stops before its payoff is worthless.
+BEFORE you finalize each clip, VERIFY BOTH ENDS:
+- START: does start_seconds fall at the BEGINNING of a complete sentence/thought that opens the unit (the setup's first line, the story's opening)? It must NOT begin in the middle of a sentence, on a trailing word ("...and", "so", "but", "because"), or on a reference to something said earlier. If it does, move start_seconds back to the true opening sentence.
+- END: does end_seconds fall AFTER the punchline / resolution / conclusion is fully spoken, on the LAST complete sentence of the unit? If the payoff lands later, EXTEND end_seconds to include it. A clip that begins mid-thought or stops before its payoff is worthless.
 
 Length: aim for {min_sec}-{max_sec} seconds. But COMPLETENESS ALWAYS WINS over length — if a joke or story needs longer to stay whole, you MAY extend a clip up to {flex_cap} seconds. Do not pad; cut exactly at the natural start and the natural end (the last line of the payoff).
 

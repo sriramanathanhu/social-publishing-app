@@ -33,6 +33,7 @@ export type ShortsCreateInput = {
 	language?: string;
 	captions?: boolean;
 	selector?: "gemini" | "nim";
+	transcriber?: "gemini" | "deepgram";
 	gemini_key?: string;
 	media_resolution?: string;
 	overlay_url?: string;

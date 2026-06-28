@@ -1,8 +1,11 @@
 # Dubber service — Python 3.11 + FFmpeg (the pipeline needs both).
 FROM python:3.11-slim
 
+# fonts-noto-core/cjk: the Indic + CJK glyphs needed to BURN multilingual captions
+# (Tamil, Devanagari for Hindi/Sanskrit). Without them libass renders boxes.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg curl ca-certificates \
+       fonts-noto-core fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /srv

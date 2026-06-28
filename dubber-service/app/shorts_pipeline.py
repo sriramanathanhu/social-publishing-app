@@ -21,6 +21,7 @@ from typing import Callable, Optional
 
 from app.pipeline import StageEvent
 from app.transcribe_deepgram import transcribe_with_words
+from app.transcribe_gemini import transcribe_with_gemini
 from dubber.downloader import download_video, is_url
 from dubber.r2_upload import upload_clip
 from dubber.shorts_ai import (
@@ -59,6 +60,9 @@ class ShortsRequest:
     title_model: str = DEFAULT_TITLE_MODEL
     # Visual selection (optional; falls back to NIM text selection).
     selector: str = "nim"             # "nim" (text, default) | "gemini" (visual)
+    # Caption transcription engine: "gemini" (Flash, multilingual native scripts,
+    # default) | "deepgram" (word-accurate, best for clean English).
+    transcriber: str = "gemini"
     gemini_key: Optional[str] = None
     gemini_model: str = "gemini-2.5-flash"
     media_resolution: str = "low"
@@ -337,15 +341,28 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
     src_w, src_h = _probe_dims(video_path)
     emit("download", 12, f"Source ready ({int(duration)}s, {src_w}x{src_h})")
 
-    # 2) Transcribe (word-level). A song / music video may have no transcribable
-    # speech — that's fine; we fall back to visual or evenly-spaced selection and
-    # skip captions, rather than failing the whole job.
-    emit("transcribe", 18, "Transcribing (Deepgram) ...")
+    # 2) Transcribe. Gemini Flash (default) for multilingual/code-switched speech
+    # in native scripts; Deepgram for clean single-language with word-level timing.
+    # A song / music video may have no transcribable speech — that's fine; we fall
+    # back to visual or evenly-spaced selection and skip captions.
+    use_gemini_tx = req.transcriber != "deepgram" and bool(req.gemini_key)
+    emit("transcribe", 18,
+         f"Transcribing ({'Gemini' if use_gemini_tx else 'Deepgram'}) ...")
     try:
-        segments, words = transcribe_with_words(
-            video_path, req.workspace, api_key=req.deepgram_key,
-            language=req.language,
-        )
+        if use_gemini_tx:
+            segments, words = transcribe_with_gemini(
+                video_path, req.workspace, api_key=req.gemini_key,
+                language=req.language,
+            )
+        else:
+            # nova-3 (more accurate than the global nova-2 default) for the shorts
+            # English caption path; the global default stays nova-2 for dubs, whose
+            # source languages nova-3 may not all cover.
+            segments, words = transcribe_with_words(
+                video_path, req.workspace, api_key=req.deepgram_key,
+                language=req.language,
+                model=os.getenv("SHORTS_DEEPGRAM_MODEL", "nova-3"),
+            )
         emit("transcribe", 30, f"{len(segments)} segments, {len(words)} words")
     except RuntimeError as e:
         if "no transcribable speech" in str(e).lower():
