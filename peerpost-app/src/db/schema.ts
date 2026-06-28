@@ -634,6 +634,11 @@ export const backgroundJobs = pgTable(
 		status: text("status").notNull().default("pending"), // pending|running|done|failed
 		result: jsonb("result").$type<Record<string, unknown>>(),
 		error: text("error"),
+		// Liveness: a worker refreshes this while processing. A stale heartbeat on a
+		// "running" row means the worker died mid-job → the reaper re-queues it.
+		heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+		// Re-queue counter (bounded so a permanently-failing job can't loop forever).
+		attempts: integer("attempts").notNull().default(0),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),

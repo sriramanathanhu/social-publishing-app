@@ -36,10 +36,20 @@ Scale = **add `video-worker` replicas** (same box until cores/GPU saturate, then
 - **Risk:** none to running prod (additive files; adopt on cutover).
 
 ### Phase 2 — Durable queue + heartbeat + reaper
-- Replace cron-poll with a **claim queue**: workers `SELECT … FOR UPDATE SKIP LOCKED` to claim jobs; the API `NOTIFY`s on enqueue to wake them (catch-up poll on startup so nothing is lost if no listener).
-- Workers write a **heartbeat** (`updated_at`) every 1–2s while processing.
-- A **reaper** requeues `running` jobs whose heartbeat is stale (> 2 min) → **auto-recovers crashed/restarted workers** (kills the orphan-bug class permanently).
+- Replace cron-poll with a **claim queue**: workers claim jobs atomically (CAS / `SKIP LOCKED`); the API `NOTIFY`s on enqueue to wake them (catch-up poll on startup so nothing is lost if no listener).
+- Workers write a **heartbeat** while processing.
+- A **reaper** requeues `running` jobs whose heartbeat is stale → **auto-recovers crashed/restarted workers** (kills the orphan-bug class permanently), bounded by an attempt cap.
 - **Outcome:** restarts and crashes self-heal; multiple workers share the queue safely.
+
+  **Part 1 — DONE (on `background_jobs`, the existing durable queue):** heartbeat
+  (`heartbeat_at`) + attempt counter + `reapStaleJobs()` (re-queue under cap, fail
+  over cap) + `pg_notify` wake on enqueue + a `heartbeat()` helper for long jobs.
+  Verified against a throwaway Postgres: atomic claim, requeue-stale, fail-at-cap,
+  fresh-heartbeat-survives, notify. Reaper wired into the background-jobs tick.
+
+  **Part 2 — NEXT:** migrate the dub/shorts dispatch off the in-memory sidecar onto
+  this same queue (worker pulls + claims + heartbeats), add a persistent worker
+  `LISTEN` loop in the worker container, then lift `worker` to `replicas=N`.
 
 ### Phase 3 — Faster, GPU-accelerated rendering
 - **NVENC** encode + collapse the multi-pass Shorts render into one filter graph (≈3× fewer encodes, 5–20× on encode).

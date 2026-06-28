@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { backgroundJobs, users } from "@/db/schema";
 import type { AppUser } from "@/lib/auth";
@@ -15,7 +15,20 @@ export type JobKind =
 	| "quote-autopublish"
 	| "text-autopublish";
 
-/** Enqueue a long batch; the cron processor runs it shortly. Returns the id. */
+/** Postgres NOTIFY channel a worker LISTENs on to wake instantly on enqueue
+ * (instead of waiting for the next poll). Safe to ignore — the claim loop is the
+ * source of truth; NOTIFY is only a latency optimisation. */
+export const JOBS_CHANNEL = "background_jobs";
+
+/** A job is considered abandoned if its heartbeat is older than this — i.e. the
+ * worker died mid-run. The cron's per-run cap is ~23 min, so 30 min cannot be a
+ * still-running job under cron; persistent workers refresh the heartbeat (see
+ * `heartbeat`) so a long job stays alive. */
+const STALE_AFTER_MIN = 30;
+/** Max times a job is re-queued before we give up (stops a poison job looping). */
+const MAX_ATTEMPTS = 3;
+
+/** Enqueue a long batch and wake any listening worker. Returns the id. */
 export async function enqueueJob(
 	userId: string,
 	kind: JobKind,
@@ -25,7 +38,83 @@ export async function enqueueJob(
 		.insert(backgroundJobs)
 		.values({ userId, kind, payload })
 		.returning({ id: backgroundJobs.id });
+	// Best-effort wake; the claim loop still picks it up if no one is listening.
+	try {
+		await db.execute(sql`select pg_notify(${JOBS_CHANNEL}, ${row.id})`);
+	} catch {
+		/* NOTIFY is an optimisation only */
+	}
 	return row.id;
+}
+
+/** Refresh a running job's heartbeat — called periodically by long workers so
+ * the reaper doesn't reclaim a job that's still being worked. */
+export async function heartbeat(jobId: string): Promise<void> {
+	await db
+		.update(backgroundJobs)
+		.set({ heartbeatAt: new Date() })
+		.where(eq(backgroundJobs.id, jobId));
+}
+
+/**
+ * Re-queue jobs abandoned by a dead worker: status="running" but heartbeat is
+ * stale. Under the attempt cap they go back to "pending" (a worker re-claims
+ * them); over the cap they're failed. Returns {requeued, failed}. Idempotent and
+ * safe to run every tick.
+ */
+export async function reapStaleJobs(): Promise<{
+	requeued: number;
+	failed: number;
+}> {
+	const cutoff = new Date(Date.now() - STALE_AFTER_MIN * 60_000);
+	const stale = await db
+		.select({ id: backgroundJobs.id, attempts: backgroundJobs.attempts })
+		.from(backgroundJobs)
+		.where(
+			and(
+				eq(backgroundJobs.status, "running"),
+				or(
+					lt(backgroundJobs.heartbeatAt, cutoff),
+					// Never heartbeated but started long ago (older claim shape).
+					sql`${backgroundJobs.heartbeatAt} is null and ${backgroundJobs.startedAt} < ${cutoff}`,
+				),
+			),
+		);
+
+	let requeued = 0;
+	let failed = 0;
+	for (const job of stale) {
+		if (job.attempts >= MAX_ATTEMPTS) {
+			const [f] = await db
+				.update(backgroundJobs)
+				.set({
+					status: "failed",
+					error: `Abandoned by worker; gave up after ${MAX_ATTEMPTS} attempts`,
+					finishedAt: new Date(),
+				})
+				.where(
+					and(
+						eq(backgroundJobs.id, job.id),
+						eq(backgroundJobs.status, "running"),
+					),
+				)
+				.returning({ id: backgroundJobs.id });
+			if (f) failed++;
+		} else {
+			const [r] = await db
+				.update(backgroundJobs)
+				.set({ status: "pending", heartbeatAt: null, startedAt: null })
+				.where(
+					and(
+						eq(backgroundJobs.id, job.id),
+						eq(backgroundJobs.status, "running"),
+					),
+				)
+				.returning({ id: backgroundJobs.id });
+			if (r) requeued++;
+		}
+	}
+	return { requeued, failed };
 }
 
 async function runOne(
@@ -70,7 +159,12 @@ export async function runBackgroundJobs(limit = 1): Promise<number> {
 	for (const job of pending) {
 		const [claimed] = await db
 			.update(backgroundJobs)
-			.set({ status: "running", startedAt: new Date() })
+			.set({
+				status: "running",
+				startedAt: new Date(),
+				heartbeatAt: new Date(),
+				attempts: sql`${backgroundJobs.attempts} + 1`,
+			})
 			.where(
 				and(
 					eq(backgroundJobs.id, job.id),
