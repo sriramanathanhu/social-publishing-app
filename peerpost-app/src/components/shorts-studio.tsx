@@ -15,7 +15,11 @@ const LBL = "block text-xs font-medium opacity-60";
 export function ShortsStudio() {
 	const router = useRouter();
 	const [name, setName] = useState("");
+	// Source: a remote URL (yt-dlp) or a local file we upload to object storage.
+	const [tab, setTab] = useState<"url" | "upload">("url");
 	const [url, setUrl] = useState("");
+	const [file, setFile] = useState<File | null>(null);
+	const [uploading, setUploading] = useState(false);
 	const [numClips, setNumClips] = useState(3);
 	const [minSeconds, setMinSeconds] = useState(90);
 	const [maxSeconds, setMaxSeconds] = useState(120);
@@ -165,15 +169,29 @@ export function ShortsStudio() {
 		e.preventDefault();
 		setError(null);
 		setProgress(null);
-		setPhase("running");
 		try {
+			// Upload tab: push the local file to our media store first, then generate
+			// shorts from the resulting public URL (no cookies — we host the file).
+			let sourceType: "url" | "upload" = "url";
+			let sourceInput = url;
+			if (tab === "upload") {
+				if (!file) throw new Error("Choose a video file to upload.");
+				setUploading(true);
+				try {
+					sourceInput = await uploadMedia(file);
+				} finally {
+					setUploading(false);
+				}
+				sourceType = "upload";
+			}
+			setPhase("running");
 			const res = await fetch("/api/shorts", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					name: name.trim() || undefined,
-					sourceType: "url",
-					sourceInput: url,
+					sourceType,
+					sourceInput,
 					numClips,
 					minSeconds,
 					maxSeconds,
@@ -196,7 +214,7 @@ export function ShortsStudio() {
 		}
 	}
 
-	const running = phase === "running";
+	const running = phase === "running" || uploading;
 
 	return (
 		<div className="space-y-4">
@@ -219,22 +237,63 @@ export function ShortsStudio() {
 				</div>
 
 				<div>
-					<label className={LBL} htmlFor="shorts-url">
-						Long video URL
-					</label>
-					<input
-						id="shorts-url"
-						value={url}
-						onChange={(e) => setUrl(e.target.value)}
-						required
-						type="url"
-						placeholder="YouTube / Google Drive link / Instagram…"
-						className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
-					/>
-					<p className="mt-1 text-xs opacity-50">
-						Login/rate-limited sources may need cookies — add them under
-						Settings.
-					</p>
+					{/* Source tabs: a remote URL (yt-dlp) or a local file upload. */}
+					<div className="mb-2 inline-flex rounded-md border border-black/15 p-0.5 text-sm">
+						<button
+							type="button"
+							onClick={() => setTab("url")}
+							className={`rounded px-3 py-1 ${tab === "url" ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
+						>
+							From URL
+						</button>
+						<button
+							type="button"
+							onClick={() => setTab("upload")}
+							className={`rounded px-3 py-1 ${tab === "upload" ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
+						>
+							Upload from local system
+						</button>
+					</div>
+
+					{tab === "url" ? (
+						<>
+							<label className={LBL} htmlFor="shorts-url">
+								Long video URL
+							</label>
+							<input
+								id="shorts-url"
+								value={url}
+								onChange={(e) => setUrl(e.target.value)}
+								required={tab === "url"}
+								type="url"
+								placeholder="YouTube / Google Drive link / Instagram…"
+								className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+							/>
+							<p className="mt-1 text-xs opacity-50">
+								Login/rate-limited sources may need cookies — add them under
+								Settings.
+							</p>
+						</>
+					) : (
+						<>
+							<label className={LBL} htmlFor="shorts-file">
+								Video file
+							</label>
+							<input
+								id="shorts-file"
+								type="file"
+								accept="video/*"
+								onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+								required={tab === "upload"}
+								className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+							/>
+							<p className="mt-1 text-xs opacity-50">
+								{file
+									? `${file.name} — ${(file.size / (1024 * 1024)).toFixed(1)} MB`
+									: "Upload a long video from your device (max 200 MB)."}
+							</p>
+						</>
+					)}
 				</div>
 
 				<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -424,7 +483,11 @@ export function ShortsStudio() {
 						disabled={running}
 						className="h-10 rounded-md bg-primary px-5 text-sm font-medium text-white disabled:opacity-50"
 					>
-						{running ? "Generating…" : "Generate shorts"}
+						{uploading
+							? "Uploading…"
+							: running
+								? "Generating…"
+								: "Generate shorts"}
 					</button>
 				</div>
 			</form>
