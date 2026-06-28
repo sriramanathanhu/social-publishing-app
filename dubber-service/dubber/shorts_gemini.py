@@ -166,14 +166,16 @@ Below is the FULL timestamped transcript of a {int(duration)}-second video. Each
 
 Choose the {num_clips} STRONGEST standalone clips for social reels, best first.
 
-CRITICAL — every clip MUST be a COMPLETE, self-contained unit:
-- A full JOKE: include the ENTIRE setup AND the punchline. Never cut before the punchline; never start mid-setup.
-- A full STORY / anecdote: from its opening to its resolution.
-- A complete TEACHING / point: the whole idea, not a fragment.
+CRITICAL — every clip MUST be a COMPLETE, self-contained unit, and it MUST END ONLY AFTER its payoff has fully landed:
+- A full JOKE: include the ENTIRE setup AND the punchline (plus the beat right after). The clip MUST NOT end before the punchline is delivered.
+- A full STORY / anecdote: from its opening all the way to its resolution or moral — never stop partway through.
+- A complete TEACHING / point: the whole idea developed to its conclusion, not a fragment.
 - It must make sense on its own to someone who hasn't seen the rest of the video.
 - NEVER start or end mid-sentence or mid-thought, and NEVER take only "half from the beginning" or "half from the end" of a unit.
 
-Length: aim for {min_sec}-{max_sec} seconds. But COMPLETENESS WINS over length — if a joke or story needs longer to stay whole, you MAY extend a clip up to {flex_cap} seconds. Do not pad; cut exactly at the natural start and end of the unit.
+BEFORE you finalize each clip, VERIFY: does end_seconds fall AFTER the punchline / resolution / conclusion is fully spoken? If the payoff lands later in the transcript, EXTEND end_seconds to include it. A clip that stops before its payoff is worthless.
+
+Length: aim for {min_sec}-{max_sec} seconds. But COMPLETENESS ALWAYS WINS over length — if a joke or story needs longer to stay whole, you MAY extend a clip up to {flex_cap} seconds. Do not pad; cut exactly at the natural start and the natural end (the last line of the payoff).
 
 For each clip return: start_seconds and end_seconds (integers, at the natural boundaries of the complete unit), a short title, the hook (first sentence verbatim), the closing_line (last sentence verbatim), a one-sentence core_teaching, and a viral_score 0-100."""
 

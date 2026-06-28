@@ -20,14 +20,14 @@ export function ShortsStudio() {
 	const [url, setUrl] = useState("");
 	const [file, setFile] = useState<File | null>(null);
 	const [uploading, setUploading] = useState(false);
-	const [numClips, setNumClips] = useState(3);
-	const [minSeconds, setMinSeconds] = useState(90);
-	const [maxSeconds, setMaxSeconds] = useState(120);
+	const [numClips, setNumClips] = useState(2);
+	const [minSeconds, setMinSeconds] = useState(150);
+	const [maxSeconds, setMaxSeconds] = useState(180);
 	const [aspect, setAspect] = useState("9:16");
 	const [cropFocus, setCropFocus] = useState<
 		"auto" | "center" | "left" | "right"
 	>("auto");
-	const [speed, setSpeed] = useState(1);
+	const [speed, setSpeed] = useState(1.5);
 	const [captions, setCaptions] = useState(true);
 	const [selector, setSelector] = useState<"gemini" | "nim">("nim");
 	// Optional: spread the finished clips into a saved shorts target list.

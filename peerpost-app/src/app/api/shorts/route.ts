@@ -27,11 +27,11 @@ const createSchema = z.object({
 	name: z.string().max(120).optional(),
 	sourceType: z.enum(["url", "upload"]).default("url"),
 	sourceInput: z.string().url(),
-	numClips: z.number().int().min(1).max(50).default(3),
+	numClips: z.number().int().min(1).max(50).default(2),
 	// Opt-in: spread this job's clips into a saved shorts distribution list.
 	autoPublishDistributionId: z.string().uuid().optional(),
-	minSeconds: z.number().int().min(10).max(600).default(90),
-	maxSeconds: z.number().int().min(15).max(900).default(120),
+	minSeconds: z.number().int().min(10).max(600).default(150),
+	maxSeconds: z.number().int().min(15).max(900).default(180),
 	aspect: z.enum(["9:16", "1:1", "16:9"]).default("9:16"),
 	// "auto" = face-centered crop (default). center/left/right are manual biases.
 	cropFocus: z.enum(["auto", "center", "left", "right"]).default("auto"),
@@ -39,7 +39,7 @@ const createSchema = z.object({
 	// set with cropFocus="auto", the reframer locks onto this specific person.
 	referenceFaceUrl: z.string().url().optional(),
 	// Final playback speed of each clip (e.g. 1.4 = 1.4x faster).
-	speed: z.number().min(0.5).max(3).default(1),
+	speed: z.number().min(0.5).max(3).default(1.5),
 	language: z.string().min(2).max(8).default("en"),
 	captions: z.boolean().default(true),
 	// "nim" = text selection (default; best for static talking-head). "gemini" =
