@@ -29,6 +29,16 @@ const PROVIDER_LABEL: Record<Provider, string> = {
 	zernio: "Zernio",
 };
 
+// Platforms where the provider can auto-post a first comment right after the
+// post publishes (Zernio: platformSpecificData.firstComment). Other platforms
+// ignore it, so we only attach it to these.
+const FIRST_COMMENT_PLATFORMS = new Set([
+	"youtube",
+	"facebook",
+	"instagram",
+	"linkedin",
+]);
+
 /**
  * Parse a fetch Response as JSON, but if the body is HTML (a proxy timeout /
  * error page — common when publishing a large video through the gateway),
@@ -97,6 +107,7 @@ export function PublishRow({
 	const router = useRouter();
 	const [title, setTitle] = useState(initialTitle);
 	const [caption, setCaption] = useState(initialCaption);
+	const [firstComment, setFirstComment] = useState("");
 	const [ecoId, setEcoId] = useState("");
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [provider, setProvider] = useState<Provider>("postpeer");
@@ -154,14 +165,21 @@ export function PublishRow({
 	}
 
 	async function publish() {
+		const fc = firstComment.trim();
 		const targets = visibleAccounts
 			.filter((a) => selected.has(a.accountId))
-			.map((a) => ({
-				platform: a.platform,
-				accountId: a.accountId,
-				platformSpecificData:
-					a.platform === "youtube" && title ? { title } : undefined,
-			}));
+			.map((a) => {
+				const psd: Record<string, unknown> = {};
+				if (a.platform === "youtube" && title) psd.title = title;
+				if (fc && FIRST_COMMENT_PLATFORMS.has(a.platform))
+					psd.firstComment = fc;
+				return {
+					platform: a.platform,
+					accountId: a.accountId,
+					platformSpecificData:
+						Object.keys(psd).length > 0 ? psd : undefined,
+				};
+			});
 		if (targets.length === 0) {
 			setMsg("Select at least one account.");
 			return;
@@ -349,6 +367,24 @@ export function PublishRow({
 						</option>
 					))}
 				</select>
+			</div>
+
+			{/* First comment — auto-posted right after the post publishes. */}
+			<div className="mt-3">
+				<label className="mb-1 block text-xs font-medium opacity-60">
+					First comment <span className="opacity-50">(optional)</span>
+				</label>
+				<textarea
+					value={firstComment}
+					onChange={(e) => setFirstComment(e.target.value)}
+					rows={2}
+					placeholder="Auto-posted as the first comment right after publishing — great for links, hashtags, or a CTA…"
+					className="w-full rounded-md border border-black/15 px-2 py-1.5 text-sm"
+				/>
+				<p className="mt-1 text-[11px] opacity-50">
+					Posted automatically on YouTube, Facebook, Instagram & LinkedIn.
+					Ignored on other platforms.
+				</p>
 			</div>
 
 			{eco && (
