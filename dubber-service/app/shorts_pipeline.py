@@ -418,8 +418,14 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
         cur = f"{base}_a.mp4"
         if not _render_single_pass(video_path, start, end, clip_vf, overlay_png,
                                    ass_path, cur, speed=req.speed):
-            log("SHORTS", f"clip {i} render failed, skipping")
-            return None
+            # Defensive retry: drop the fancy auto-crop expression and re-render
+            # with the plain fixed crop. Guards against a single bad filtergraph
+            # (e.g. an over-long crop path) wiping out the whole job's clips.
+            log("SHORTS", f"clip {i} render failed — retrying with fixed crop")
+            if not _render_single_pass(video_path, start, end, vf, overlay_png,
+                                       ass_path, cur, speed=req.speed):
+                log("SHORTS", f"clip {i} render failed, skipping")
+                return None
         if extras:
             joined = f"{base}_final.mp4"
             if concat_with(cur, extras, joined, rx, ry):

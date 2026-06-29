@@ -57,7 +57,11 @@ _SNAP_FRAC = float(os.getenv("SHORTS_SNAP_FRAC", "0.45"))
 # detection fps — so the emitted motion is smooth at playback rate. Emitted
 # keyframes are capped so a very dynamic clip can't produce a huge expression.
 _EMIT_FPS = float(os.getenv("SHORTS_EMIT_FPS", "12"))
-_MAX_KEYFRAMES = int(os.getenv("SHORTS_MAX_KEYFRAMES", "300"))
+# The crop path is a NESTED if() expression (one level per keyframe), and ffmpeg's
+# expression parser rejects graphs deeper than ~100 nested calls ("Missing ')' or
+# too many args" → "all clip renders failed"). Keep this well under that cliff —
+# 60 keyframes still pans smoothly for a talking head.
+_MAX_KEYFRAMES = int(os.getenv("SHORTS_MAX_KEYFRAMES", "60"))
 
 
 def _cascade():
