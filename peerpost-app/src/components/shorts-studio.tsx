@@ -30,11 +30,6 @@ export function ShortsStudio() {
 	const [speed, setSpeed] = useState(1.5);
 	const [captions, setCaptions] = useState(true);
 	const [selector, setSelector] = useState<"gemini" | "nim">("nim");
-	// Caption transcription engine: Gemini (multilingual native scripts, default)
-	// or Deepgram (word-accurate, best for clean English).
-	const [transcriber, setTranscriber] = useState<"gemini" | "deepgram">(
-		"gemini",
-	);
 	// Optional: spread the finished clips into a saved shorts target list.
 	const [distributions, setDistributions] = useState<
 		{
@@ -207,7 +202,6 @@ export function ShortsStudio() {
 					speed,
 					captions,
 					selector,
-					transcriber,
 					autoPublishDistributionId: distId || undefined,
 				}),
 			});
@@ -460,29 +454,6 @@ export function ShortsStudio() {
 							/>
 							Burn captions
 						</label>
-						{captions && (
-							<div className="flex items-center gap-2 text-xs opacity-80">
-								<span>Caption engine:</span>
-								<div className="inline-flex rounded-md border border-black/15 p-0.5">
-									<button
-										type="button"
-										onClick={() => setTranscriber("gemini")}
-										title="Multilingual — Sanskrit/Tamil/Hindi/English in their native scripts"
-										className={`rounded px-2.5 py-1 ${transcriber === "gemini" ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
-									>
-										Gemini (multilingual)
-									</button>
-									<button
-										type="button"
-										onClick={() => setTranscriber("deepgram")}
-										title="Word-accurate timing — best for clean English"
-										className={`rounded px-2.5 py-1 ${transcriber === "deepgram" ? "bg-primary text-white" : "opacity-70 hover:opacity-100"}`}
-									>
-										Deepgram (English)
-									</button>
-								</div>
-							</div>
-						)}
 						{distributions.length > 0 && (
 							<label className="flex items-center gap-2 text-xs opacity-80">
 								Auto-publish:

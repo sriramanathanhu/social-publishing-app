@@ -45,10 +45,6 @@ const createSchema = z.object({
 	// "nim" = text selection (default; best for static talking-head). "gemini" =
 	// visual selection (needs a Gemini key), only worth it for dynamic footage.
 	selector: z.enum(["gemini", "nim"]).default("nim"),
-	// Caption transcription engine. "gemini" (default) = Gemini Flash, multilingual
-	// (Sanskrit/Tamil/Hindi/English) in native scripts. "deepgram" = word-accurate,
-	// best for clean English.
-	transcriber: z.enum(["gemini", "deepgram"]).default("gemini"),
 });
 
 /**
@@ -65,17 +61,8 @@ export const POST = route(async (request: NextRequest) => {
 	const input = createSchema.parse(await request.json());
 
 	const keys = await getUserKeys(user.id);
-	// Caption transcription engine needs its own key.
-	if (input.transcriber === "deepgram" && !keys.deepgram)
-		throw new HttpError(
-			400,
-			"Add your Deepgram API key in Settings, or switch captions to Gemini",
-		);
-	if (input.transcriber === "gemini" && !keys.gemini)
-		throw new HttpError(
-			400,
-			"Add your Gemini API key in Settings, or switch captions to Deepgram",
-		);
+	if (!keys.deepgram)
+		throw new HttpError(400, "Add your Deepgram API key in Settings first");
 	// Clip selection + titles use Gemini (preferred) OR NVIDIA NIM as fallback —
 	// at least one is required.
 	if (!keys.gemini && !keys.nvidia)
@@ -114,8 +101,7 @@ export const POST = route(async (request: NextRequest) => {
 	try {
 		const { job_id } = await shorts.createJob({
 			video_input: input.sourceInput,
-			deepgram_key: keys.deepgram ?? "",
-			transcriber: input.transcriber,
+			deepgram_key: keys.deepgram,
 			nvidia_key: keys.nvidia ?? "",
 			source_type: input.sourceType,
 			cookies,

@@ -329,8 +329,7 @@ SHORTS_JOBS: dict[str, ShortsJob] = {}
 
 class CreateShorts(BaseModel):
     video_input: str
-    deepgram_key: str = ""            # required only when transcriber="deepgram"
-    transcriber: str = "gemini"       # "gemini" (default) | "deepgram"
+    deepgram_key: str
     nvidia_key: str
     nvidia_url: str = "https://integrate.api.nvidia.com/v1/chat/completions"
     clip_model: Optional[str] = None
@@ -393,7 +392,6 @@ def _run_shorts(job: ShortsJob, body: CreateShorts) -> None:
                 cookies_file=cookies_file,
                 captions=body.captions,
                 selector=body.selector,
-                transcriber=body.transcriber,
                 gemini_key=body.gemini_key,
                 gemini_model=body.gemini_model or "gemini-2.5-flash",
                 media_resolution=body.media_resolution,
