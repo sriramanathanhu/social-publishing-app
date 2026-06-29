@@ -24,7 +24,7 @@ import time
 
 from google import genai
 
-from .utils import log
+from dubber.utils import log
 
 # Flash (not Pro) per the product decision: cheap, fast, handles audio + native
 # scripts well. Override via env if needed.
