@@ -1,0 +1,14 @@
+# Cron driver for the Coolify deploy — replaces the host crontab. Tiny image:
+# bash + curl + flock (util-linux is in the base) + the dubber scripts. Mounts the
+# worker's outputs/workspace volumes so the hourly cleanup can prune them.
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /srv
+COPY scripts/cleanup.sh scripts/cron-loop.sh /srv/scripts/
+RUN chmod +x /srv/scripts/cleanup.sh /srv/scripts/cron-loop.sh
+
+CMD ["/srv/scripts/cron-loop.sh"]

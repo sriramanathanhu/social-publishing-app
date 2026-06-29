@@ -109,3 +109,55 @@ export async function reconcileRunningShorts(userId: string): Promise<number> {
 	);
 	return results.filter(Boolean).length;
 }
+
+/**
+ * Global (all-users) reconcile of queued/running shorts jobs against the sidecar,
+ * persisting clips for finished ones. For the background cron, so unattended jobs
+ * reach "done"/"failed" without anyone opening /shorts. Mirrors the dub
+ * reconcileAllRunningDubs. Returns the number of rows updated.
+ */
+export async function reconcileAllRunningShorts(limit = 60): Promise<number> {
+	const open = await db
+		.select()
+		.from(shortsJobs)
+		.where(inArray(shortsJobs.status, ["queued", "running"]))
+		.orderBy(desc(shortsJobs.createdAt))
+		.limit(limit);
+
+	const results = await Promise.all(
+		open.map(async (job) => {
+			if (!job.shortsJobId) return 0;
+			try {
+				const remote = await shorts.getStatus(job.shortsJobId);
+				const status =
+					remote.status === "done"
+						? "done"
+						: remote.status === "failed"
+							? "failed"
+							: remote.status === "queued"
+								? "queued"
+								: "running";
+				const terminal = status === "done" || status === "failed";
+				if (status === job.status && !terminal) return 0;
+				if (status === "done") await persistClips(job.id, job.shortsJobId);
+				await db
+					.update(shortsJobs)
+					.set({
+						status,
+						pct: remote.pct,
+						stage: remote.stage,
+						message: remote.message,
+						error: remote.error,
+						...(terminal ? { completedAt: new Date() } : {}),
+						updatedAt: new Date(),
+					})
+					.where(eq(shortsJobs.id, job.id));
+				return 1;
+			} catch {
+				/* unreachable/slow — leave for next tick */
+				return 0;
+			}
+		}),
+	);
+	return results.filter(Boolean).length;
+}

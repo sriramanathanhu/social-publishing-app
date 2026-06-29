@@ -1,0 +1,100 @@
+# PeerPost — Coolify deployment stack (AX41 / single node, no GPU, push mode).
+#
+# Coolify provides the reverse proxy + automatic HTTPS, so there is NO caddy here:
+# set the domain on the `app` service (port 3009) in Coolify's UI and it routes.
+#
+# SECRETS: set every variable from docs/deploy-coolify.md in Coolify's
+# "Environment Variables" UI — Coolify injects them into these containers. This
+# file only sets the in-cluster WIRING (DB host, worker URL, modes), so the same
+# code runs in or out of containers.
+#
+# Build/run:  Coolify → New Resource → Docker Compose → point at this file.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: peerpost
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d peerpost"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # One-shot: create/update the schema (drizzle-kit push), then exit. The app
+  # waits for this to finish.
+  migrate:
+    build:
+      context: ./peerpost-app
+      dockerfile: Dockerfile
+    command: ["pnpm", "db:push"]
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/peerpost
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: ./peerpost-app
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # In-cluster wiring (Coolify injects the secrets — see the deploy guide).
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/peerpost
+      DUBBER_SERVICE_URL: http://worker:8800
+      WORKER_MODE: push
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Coolify proxies to this port under the domain you set in its UI.
+    expose:
+      - "3009"
+
+  # Video/AI sidecar (push mode = the HTTP service the app dispatches to). Single
+  # instance — no GPU / no pull-queue here. Internal only (not exposed publicly).
+  worker:
+    build:
+      context: ./dubber-service
+    restart: unless-stopped
+    environment:
+      WORKER_MODE: push
+      DUBBER_OUTPUT_DIR: /srv/outputs
+      # AX41 is 6c/12t dedicated — comfortably more than the old shared box.
+      DUBBER_MAX_CONCURRENT_JOBS: ${DUBBER_MAX_CONCURRENT_JOBS:-3}
+      SHORTS_MAX_WORKERS: ${SHORTS_MAX_WORKERS:-2}
+    volumes:
+      - worker_outputs:/srv/outputs
+      - worker_workspace:/srv/workspace
+    expose:
+      - "8800"
+
+  # Replaces the host crontab: drives the reconcile / auto-publish / cleanup ticks.
+  # Shares the worker's volumes so the hourly cleanup prunes the same outputs.
+  cron:
+    build:
+      context: ./dubber-service
+      dockerfile: Dockerfile.cron
+    restart: unless-stopped
+    environment:
+      APP_INTERNAL_URL: http://app:3009
+    depends_on:
+      - app
+      - worker
+    volumes:
+      - worker_outputs:/srv/outputs
+      - worker_workspace:/srv/workspace
+
+volumes:
+  pgdata:
+  worker_outputs:
+  worker_workspace:
