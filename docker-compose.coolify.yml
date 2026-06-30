@@ -47,10 +47,40 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      # In-cluster wiring (Coolify injects the secrets — see the deploy guide).
+      # --- In-cluster wiring (do NOT set these in Coolify; the stack owns them) ---
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/peerpost
       DUBBER_SERVICE_URL: http://worker:8800
       WORKER_MODE: push
+      # --- Secrets: set each in Coolify's "Environment Variables" UI. They are
+      #     passed through explicitly so the container actually receives them. ---
+      # Public URL of THIS app (= your new domain) + Nandi SSO
+      NEXT_BASE_URL: ${NEXT_BASE_URL}
+      NEXT_AUTH_URL: ${NEXT_AUTH_URL}
+      NEXT_AUTH_CLIENT_ID: ${NEXT_AUTH_CLIENT_ID}
+      AUTH_CLIENT_SECRET: ${AUTH_CLIENT_SECRET}
+      # Encryption of stored user keys + sidecar/cron auth token
+      KEY_ENCRYPTION_SECRET: ${KEY_ENCRYPTION_SECRET}
+      DUBBER_SERVICE_TOKEN: ${DUBBER_SERVICE_TOKEN}
+      CRON_SECRET: ${CRON_SECRET}
+      # Publishing providers (base URLs default to prod if unset)
+      POSTPEER_API_KEY: ${POSTPEER_API_KEY}
+      POSTPEER_BASE_URL: ${POSTPEER_BASE_URL:-https://api.postpeer.dev/v1}
+      ZERNIO_API_KEY: ${ZERNIO_API_KEY}
+      ZERNIO_BASE_URL: ${ZERNIO_BASE_URL:-https://zernio.com/api/v1}
+      ZERNIO_WEBHOOK_SECRET: ${ZERNIO_WEBHOOK_SECRET}
+      # Cloudflare R2 (clip + asset storage)
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      R2_BUCKET: ${R2_BUCKET}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL}
+      # Articles / Google Vertex AI Search (optional — leave unset to disable)
+      GOOGLE_VERTEX_PROJECT: ${GOOGLE_VERTEX_PROJECT}
+      GOOGLE_VERTEX_LOCATION: ${GOOGLE_VERTEX_LOCATION}
+      GOOGLE_VERTEX_ENGINE: ${GOOGLE_VERTEX_ENGINE}
+      GOOGLE_VERTEX_DATASTORE: ${GOOGLE_VERTEX_DATASTORE}
+      GOOGLE_CORPUS_BUCKET: ${GOOGLE_CORPUS_BUCKET}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON}
     depends_on:
       db:
         condition: service_healthy
@@ -69,9 +99,19 @@ services:
     environment:
       WORKER_MODE: push
       DUBBER_OUTPUT_DIR: /srv/outputs
+      DUBBER_SERVICE_TOKEN: ${DUBBER_SERVICE_TOKEN}
       # AX41 is 6c/12t dedicated — comfortably more than the old shared box.
       DUBBER_MAX_CONCURRENT_JOBS: ${DUBBER_MAX_CONCURRENT_JOBS:-3}
       SHORTS_MAX_WORKERS: ${SHORTS_MAX_WORKERS:-2}
+      FFMPEG_THREADS: ${FFMPEG_THREADS:-4}
+      OTHER_MAX_CONCURRENT_JOBS: ${OTHER_MAX_CONCURRENT_JOBS:-2}
+      DEEPGRAM_MODEL: ${DEEPGRAM_MODEL:-nova-2}
+      # R2 (the worker uploads finished clips/dubs here)
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      R2_BUCKET: ${R2_BUCKET}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL}
     volumes:
       - worker_outputs:/srv/outputs
       - worker_workspace:/srv/workspace
@@ -87,6 +127,8 @@ services:
     restart: unless-stopped
     environment:
       APP_INTERNAL_URL: http://app:3009
+      # Same token the app's internal endpoints check (Bearer auth).
+      DUBBER_SERVICE_TOKEN: ${DUBBER_SERVICE_TOKEN}
     depends_on:
       - app
       - worker
