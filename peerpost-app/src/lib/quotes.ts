@@ -8,7 +8,7 @@ import "server-only";
 
 export type GeneratedQuote = { text: string; hashtags: string[] };
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-3.5-flash";
 const NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 const NVIDIA_MODEL = "meta/llama-3.3-70b-instruct";
 

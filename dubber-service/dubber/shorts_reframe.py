@@ -56,12 +56,11 @@ _SNAP_FRAC = float(os.getenv("SHORTS_SNAP_FRAC", "0.45"))
 # Simulate the virtual camera at this fps — independent of the (cheaper)
 # detection fps — so the emitted motion is smooth at playback rate. Emitted
 # keyframes are capped so a very dynamic clip can't produce a huge expression.
+# _x_expr nests one if() per keyframe, and ffmpeg's expression parser rejects
+# deeply-nested expressions (~200+ → "rc=234"), so keep the cap well under that;
+# ~40 linear segments still reproduce a slow face-pan smoothly.
 _EMIT_FPS = float(os.getenv("SHORTS_EMIT_FPS", "12"))
-# The crop path is a NESTED if() expression (one level per keyframe), and ffmpeg's
-# expression parser rejects graphs deeper than ~100 nested calls ("Missing ')' or
-# too many args" → "all clip renders failed"). Keep this well under that cliff —
-# 60 keyframes still pans smoothly for a talking head.
-_MAX_KEYFRAMES = int(os.getenv("SHORTS_MAX_KEYFRAMES", "60"))
+_MAX_KEYFRAMES = int(os.getenv("SHORTS_MAX_KEYFRAMES", "40"))
 
 
 def _cascade():

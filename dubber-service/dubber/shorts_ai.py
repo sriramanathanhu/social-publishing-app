@@ -239,7 +239,7 @@ def _title_call(prompt, *, gemini_key, api_url, nvidia_key, nim_model) -> str:
     """Titles/descriptions via Gemini flash (preferred) → NVIDIA NIM fallback."""
     if gemini_key:
         try:
-            return _call_gemini_fast(gemini_key, "gemini-2.5-flash", prompt)
+            return _call_gemini_fast(gemini_key, "gemini-3.5-flash", prompt)
         except Exception:  # noqa: BLE001 — fall through to NIM
             pass
     if nvidia_key:

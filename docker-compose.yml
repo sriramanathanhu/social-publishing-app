@@ -48,6 +48,10 @@ services:
       # ── Wiring (overrides anything in .env.docker) ──
       DATABASE_URL: postgres://postgres:postgres@db:5432/peerpost
       NEXT_BASE_URL: http://localhost:3009
+      # Shorts/dubs without R2: the sidecar stores clips locally and serves them
+      # at DUBBER_PUBLIC_BASE_URL/files/... (browser-reachable). The app rewrites
+      # this base to the internal DUBBER_SERVICE_URL when re-hosting server-side.
+      DUBBER_PUBLIC_BASE_URL: http://localhost:8800
       # Reliable hot reload across the macOS/Windows bind mount.
       WATCHPACK_POLLING: "true"
     ports:
@@ -68,6 +72,9 @@ services:
     environment:
       DUBBER_SERVICE_TOKEN: dev-dubber-token
       DUBBER_OUTPUT_DIR: /srv/outputs
+      # Public base for locally-stored clips (no R2). Must match the host port
+      # mapping below so a browser can load /files/<key> directly.
+      DUBBER_PUBLIC_BASE_URL: http://localhost:8800
     ports:
       - "8800:8800"
     volumes:

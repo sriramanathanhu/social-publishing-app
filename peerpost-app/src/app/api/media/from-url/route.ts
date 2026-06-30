@@ -10,6 +10,22 @@ const MAX_BYTES = 200 * 1024 * 1024; // 200 MB
 const schema = z.object({ url: z.string().url() });
 
 /**
+ * Local-dev only: clips stored on the dubber sidecar (no R2) get a
+ * browser-reachable public URL (DUBBER_PUBLIC_BASE_URL, e.g.
+ * http://localhost:8800). The app server can't reach the host's localhost, so
+ * swap that base for the internal compose hostname (DUBBER_SERVICE_URL) before
+ * fetching server-side. No-op when either var is unset (i.e. R2 mode).
+ */
+function internalizeDubberUrl(url: string): string {
+	const pub = (process.env.DUBBER_PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
+	const internal = (process.env.DUBBER_SERVICE_URL ?? "").replace(/\/+$/, "");
+	if (pub && internal && url.startsWith(pub)) {
+		return internal + url.slice(pub.length);
+	}
+	return url;
+}
+
+/**
  * POST /api/media/from-url  { url }
  *
  * Re-hosts an already-public media URL (e.g. an R2 shorts clip) into the
@@ -20,7 +36,7 @@ export const POST = route(async (request: NextRequest) => {
 	await requireUser();
 	const { url } = schema.parse(await request.json());
 
-	const resp = await fetch(url, { cache: "no-store" });
+	const resp = await fetch(internalizeDubberUrl(url), { cache: "no-store" });
 	if (!resp.ok) {
 		throw new HttpError(502, "Could not fetch the source media");
 	}

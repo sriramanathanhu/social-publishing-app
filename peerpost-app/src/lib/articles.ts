@@ -13,7 +13,7 @@ import { type CorpusPassage, searchCorpus } from "@/lib/vertex-search";
  *     conclusion). Auto-continue if the model truncates.
  */
 
-const FLASH = "gemini-2.5-flash";
+const FLASH = "gemini-3.5-flash";
 const PRO = "gemini-2.5-pro";
 const NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 const NVIDIA_MODEL = "meta/llama-3.3-70b-instruct";

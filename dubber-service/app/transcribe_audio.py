@@ -262,7 +262,7 @@ def _format_paragraphs(client: "genai.Client", text: str) -> str:
     )
     try:
         resp = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.5-flash",
             contents=[instruction],
             config={
                 "temperature": 0,

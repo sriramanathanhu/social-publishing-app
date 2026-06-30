@@ -101,7 +101,26 @@ export async function reconcileRunningShorts(userId: string): Promise<number> {
 					})
 					.where(eq(shortsJobs.id, job.id));
 				return 1;
-			} catch {
+			} catch (err) {
+				// The sidecar holds job state IN MEMORY, so a restart drops every
+				// in-flight job and then answers 404 "Unknown job" for it forever.
+				// That is NOT a transient blip — the work is gone and will never
+				// resume. Mark such orphans failed (only while still non-terminal) so
+				// they stop showing "running" and the user can re-run them. Any other
+				// error (timeout, 5xx, network) is left for the next pass.
+				if (err instanceof HttpError && err.status === 404) {
+					await db
+						.update(shortsJobs)
+						.set({
+							status: "failed",
+							error:
+								"Processing service restarted and lost this job — please re-run it.",
+							completedAt: new Date(),
+							updatedAt: new Date(),
+						})
+						.where(eq(shortsJobs.id, job.id));
+					return 1;
+				}
 				/* unreachable/slow — leave for next load */
 				return 0;
 			}

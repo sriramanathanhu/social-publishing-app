@@ -27,7 +27,7 @@ from .shorts_ai import (
 )
 from .utils import log
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.5-flash"
 
 # Structured-output schema so Gemini returns clean JSON we can trust.
 CLIP_SCHEMA = {
@@ -144,7 +144,7 @@ def find_clips_gemini(video_path, words, *, num_clips, min_sec, max_sec, duratio
 
 # Try the best model first (paid keys land on pro); fall back to flash (free
 # keys / quota). If both fail the caller falls back to the NVIDIA selector.
-SELECT_MODELS = ("gemini-2.5-pro", "gemini-2.5-flash")
+SELECT_MODELS = ("gemini-2.5-pro", "gemini-3.5-flash")
 
 
 def _timestamped_text(words, segments) -> str:
@@ -230,7 +230,7 @@ def find_clips_gemini_text(words, segments, *, num_clips, min_sec, max_sec,
 
 def select_clips_gemini_text(words, segments, *, num_clips, min_sec, max_sec,
                              duration, api_key, settings, on_log=print):
-    """Cascade: gemini-2.5-pro → gemini-2.5-flash. Raises if both fail."""
+    """Cascade: gemini-2.5-pro → gemini-3.5-flash. Raises if both fail."""
     err = None
     for m in SELECT_MODELS:
         try:

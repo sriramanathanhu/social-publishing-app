@@ -6,7 +6,7 @@ import "server-only";
  * model's output limit, then translated and re-joined.
  */
 
-const MODEL = "gemini-2.5-flash";
+const MODEL = "gemini-3.5-flash";
 const MAX_CHARS = 9000;
 
 function chunk(text: string): string[] {

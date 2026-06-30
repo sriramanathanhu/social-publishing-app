@@ -60,7 +60,7 @@ class ShortsRequest:
     # Visual selection (optional; falls back to NIM text selection).
     selector: str = "nim"             # "nim" (text, default) | "gemini" (visual)
     gemini_key: Optional[str] = None
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.5-flash"
     media_resolution: str = "low"
     judge: bool = True                # score + standalone-comprehension filter
     num_clips: int = 3
@@ -184,8 +184,15 @@ def _render_single_pass(video, start, end, crop, overlay_png, ass_path, out,
         "-threads", str(_FFMPEG_THREADS),
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", out,
     ]
-    subprocess.run(args, capture_output=True)
-    return os.path.exists(out) and os.path.getsize(out) > 10000
+    proc = subprocess.run(args, capture_output=True)
+    ok = os.path.exists(out) and os.path.getsize(out) > 10000
+    if not ok:
+        # Surface the real ffmpeg reason (filtergraph parse error, bad crop
+        # expression, etc.) instead of swallowing it — otherwise the caller only
+        # ever sees the generic "All clip renders failed.".
+        err = (proc.stderr or b"").decode("utf-8", "replace").strip()
+        log("RENDER", f"ffmpeg failed rc={proc.returncode}: {err[-1000:]}")
+    return ok
 
 
 def _even_clips(duration, num_clips, min_sec, max_sec):
@@ -401,16 +408,18 @@ def run_shorts(req: ShortsRequest, on_progress: Optional[ProgressCb] = None) -> 
             if not make_ass_file(words, start, end, rx, ry, req.settings, ass_path):
                 ass_path = None
         cur = f"{base}_a.mp4"
-        if not _render_single_pass(video_path, start, end, clip_vf, overlay_png,
-                                   ass_path, cur, speed=req.speed):
-            # Defensive retry: drop the fancy auto-crop expression and re-render
-            # with the plain fixed crop. Guards against a single bad filtergraph
-            # (e.g. an over-long crop path) wiping out the whole job's clips.
-            log("SHORTS", f"clip {i} render failed — retrying with fixed crop")
-            if not _render_single_pass(video_path, start, end, vf, overlay_png,
-                                       ass_path, cur, speed=req.speed):
-                log("SHORTS", f"clip {i} render failed, skipping")
-                return None
+        ok = _render_single_pass(video_path, start, end, clip_vf, overlay_png,
+                                 ass_path, cur, speed=req.speed)
+        if not ok and clip_vf is not vf:
+            # The dynamic face-tracking crop can still produce an ffmpeg
+            # expression the parser rejects; fall back to the fixed centre crop
+            # so the clip renders instead of failing the whole job.
+            log("SHORTS", f"clip {i}: dynamic crop failed — retrying static crop")
+            ok = _render_single_pass(video_path, start, end, vf, overlay_png,
+                                     ass_path, cur, speed=req.speed)
+        if not ok:
+            log("SHORTS", f"clip {i} render failed, skipping")
+            return None
         if extras:
             joined = f"{base}_final.mp4"
             if concat_with(cur, extras, joined, rx, ry):

@@ -28,6 +28,7 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.pipeline import DubRequest, StageEvent, run_dub
@@ -39,6 +40,13 @@ app = FastAPI(title="Dubber Service", version="0.1.0")
 
 OUTPUT_DIR = os.getenv("DUBBER_OUTPUT_DIR", "outputs")
 SERVICE_TOKEN = os.getenv("DUBBER_SERVICE_TOKEN", "")
+
+# Serve locally-stored media (shorts clips etc.) when R2 isn't configured. The
+# dubber/r2_upload local fallback writes to OUTPUT_DIR and hands back URLs under
+# this mount; unauthenticated so a browser <video> tag can load them directly.
+# Harmless in production (R2 mode never writes here).
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+app.mount("/files", StaticFiles(directory=OUTPUT_DIR, check_dir=False), name="files")
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -393,7 +401,7 @@ def _run_shorts(job: ShortsJob, body: CreateShorts) -> None:
                 captions=body.captions,
                 selector=body.selector,
                 gemini_key=body.gemini_key,
-                gemini_model=body.gemini_model or "gemini-2.5-flash",
+                gemini_model=body.gemini_model or "gemini-3.5-flash",
                 media_resolution=body.media_resolution,
                 judge=body.judge,
                 crop_focus=body.crop_focus,
@@ -510,19 +518,19 @@ def quote_card(body: QuoteCard):
     if not body.finalize:
         return Response(content=png, media_type="image/png")
 
-    from dubber.r2_upload import upload_clip
-
     key = f"quote-cards/{uuid.uuid4().hex}.png"
     fd, tmp = tempfile.mkstemp(suffix=".png")
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(png)
         # upload_clip hard-codes video/mp4; write our own put for the PNG.
-        from dubber.r2_upload import _r2, public_url
+        from dubber.r2_upload import _r2, _store_local, public_url
 
         r = _r2()
         if not r:
-            raise HTTPException(status_code=500, detail="R2 not configured")
+            # No R2 → persist locally and serve via /files (StaticFiles infers
+            # image/png from the .png extension). Keeps quotes working locally.
+            return _store_local(tmp, key)
         r["client"].upload_file(
             tmp, r["bucket"], key, ExtraArgs={"ContentType": "image/png"}
         )
